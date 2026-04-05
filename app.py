@@ -1303,7 +1303,7 @@ def generate_wa_msg(choice, t_req, p_req, d_req):
             btn_text = f"⚠️ إرسال (لا يوجد رقم)"
             
         encoded_msg = urllib.parse.quote(msg)
-        wa_link = f"https://wa.me/{phone}?text={encoded_msg}"
+        wa_link = f"https://api.whatsapp.com/send?phone={phone}&text={encoded_msg}"
         
         btn_html = f'<div style="margin-top: 10px; border: 2px solid {btn_color}; border-radius: 8px; padding: 2px;"><a href="{wa_link}" target="_blank" style="display: block; width: 100%; text-align: center; background-color: {btn_color}; color: white; padding: 12px; border-radius: 6px; font-weight: bold; text-decoration: none; font-size: 16px;">{btn_text}</a></div>'
         
