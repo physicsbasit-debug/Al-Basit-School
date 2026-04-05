@@ -1,0 +1,6 @@
+gradio==5.23.0
+pandas
+openpyxl
+matplotlib
+arabic-reshaper
+python-bidi
