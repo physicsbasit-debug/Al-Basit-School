@@ -20,6 +20,7 @@ from bidi.algorithm import get_display
 tz_oman = datetime.timezone(datetime.timedelta(hours=4))
 DB_FILE = "school_balances.json"
 DAILY_DB_FILE = "daily_assignments.json" 
+MAX_PERIODS = 7
 
 OFFICIAL_DEPTS = ["الهيئة الإدارية", "التربية الإسلامية", "اللغة العربية", "الرياضيات", "العلوم", "اللغة الإنجليزية", "الدراسات الإجتماعية", "المهارات الفردية"]
 ADMIN_ROLES = ["مدير المدرسة", "المدير المساعد", "منسق شؤون مدرسية", "أخصائي توجيه مهني", "أخصائي اجتماعي", "أخصائي شؤون ادارية ومالية", "أخصائي مصادر التعلم", "أخصائي أنظمة مدرسية", "فني مختبر علوم", "فني دعم أجهزة مدرسية ثالث"]
@@ -59,7 +60,12 @@ def get_current_day_oman():
     weekday = get_now_oman().weekday()
     days_map = {6: "الأحد", 0: "الإثنين", 1: "الثلاثاء", 2: "الأربعاء", 3: "الخميس", 4: "الأحد", 5: "الأحد"}
     return days_map.get(weekday, "الأحد")
+    
 
+
+
+
+    
 def get_date_of_weekday(target_day_name):
     days_map = {"الأحد": 6, "الإثنين": 0, "الثلاثاء": 1, "الأربعاء": 2, "الخميس": 3}
     target_weekday = days_map.get(target_day_name, 6)
@@ -73,7 +79,8 @@ try:
     if not os.path.exists(font_path):
         url = "https://raw.githubusercontent.com/google/fonts/main/ofl/cairo/Cairo-Regular.ttf"
         urllib.request.urlretrieve(url, font_path)
-except: pass
+except Exception as e:
+    print(f"font download error: {e}")
 arabic_font = fm.FontProperties(fname=font_path) if os.path.exists(font_path) else fm.FontProperties()
 reshaper_config = {'support_ligatures': False}
 reshaper = arabic_reshaper.ArabicReshaper(configuration=reshaper_config)
@@ -89,8 +96,10 @@ daily_db = []
 
 def save_db():
     try:
-        with open(DB_FILE, "w", encoding="utf-8") as f: json.dump(teachers_db, f, ensure_ascii=False)
-    except: pass
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(teachers_db, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"save_db error: {e}")
 
 def load_db():
     global teachers_db
@@ -115,32 +124,299 @@ def load_db():
         except Exception as e: print("Error loading DB:", e)
 load_db()
 
+
 def save_daily_db():
     try:
         with open(DAILY_DB_FILE, "w", encoding="utf-8") as f:
-            json.dump({
-                "daily": daily_db,
-                "processed": list(processed_absences)
-            }, f, ensure_ascii=False)
-    except:
-        pass
+            json.dump(
+                {
+                    "daily": daily_db,
+                    "processed": [list(x) if isinstance(x, tuple) else x for x in processed_absences]
+                },
+                f,
+                ensure_ascii=False
+            )
+    except Exception as e:
+        print(f"save_daily_db error: {e}")
         
 def load_daily_db():
     global daily_db, processed_absences
-    if os.path.exists(DAILY_DB_FILE):
+
+    daily_db = []
+    processed_absences = set()
+
+    if not os.path.exists(DAILY_DB_FILE):
+        return
+
+    try:
+        with open(DAILY_DB_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if isinstance(data, list):
+            daily_db = data
+            processed_absences = set()
+        else:
+            daily_db = data.get("daily", [])
+            processed_raw = data.get("processed", [])
+            processed_absences = set(
+                tuple(x) for x in processed_raw if isinstance(x, (list, tuple))
+            )
+
+    except Exception as e:
+        print(f"load_daily_db error: {e}")
+        daily_db = []
+        processed_absences = set()
+load_daily_db()
+SWAP_DB_FILE = "friendly_swaps.json"
+SWAP_EMPTY_MSG = "💡 يرجى اختيار أحد المعلمين من القائمة بالأعلى لتوليد مسودة رسالة الواتساب هنا..."
+swap_db = {}
+
+def load_swap_db():
+    global swap_db
+    if os.path.exists(SWAP_DB_FILE):
         try:
-            with open(DAILY_DB_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, list):
-                daily_db = data  # ← توافق مع الملفات القديمة
+            with open(SWAP_DB_FILE, "r", encoding="utf-8") as f:
+                swap_db = json.load(f)
+        except Exception:
+            swap_db = {}
+    else:
+        swap_db = {}
+
+def save_swap_db():
+    try:
+        with open(SWAP_DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(swap_db, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"save_swap_db error: {e}")
+
+load_swap_db()
+
+def sync_current_school_days():
+    current_day = get_current_day_oman()
+    return gr.update(value=current_day), gr.update(value=current_day)
+
+def build_swap_button_html(candidate_name, message_text):
+    phone = teachers_db.get(candidate_name, {}).get("phone", "")
+    btn_color = "#25D366"
+
+    if phone:
+        phone = "".join(filter(str.isdigit, str(phone)))
+        if len(phone) == 8:
+            phone = "968" + phone
+        btn_text = f"✅ إرسال للأستاذ {candidate_name}"
+    else:
+        phone = ""
+        btn_text = f"⚠️ إرسال (لا يوجد رقم)"
+
+    encoded_msg = urllib.parse.quote(message_text)
+    wa_link = f"https://api.whatsapp.com/send?phone={phone}&text={encoded_msg}" if phone else f"https://api.whatsapp.com/send?text={encoded_msg}"
+
+    return (
+        f'<div style="margin-top: 10px; border: 2px solid {btn_color}; border-radius: 8px; padding: 2px;">'
+        f'<a href="{wa_link}" target="_blank" '
+        f'style="display: block; width: 100%; text-align: center; background-color: {btn_color}; color: white; '
+        f'padding: 12px; border-radius: 6px; font-weight: bold; text-decoration: none; font-size: 16px;">'
+        f'{btn_text}</a></div>'
+    )
+
+def extract_swap_choice_details(choice):
+    candidate = ""
+    comp_day = "يحدد لاحقاً"
+    comp_period = "يحدد لاحقاً"
+
+    try:
+        parts = choice.split("|", 2)
+
+        if len(parts) > 1 and ":" in parts[1]:
+            candidate = parts[1].split(":", 1)[1].strip()
+        else:
+            candidate = str(choice).strip()
+
+        details = parts[2].strip() if len(parts) > 2 else ""
+
+        if "وتغطيه " in details:
+            rep_part = details.split("وتغطيه ", 1)[1].split(")", 1)[0].replace("(", "")
+            rep_day, rep_period = rep_part.split(" ح", 1)
+            comp_day = rep_day.strip()
+            comp_period = f"الحصة {rep_period.strip()}"
+
+    except Exception:
+        candidate = str(choice).strip()
+
+    return candidate, comp_day, comp_period
+
+def render_swap_table_html(state):
+    if not isinstance(state, dict) or not state:
+        return """
+        <div style='background:#f8fafc; border:1px dashed #cbd5e1; border-radius:10px; padding:14px; text-align:center; color:#64748b; direction:rtl;'>
+            لا توجد تبادلات معتمدة بعد.
+        </div>
+        """
+
+    rows_html = ""
+    for p, info in sorted(state.items(), key=lambda x: int(x[0])):
+        rows_html += f"""
+        <tr>
+            <td style='padding:12px; border:1px solid #d1d5db;'>{info.get('requester', '')}</td>
+            <td style='padding:12px; border:1px solid #d1d5db;'>{info.get('class', '')}</td>
+            <td style='padding:12px; border:1px solid #d1d5db;'>الحصة {p}</td>
+            <td style='padding:12px; border:1px solid #d1d5db;'>{info.get('candidate', '')}</td>
+            <td style='padding:12px; border:1px solid #d1d5db;'>{info.get('comp_day', 'يحدد لاحقاً')}</td>
+            <td style='padding:12px; border:1px solid #d1d5db;'>{info.get('comp_period', 'يحدد لاحقاً')}</td>
+        </tr>
+        """
+
+    return f"""
+    <div style='overflow-x:auto; direction:rtl; margin-top:12px;'>
+        <table style='width:100%; min-width:900px; border-collapse:collapse; text-align:center; font-family:Cairo, Arial, sans-serif;'>
+            <thead>
+                <tr style='background:#e8f5e9; color:#0f5132;'>
+                    <th style='padding:12px; border:1px solid #d1d5db;'>المعلم الطالب للتبادل</th>
+                    <th style='padding:12px; border:1px solid #d1d5db;'>الصف</th>
+                    <th style='padding:12px; border:1px solid #d1d5db;'>الحصة</th>
+                    <th style='padding:12px; border:1px solid #d1d5db;'>المعلم البديل</th>
+                    <th style='padding:12px; border:1px solid #d1d5db;'>يوم التعويض</th>
+                    <th style='padding:12px; border:1px solid #d1d5db;'>حصة التعويض</th>
+                </tr>
+            </thead>
+            <tbody>
+                {rows_html}
+            </tbody>
+        </table>
+    </div>
+    """
+
+def generate_swap_table_image(state, teacher_name, day_name):
+    if not isinstance(state, dict) or not state:
+        return gr.update(value=None)
+    try:
+        target_date = get_date_of_weekday(day_name)
+        rows = []
+        for p, info in sorted(state.items(), key=lambda x: int(x[0])):
+            rows.append({
+                "المعلم الطالب": str(info.get("requester", "")),
+                "الصف": str(info.get("class", "")),
+                "الحصة": f"الحصة {p}",
+                "المعلم البديل": str(info.get("candidate", "")),
+                "يوم التعويض": str(info.get("comp_day", "يحدد لاحقاً")),
+                "حصة التعويض": str(info.get("comp_period", "يحدد لاحقاً")),
+            })
+        cols = ["المعلم الطالب", "الصف", "الحصة", "المعلم البديل", "يوم التعويض", "حصة التعويض"]
+        df_img = pd.DataFrame(rows, columns=cols)
+        fig, ax = plt.subplots(figsize=(14, max(2.5, 1.2 + len(rows) * 0.7)))
+        ax.axis("off")
+        title = f"جدول التبادلات المعتمدة | {teacher_name} | {day_name} | {target_date}"
+        plt.title(fix_arabic(title), loc="right", fontproperties=arabic_font,
+                  fontsize=13, color="#004d40", pad=15, fontweight="bold")
+        display_cols = [fix_arabic(c) for c in reversed(cols)]
+        display_rows = [[fix_arabic(str(row[c])) for c in reversed(cols)] for row in rows]
+        tbl = ax.table(cellText=display_rows, colLabels=display_cols,
+                       loc="center", cellLoc="center")
+        tbl.auto_set_font_size(False)
+        tbl.set_fontsize(11)
+        tbl.scale(1, 2.2)
+        for (r, c), cell in tbl.get_celld().items():
+            cell.set_text_props(fontproperties=arabic_font)
+            if r == 0:
+                cell.set_facecolor("#e8f5e9")
+                cell.get_text().set_color("#004d40")
+                cell.get_text().set_fontweight("bold")
             else:
-                daily_db = data.get("daily", [])
-                processed_absences = set(
-                    tuple(x) for x in data.get("processed", [])
-                )
-        except:
-            daily_db = []
-            
+                cell.set_facecolor("#ffffff" if r % 2 else "#f1f8e9")
+        filename = f"swap_table_{get_now_oman().strftime('%Y%m%d_%H%M%S')}.png"
+        plt.savefig(filename, bbox_inches="tight", dpi=150)
+        plt.close("all")
+        return gr.update(value=filename)
+    except Exception as e:
+        print(f"generate_swap_table_image error: {e}")
+        return gr.update(value=None)
+        
+def load_confirmed_swaps_for_context(t, d):
+    state = {}
+
+    if not t or not d:
+        return state, gr.update(value=render_swap_table_html(state))
+
+    for _, info in swap_db.items():
+        if info.get("requester") == t and info.get("day") == d:
+            p = str(info.get("period", "")).strip()
+            if not p:
+                continue
+
+            state[p] = {
+                "requester": info.get("requester", ""),
+                "class": info.get("class", ""),
+                "candidate": info.get("candidate", ""),
+                "choice": info.get("choice", ""),
+                "message": info.get("message", ""),
+                "comp_day": info.get("comp_day", "يحدد لاحقاً"),
+                "comp_period": info.get("comp_period", "يحدد لاحقاً"),
+            }
+
+    return state, gr.update(value=render_swap_table_html(state))
+
+def clear_swap_detail_ui():
+    return (
+        gr.update(choices=[], value=None, visible=True),
+        gr.update(value=SWAP_EMPTY_MSG, visible=True),
+        gr.update(value="", visible=False),
+        gr.update(visible=False)
+    )
+
+
+
+
+
+
+
+
+
+        
+
+def confirm_swap(t, period_value, choice, d, msg_text, state):
+    current_state = dict(state) if isinstance(state, dict) else {}
+
+    if not t or not period_value or not choice or "❌" in str(choice):
+        return current_state, gr.update(value=render_swap_table_html(current_state))
+
+    p_clean = extract_clean_period_number(period_value)
+
+    req_class_raw = teachers_db.get(t, {}).get(
+        d, {}
+    ).get(
+        p_clean,
+        teachers_db.get(t, {}).get(d, {}).get(int(p_clean) if p_clean.isdigit() else p_clean, "")
+    )
+
+    elegant_class = format_elegant_class(req_class_raw)
+    candidate, comp_day, comp_period = extract_swap_choice_details(choice)
+
+    current_state[p_clean] = {
+        "requester": t,
+        "class": elegant_class,
+        "candidate": candidate,
+        "choice": choice,
+        "message": msg_text,
+        "comp_day": comp_day,
+        "comp_period": comp_period
+    }
+
+    swap_db[f"{t}|{d}|{p_clean}"] = {
+        "requester": t,
+        "day": d,
+        "period": p_clean,
+        "class": elegant_class,
+        "candidate": candidate,
+        "choice": choice,
+        "message": msg_text,
+        "comp_day": comp_day,
+        "comp_period": comp_period,
+        "updated_at": get_now_oman().strftime("%Y-%m-%d %H:%M")
+    }
+    save_swap_db()
+
+    return current_state, gr.update(value=render_swap_table_html(current_state))
+    
 def format_teacher_name(t_name):
     if t_name in teachers_db:
         role = teachers_db[t_name].get("role", "معلم")
@@ -286,7 +562,106 @@ def add_manual_staff(name, dept, phone, role, dept_filter):
     t_names_filtered = sorted([t for t, d in teachers_db.items() if dept_filter == "الكل" or d.get("dept") == dept_filter])
     msg = f"<div style='color:#2e7d32; font-weight:bold; background:#e8f5e9; padding:10px; border-radius:5px;'>✅ تم إضافة/تحديث ({t_name}) بنجاح كطاقم إداري!</div>"
     return msg, gr.update(choices=abs_choices), gr.update(choices=choices_all), gr.update(choices=choices_all), gr.update(choices=t_names_filtered), gr.update(value=""), gr.update(value="")
+def process_admin_excel(file, dept_filter):
+    if file is None:
+        return (
+            "<div style='color:red; font-weight:bold;'>❌ الرجاء رفع ملف الإداريين أولاً.</div>",
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update()
+        )
 
+    try:
+        df = pd.read_excel(file.name, header=None) if not file.name.endswith('.csv') else pd.read_csv(file.name, header=None)
+        df = df.fillna("")
+
+        added_or_updated = 0
+        found_names = []
+
+        for r in range(len(df)):
+            raw_phone = str(df.iloc[r, 0]).strip() if df.shape[1] > 0 else ""
+            raw_role = str(df.iloc[r, 1]).strip() if df.shape[1] > 1 else ""
+            raw_name = str(df.iloc[r, 2]).strip() if df.shape[1] > 2 else ""
+
+            if not raw_name or raw_name == "nan":
+                continue
+
+            t_name = clean_teacher_name(raw_name)
+            if not t_name or len(t_name) < 3:
+                continue
+
+            if raw_phone.endswith(".0"):
+                raw_phone = raw_phone[:-2]
+
+            phone_digits = re.sub(r"\D", "", raw_phone)
+            if len(phone_digits) == 8:
+                phone_digits = "968" + phone_digits
+
+            role_val = raw_role if raw_role else "أخصائي اجتماعي"
+
+            if t_name not in teachers_db:
+                teachers_db[t_name] = {
+                    "dept": "الهيئة الإدارية",
+                    "cover_count": 0,
+                    "absent_count": 0,
+                    "shortcoming_count": 0,
+                    "phone": "",
+                    "specialty": "",
+                    "role": role_val,
+                    "exempt_days": [],
+                    "exempt_periods": [],
+                    "absence_dates": [],
+                    "الأحد": {},
+                    "الإثنين": {},
+                    "الثلاثاء": {},
+                    "الأربعاء": {},
+                    "الخميس": {}
+                }
+            else:
+                teachers_db[t_name]["dept"] = "الهيئة الإدارية"
+                teachers_db[t_name]["role"] = role_val
+
+            teachers_db[t_name]["phone"] = phone_digits if phone_digits else teachers_db[t_name].get("phone", "")
+            found_names.append(t_name)
+            added_or_updated += 1
+
+        save_db()
+
+        choices_all = get_teacher_choices(dept_filter)
+        abs_choices = get_absentee_choices(dept_filter)
+        t_names_filtered = sorted([t for t, d in teachers_db.items() if dept_filter == "الكل" or d.get("dept") == dept_filter])
+
+        names_list_str = "، ".join(found_names) if found_names else "لا توجد أسماء صالحة"
+        msg = (
+            f"<div style='color:#2e7d32; font-weight:bold; background:#e8f5e9; padding:10px; border-radius:5px;'>"
+            f"✅ تم استيراد/تحديث ({added_or_updated}) من الإداريين بنجاح."
+            f"<br>👥 الأسماء: {names_list_str}"
+            f"</div>"
+        )
+
+        return (
+            msg,
+            gr.update(choices=abs_choices),
+            gr.update(choices=choices_all),
+            gr.update(choices=choices_all),
+            gr.update(choices=t_names_filtered),
+            gr.update(value=None),
+            gr.update(value=get_updated_balance(dept_filter))
+        )
+
+    except Exception as e:
+        return (
+            f"<div style='color:red; font-weight:bold;'>❌ خطأ أثناء رفع ملف الإداريين: {str(e)}</div>",
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update()
+        )
 def process_phone_excel(file):
     if file is None: return "<div style='color:red; font-weight:bold;'>❌ الرجاء رفع ملف أرقام الهواتف.</div>", gr.update()
     try:
@@ -359,7 +734,6 @@ def process_uploaded_excel(file, selected_dept, current_day):
                     elif "الخامسة" in val: col_to_p[c] = 5
                     elif "السادسة" in val: col_to_p[c] = 6
                     elif "السابعة" in val: col_to_p[c] = 7
-                    elif "الثامنة" in val: col_to_p[c] = 8
                     
                 if day_col == -1: day_col = base_col + 7
                 if day_col >= len(df.columns): continue
@@ -433,9 +807,10 @@ def draw_schedule_image(df, day_name):
         cell.set_text_props(fontproperties=arabic_font)
         if r == 0: cell.set_facecolor('#004d40'); cell.get_text().set_color('white')
         else: cell.set_facecolor('#ffebee' if "❌" in str(display_df.iloc[r-1]["المعلم البديل عرض"]) else ('#e0f2f1' if "🤝" in str(display_df.iloc[r-1]["المعلم البديل عرض"]) else ('#f1f8e9' if r%2==0 else 'white')))
-    plt.savefig("output.png", bbox_inches='tight', dpi=150)
-    plt.close('all') 
-    return "output.png"
+    filename = f"output_{day_name}_{target_date}_{datetime.datetime.now(tz_oman).strftime('%H%M%S_%f')}.png"
+    plt.savefig(filename, bbox_inches='tight', dpi=150)
+    plt.close('all')
+    return filename
 
 def generate_styled_html_table(df):
     if df is None or df.empty: return "<div style='text-align:center; color:gray; padding:20px; border: 1px dashed #ccc; border-radius: 10px;'>لا توجد تكليفات للعرض. اختر معلماً غائباً واضغط توليد.</div>"
@@ -621,9 +996,15 @@ def refresh_ui_on_change(dept, day_name, is_admin_logged_in, current_abs=None):
     abs_choices = get_absentee_choices(dept)
     summary_txt, html_cards = generate_whatsapp_html(df, day_name, actual_abs) if not df.empty else ("", "<div style='text-align:center; color:gray; padding:20px;'>لا توجد تكليفات لعرضها</div>")
     styled_table_html = generate_styled_html_table(df)
+    if isinstance(current_abs, str):
+        current_abs = [current_abs]
+    elif not current_abs:
+        current_abs = []
+ 
+    safe_abs_value = [name for name in current_abs if name in actual_abs]
     
     return (
-        gr.update(choices=abs_choices, value=current_abs if current_abs is not None else actual_abs), 
+        gr.update(choices=abs_choices, value=safe_abs_value if safe_abs_value else actual_abs),
         gr.update(value=get_updated_balance(dept)),      
         gr.update(value=get_updated_absences(dept)),     
         gr.update(value=get_day_overview(day_name, dept)), 
@@ -1062,26 +1443,73 @@ def export_excel_report(dept_filter):
     return gr.update(value=filename)
 
 def reset_monthly_balances(dept_filter, day_val):
-    global daily_db
+    global daily_db, processed_absences, last_assigned_teachers
+
     for t in teachers_db:
         teachers_db[t]["cover_count"] = 0
         teachers_db[t]["absent_count"] = 0
-        teachers_db[t]["absence_dates"] = [] 
-        teachers_db[t]["shortcoming_count"] = 0 
-    save_db()
-    daily_db = []
-    save_daily_db()
-    msg = "<div style='color:#1565c0; font-weight:bold; background:#e3f2fd; padding:15px; border-radius:10px; text-align:center; margin-bottom:10px;'>✅ تم إقفال الشهر بنجاح! جميع الأرصدة والتواريخ وحالات التقصير عادت للصفر.</div>"
-    return gr.update(value=get_updated_balance(dept_filter)), gr.update(value=get_updated_absences(dept_filter)), gr.update(value=get_day_overview(day_val, dept_filter)), msg
+        teachers_db[t]["absence_dates"] = []
+        teachers_db[t]["shortcoming_count"] = 0
 
-def clear_all_data():
-    global teachers_db, daily_db
+    save_db()
+
+    daily_db = []
+    processed_absences = set()
+    last_assigned_teachers = []
+
+    save_daily_db()
+
+    msg = "<div style='color:#1565c0; font-weight:bold; background:#e3f2fd; padding:15px; border-radius:10px; text-align:center; margin-bottom:10px;'>✅ تم إقفال الشهر بنجاح! جميع الأرصدة والتواريخ وحالات التقصير عادت للصفر.</div>"
+
+    return (
+        gr.update(value=get_updated_balance(dept_filter)),
+        gr.update(value=get_updated_absences(dept_filter)),
+        gr.update(value=get_day_overview(day_val, dept_filter)),
+        msg
+    )
+    
+def clear_all_data(is_admin_logged_in):
+    global teachers_db, daily_db, processed_absences, last_assigned_teachers
+
+    if not is_admin_logged_in:
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            "<div style='color:red; font-weight:bold;'>❌ هذه العملية متاحة للإدارة فقط.</div>",
+            gr.update(),
+            gr.update(),
+            gr.update()
+        )
+
     teachers_db = {}
     daily_db = []
-    if os.path.exists(DB_FILE): os.remove(DB_FILE)
-    if os.path.exists(DAILY_DB_FILE): os.remove(DAILY_DB_FILE)
-    return (gr.update(choices=["الكل"] + OFFICIAL_DEPTS, value="الكل"), gr.update(choices=[]), gr.update(choices=[]), gr.update(choices=[]), gr.update(value=pd.DataFrame(columns=["المعلم", "الرصيد"])), gr.update(value=pd.DataFrame(columns=["المعلم", "مرات الغياب"])), gr.update(value=pd.DataFrame(columns=["المعلم"] + [f"ح {p}" for p in range(1, 8)])), "<div style='color:orange; font-weight:bold;'>⚠️ تم تصفير المنظومة بالكامل.</div>", gr.update(choices=[]), gr.update(value=None), gr.update(value="", visible=False))
+    processed_absences = set()
+    last_assigned_teachers = []
 
+    if os.path.exists(DB_FILE):
+        os.remove(DB_FILE)
+
+    if os.path.exists(DAILY_DB_FILE):
+        os.remove(DAILY_DB_FILE)
+
+    return (
+        gr.update(choices=["الكل"] + OFFICIAL_DEPTS, value="الكل"),
+        gr.update(choices=[]),
+        gr.update(choices=[]),
+        gr.update(choices=[]),
+        gr.update(value=pd.DataFrame(columns=["المعلم", "الرصيد"])),
+        gr.update(value=pd.DataFrame(columns=["المعلم", "مرات الغياب"])),
+        gr.update(value=pd.DataFrame(columns=["المعلم"] + [f"ح {p}" for p in range(1, 8)])),
+        "<div style='color:orange; font-weight:bold;'>⚠️ تم تصفير المنظومة بالكامل.</div>",
+        gr.update(choices=[]),
+        gr.update(value=None),
+        gr.update(value="", visible=False)
+    )  
 def attempt_login(pin, day_val):
     if pin in AUTH_DB:
         user_info = AUTH_DB[pin]
@@ -1098,13 +1526,12 @@ def attempt_login(pin, day_val):
             
         updates = refresh_ui_on_change(dept, day_val, is_admin)
         
-        return [gr.update(visible=False), gr.update(visible=True), welcome_msg, gr.update(value=dept, interactive=is_admin), gr.update(value=""), up_dept_update, manual_entry_visibility, is_admin] + list(updates) + [gr.update(visible=dept in ["العلوم", "المهارات الفردية"])]     
+        return [gr.update(visible=False), gr.update(visible=True), welcome_msg, gr.update(value=dept, interactive=is_admin), gr.update(value=""), up_dept_update, manual_entry_visibility, is_admin] + list(updates) + [gr.update(visible=dept in ["العلوم", "المهارات الفردية"]), gr.update(visible=is_admin)]     
         
     else:
         gr.Warning("❌ رمز الدخول غير صحيح! الرجاء المحاولة مرة أخرى.")
         error_updates = [gr.update()]*19
-        return [gr.update(), gr.update(), "<div style='color:red; text-align:center; font-weight:bold; margin-top:10px;'>❌ رمز الدخول غير صحيح! حاول مرة أخرى.</div>", gr.update(), gr.update(), gr.update(), gr.update(), False] + error_updates + [gr.update()]
-
+        return [gr.update(), gr.update(), "<div style='color:red; text-align:center; font-weight:bold; margin-top:10px;'>❌ رمز الدخول غير صحيح! حاول مرة أخرى.</div>", gr.update(), gr.update(), gr.update(), gr.update(), False] + error_updates + [gr.update(), gr.update(visible=False)]
 def do_logout(): 
     return gr.update(visible=True), gr.update(visible=False), "", gr.update(value="الكل"), False, None, None, gr.update(visible=False, value=False)
     
@@ -1124,7 +1551,7 @@ input[type="checkbox"]:checked::after, .dark input[type="checkbox"]:checked::aft
 .absent-box .token:hover { transform: scale(1.05) !important; }
 @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(198, 40, 40, 0.5); } 70% { box-shadow: 0 0 0 10px rgba(198, 40, 40, 0); } 100% { box-shadow: 0 0 0 0 rgba(198, 40, 40, 0); } }
 .gr-input, .gr-dropdown-item, input, select, option, textarea, .dark .gr-input, .dark .gr-dropdown-item, .dark input, .dark select, .dark option, .dark textarea { color: #000000 !important; -webkit-text-fill-color: #000000 !important; font-weight: bold !important; background-color: #ffffff !important; }
-h1, h2, p, div { color: inherit; }
+h1, h2, p { color: inherit; }
 .main-header { background: #004d40 !important; padding: 20px 10px !important; border-radius: 0 0 20px 20px; border-bottom: 5px solid #ffca28; box-shadow: 0 4px 8px rgba(0,0,0,0.1); margin-bottom: 15px;}
 .header-grid { display: grid; grid-template-columns: auto 1fr auto; grid-template-areas: "logo title ministry" "logo school ministry" "logo credits ministry"; align-items: center; gap: 5px 20px; max-width: 1200px; margin: 0 auto;}
 .h-logo { grid-area: logo; text-align: left; }
@@ -1159,15 +1586,86 @@ td, .dark td { font-weight: bold !important; text-align: center !important; whit
 .tabadul-btn { background: #00897b !important; color: white !important; font-weight: bold !important; border-radius: 8px !important; height: 50px !important; border: 2px solid #00695c !important; }
 .login-box { max-width: 450px !important; margin: 65px auto 20px auto !important; padding: 25px 20px !important; background: #ffffff !important; border-radius: 20px !important; box-shadow: 0 10px 30px rgba(0,0,0,0.15) !important; border-top: 8px solid #004d40 !important; border-bottom: 8px solid #ffca28 !important;}
 .login-box input::placeholder { font-size: 13.5px !important; }
-@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(198, 40, 40, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(198, 40, 40, 0); } 100% { box-shadow: 0 0 0 0 rgba(198, 40, 40, 0); } }
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(198, 40, 40, 0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(198, 40, 40, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(198, 40, 40, 0); }
+}
+
+/* راديو التبادل الودي فقط */
+.swap-radio-square input[type="radio"],
+.dark .swap-radio-square input[type="radio"] {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  width: 18px !important;
+  height: 18px !important;
+  border: 2px solid #004d40 !important;
+  border-radius: 4px !important;
+  background-color: #ffffff !important;
+  display: inline-block !important;
+  position: relative !important;
+  outline: none !important;
+  cursor: pointer !important;
+  box-shadow: none !important;
+  background-image: none !important;
+}
+
+.swap-radio-square input[type="radio"]:checked,
+.dark .swap-radio-square input[type="radio"]:checked {
+  background-color: #ffffff !important;
+  border-color: #004d40 !important;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='4.6' fill='%23004d40'/></svg>") !important;
+  background-repeat: no-repeat !important;
+  background-position: center center !important;
+  background-size: 12px 12px !important;
+  box-shadow: none !important;
+}
+
+.swap-radio-square label.selected,
+.dark .swap-radio-square label.selected {
+  background-image: none !important;
+}
 """
 
 js_code = """
 function() {
-    const removeDark = () => { document.documentElement.classList.remove('dark'); document.body.classList.remove('dark'); document.documentElement.setAttribute('data-theme', 'light'); document.body.style.backgroundColor = '#ffffff'; };
+    let isRunning = false;
+
+    const removeDark = () => {
+        if (isRunning) return;
+
+        const html = document.documentElement;
+        const body = document.body;
+        if (!html || !body) return;
+
+        const needsFix =
+            html.classList.contains('dark') ||
+            body.classList.contains('dark') ||
+            html.getAttribute('data-theme') === 'dark';
+
+        if (!needsFix) return;
+
+        isRunning = true;
+        html.classList.remove('dark');
+        body.classList.remove('dark');
+        html.setAttribute('data-theme', 'light');
+        body.style.backgroundColor = '#ffffff';
+        setTimeout(() => { isRunning = false; }, 100);
+    };
+
     removeDark();
+
     const observer = new MutationObserver(removeDark);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme'] }); observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'data-theme']
+    });
+
+    if (document.body) {
+        observer.observe(document.body, {
+            attributes: true,
+        });
+    }
 }
 """
 
@@ -1208,13 +1706,54 @@ def get_teacher_periods_safe(t, d):
         return gr.update(choices=["اختر معلماً أولاً"], value=None)
     except Exception as e:
         return gr.update(choices=["خطأ داخلي"], value=None)
+def extract_clean_period_number(period_value):
+    raw = str(period_value).split("-")[0]
+    raw = raw.replace("✅", "").replace("الحصة", "").strip()
+    return raw if raw.isdigit() else ""
 
+def get_teacher_periods_marked(t, d, confirmed_state, current_value=None):
+    try:
+        if not t or t not in teachers_db or t == "لا يوجد معلمون":
+            return gr.update(choices=["اختر معلماً أولاً"], value=None)
+
+        confirmed_keys = set()
+        if isinstance(confirmed_state, dict):
+            confirmed_keys = {str(k) for k in confirmed_state.keys()}
+
+        choices = []
+        selected_value = None
+        current_clean = extract_clean_period_number(current_value)
+
+        for k, v in teachers_db[t].get(d, {}).items():
+            if str(k).isdigit() and str(v).strip() != "" and str(v).lower() != "nan":
+                elegant_c = format_elegant_class(v)
+                prefix = "✅ " if str(k) in confirmed_keys else ""
+                display_text = f"{prefix}الحصة {k} - ({elegant_c})"
+                choices.append((int(k), display_text))
+
+        choices.sort(key=lambda x: x[0])
+        final_choices = [text for _, text in choices]
+
+        if current_clean:
+            for k, text in choices:
+                if str(k) == current_clean:
+                    selected_value = text
+                    break
+
+        if not final_choices:
+            return gr.update(choices=["لا توجد حصص"], value=None)
+
+        return gr.update(choices=final_choices, value=selected_value)
+
+    except Exception:
+        return gr.update(choices=["خطأ داخلي"], value=None)
+        
 def run_radar_safe(t, p, d):
     default_msg = "💡 يرجى اختيار أحد المعلمين من القائمة بالأعلى لتوليد مسودة رسالة الواتساب هنا..."
     try:
         if not t or not p or "لا يوجد" in t or "اختر" in p: return gr.update(choices=[], value=None), gr.update(value=default_msg), gr.update(value="")
         
-        p_str_clean = str(p).split("-")[0].replace("الحصة", "").strip()
+        p_str_clean = extract_clean_period_number(p)
         if not p_str_clean.isdigit(): return gr.update(choices=[], value=None), gr.update(value=default_msg), gr.update(value="")
         p_int = int(p_str_clean)
         
@@ -1269,7 +1808,7 @@ def generate_wa_msg(choice, t_req, p_req, d_req):
         t_target = parts[1].split(":")[1].strip()
         details = parts[2].strip()
         
-        p_req_clean = str(p_req).split("-")[0].replace("الحصة", "").strip()
+        p_req_clean = extract_clean_period_number(p_req)
         req_class_raw = teachers_db.get(t_req, {}).get(d_req, {}).get(p_req_clean, teachers_db.get(t_req, {}).get(d_req, {}).get(int(p_req_clean) if p_req_clean.isdigit() else p_req_clean, ""))
         req_class_elegant = format_elegant_class(req_class_raw)
         
@@ -1312,7 +1851,88 @@ def generate_wa_msg(choice, t_req, p_req, d_req):
     except Exception as e:
         return gr.update(value=default_msg), gr.update(value="")
 
+def _get_update_value(obj, fallback=""):
+    try:
+        if isinstance(obj, dict):
+            return obj.get("value", fallback)
+        return getattr(obj, "value", fallback)
+    except Exception:
+        return fallback
 
+def _get_update_choices(obj):
+    try:
+        if isinstance(obj, dict):
+            return obj.get("choices", [])
+        return getattr(obj, "choices", [])
+    except Exception:
+        try:
+            return obj["choices"]
+        except Exception:
+            return []
+
+def get_swap_candidates_for_period(t, period_value, d, confirmed_state):
+    if not t or not period_value:
+        return (
+            gr.update(choices=[], value=None, visible=True),
+            gr.update(value=SWAP_EMPTY_MSG, visible=True),
+            gr.update(value="", visible=False),
+            gr.update(visible=False)
+        )
+
+    opts_update, _, _ = run_radar_safe(t, period_value, d)
+    candidates = _get_update_choices(opts_update)
+
+    if not candidates:
+        candidates = ["❌ لا يوجد بديل متفرغ"]
+
+    p_clean = extract_clean_period_number(period_value)
+
+    saved_choice = None
+    saved_message = SWAP_EMPTY_MSG
+    btn_update = gr.update(value="", visible=False)
+    confirm_update = gr.update(visible=False)
+
+    if isinstance(confirmed_state, dict) and p_clean in confirmed_state:
+        saved_choice = confirmed_state[p_clean].get("choice")
+        if saved_choice not in candidates:
+            saved_choice = None
+
+        if saved_choice:
+            saved_message = confirmed_state[p_clean].get("message", SWAP_EMPTY_MSG) or SWAP_EMPTY_MSG
+            _, btn_raw = generate_wa_msg(saved_choice, t, period_value, d)
+            btn_value = _get_update_value(btn_raw, "")
+            btn_update = gr.update(value=btn_value, visible=True)
+            confirm_update = gr.update(visible=True)
+
+    return (
+        gr.update(choices=candidates, value=saved_choice, visible=True),
+        gr.update(value=saved_message, visible=True),
+        btn_update,
+        confirm_update
+    )
+
+def on_swap_option_selected(choice, t, period_value, d):
+    if not choice or "❌" in str(choice):
+        return (
+            gr.update(value=SWAP_EMPTY_MSG, visible=True),
+            gr.update(value="", visible=False),
+            gr.update(visible=False)
+        )
+
+    msg_upd, btn_upd = generate_wa_msg(choice, t, period_value, d)
+
+    msg_value = _get_update_value(msg_upd, SWAP_EMPTY_MSG)
+    btn_value = _get_update_value(btn_upd, "")
+
+    return (
+        gr.update(value=msg_value, visible=True),
+        gr.update(value=btn_value, visible=True),
+        gr.update(visible=True)
+    )
+
+def on_swap_option_selected_from_event(t, period_value, d, evt: gr.SelectData):
+    choice = evt.value if evt and getattr(evt, "value", None) is not None else None
+    return on_swap_option_selected(choice, t, period_value, d)
 # ================================================================
 # واجهة Gradio الرئيسية — كل شيء داخل كتلة واحدة
 # ================================================================
@@ -1321,7 +1941,7 @@ with gr.Blocks(css=css, js=js_code) as app:
     current_schedule_state = gr.State()
 
     with gr.Column(visible=True, elem_classes="login-box") as login_container:
-        gr.HTML("""<div style='text-align: center; margin-top: 15px; margin-bottom: 15px; position: relative; z-index: 10;'><img src='https://i.imgur.com/1cxFlX7.png' style='width: 130px; height: 130px; object-fit: contain; border-radius: 50%; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 3px solid #004d40; background-color: white; display: inline-block; margin: 0 auto;'></div><h2 style='text-align:center; color:#004d40; margin-bottom: 5px; font-weight: 900; font-size: 28px; margin-top: 10px;'>🏰 بوابة الدخول</h2><p style='text-align:center; color:#004d40 !important; -webkit-text-fill-color: #004d40 !important; margin-top: 0; font-size: 15px !important; font-weight: bold; white-space: nowrap;'>مدرسة الباسط للتعليم الأساسي (8-10)</p>""")
+        gr.HTML("""<div style='text-align: center; margin-top: -75px; margin-bottom: 15px; position: relative; z-index: 10;'><img src='https://i.imgur.com/1cxFlX7.png' style='width: 130px; height: 130px; object-fit: contain; border-radius: 50%; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: 3px solid #004d40; background-color: white; display: inline-block; margin: 0 auto;'></div><h2 style='text-align:center; color:#004d40; margin-bottom: 5px; font-weight: 900; font-size: 28px; margin-top: 10px;'>🏰 بوابة الدخول</h2><p style='text-align:center; color:#004d40 !important; -webkit-text-fill-color: #004d40 !important; margin-top: 0; font-size: 15px !important; font-weight: bold; white-space: nowrap;'>مدرسة الباسط للتعليم الأساسي (8-10)</p>""")
         pin_input = gr.Textbox(type="password", show_label=False, placeholder="Enter ثم اضغط (PIN) 🔑 أدخل رمز الدخول", text_align="center")
         login_btn = gr.Button("تسجيل الدخول", elem_classes="admin-btn")
         login_msg = gr.HTML()
@@ -1344,14 +1964,14 @@ with gr.Blocks(css=css, js=js_code) as app:
                 gr.Markdown("### 📥 1. رفع جداول المعلمين (.xlsx)")
                 with gr.Row():
                     up_dept = gr.Dropdown(OFFICIAL_DEPTS[1:], label="حدد القسم لهذا الملف", value="التربية الإسلامية")
-                    excel_upload = gr.File(label="ارفع ملف الإكسل")
+                    excel_upload = gr.File(label="ارفع ملف الإكسل", file_types=[".xlsx", ".xls", ".csv"])
                 with gr.Row():
                     upload_btn = gr.Button("➕ إضافة/تحديث معلمي القسم", variant="primary", elem_classes="action-btn")
                     delete_dept_btn = gr.Button("🗑️ مسح بيانات هذا القسم", elem_classes="reset-btn")
                 excel_status_html = gr.HTML()
                 
                 gr.Markdown("### 📱 2. رفع أرقام الواتساب")
-                with gr.Row(): phone_excel_upload = gr.File(label="ارفع ملف الأرقام")
+                with gr.Row(): phone_excel_upload = gr.File(label="ارفع ملف الأرقام", file_types=[".xlsx", ".xls", ".csv"])
                 with gr.Row(): upload_phone_btn = gr.Button("📲 ربط الأرقام بالرادار الذكي", elem_classes="admin-btn")
                 phone_status_html = gr.HTML()
                     
@@ -1359,14 +1979,19 @@ with gr.Blocks(css=css, js=js_code) as app:
                     gr.Markdown("### 👨‍💼 3. الإدخال اليدوي للطاقم الإداري")
                     with gr.Row(elem_classes="yellow-box"):
                         manual_name = gr.Textbox(label="الاسم الثلاثي")
-                        manual_dept = gr.Dropdown(["الهيئة الإدارية"], label="القسم", value="الهيئة الإدارية", interactive=False)
-                        manual_role = gr.Dropdown(ADMIN_ROLES, label="المنصب", value="أخصائي اجتماعي")
+                        manual_dept = gr.Dropdown(["الهيئة الإدارية"], label="القسم", value="الهيئة الإدارية", interactive=False, elem_classes="fixed-dd")
+                        manual_role = gr.Dropdown(ADMIN_ROLES, label="المنصب", value="أخصائي اجتماعي", elem_classes="fixed-dd")
                         manual_phone = gr.Textbox(label="رقم الواتساب")
                     with gr.Row(): manual_add_btn = gr.Button("➕ حفظ وإضافة", elem_classes="admin-btn")
                 manual_status_html = gr.HTML()
-                
+                gr.Markdown("### 🏢 4. رفع ملف الإداريين")
+                with gr.Row():
+                    admin_excel_upload = gr.File(label="ارفع ملف الإداريين", file_types=[".xlsx", ".xls", ".csv"])
+                with gr.Row():
+                    upload_admin_btn = gr.Button("📥 استيراد الإداريين من Excel", elem_classes="admin-btn")
+                admin_status_html = gr.HTML()
                 clear_status_html = gr.HTML()
-                clear_btn = gr.Button("🧨 مسح وتصفير المنظومة", elem_classes="reset-btn")
+                clear_btn = gr.Button("🧨 مسح وتصفير المنظومة", elem_classes="reset-btn", visible=False)
                 
             with gr.Tab("🛡️ حالات الإعفاء"):
                 gr.Markdown("### 🚫 تثبيت الإعفاءات الدائمة")
@@ -1374,7 +1999,7 @@ with gr.Blocks(css=css, js=js_code) as app:
                     rule_teacher = gr.Dropdown(list(teachers_db.keys()), label="👨‍🏫 اختر المعلم المراد إعفاؤه")
                     with gr.Row():
                         rule_days = gr.CheckboxGroup(["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس"], label="📅 أيام معفى منها")
-                        rule_periods = gr.CheckboxGroup([1, 2, 3, 4, 5, 6, 7, 8], label="⏱️ حصص معفى منها")
+                        rule_periods = gr.CheckboxGroup(list(range(1, MAX_PERIODS + 1)), label="⏱️ حصص معفى منها")
                     rule_save_btn = gr.Button("✅ حفظ قوانين هذا المعلم", elem_classes="admin-btn")
                     rule_status = gr.HTML()
 
@@ -1425,19 +2050,51 @@ with gr.Blocks(css=css, js=js_code) as app:
 
             with gr.Tab("🤝 التبادل الودي الأسبوعي"):
                 gr.Markdown("### ⏳ رادار المقايضة (للاتفاقيات الودية بين المعلمين الحاضرين)")
+
+                swap_confirmed_state = gr.State({})
+
                 with gr.Row(elem_classes="yellow-box"):
-                    swap_day = gr.Dropdown(["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس"], label="1️⃣ اليوم", value=get_current_day_oman())
-                    swap_dept = gr.Dropdown(["الكل"] + [d for d in OFFICIAL_DEPTS if d != "الهيئة الإدارية"], label="2️⃣ القسم", value="الكل")
-                    swap_t1 = gr.Dropdown(list(teachers_db.keys()), label="3️⃣ المعلم الطالب للتبادل", allow_custom_value=False)
+                    swap_day = gr.Dropdown(
+                        ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس"],
+                        label="1️⃣ اليوم",
+                        value=get_current_day_oman()
+                    )
+                    swap_dept = gr.Dropdown(
+                        ["الكل"] + [d for d in OFFICIAL_DEPTS if d != "الهيئة الإدارية"],
+                        label="2️⃣ القسم",
+                        value="الكل"
+                    )
+                    swap_t1 = gr.Dropdown(
+                        [t for t, info in teachers_db.items() if info.get("dept") != "الهيئة الإدارية"],
+                        label="3️⃣ المعلم الطالب للتبادل",
+                        allow_custom_value=False
+                    )
                     swap_p1 = gr.Dropdown([], label="4️⃣ الحصة المراد مبادلتها", allow_custom_value=False)
-                
+
                 btn_run_radar = gr.Button("🚀 تشغيل الرادار والبحث عن بدائل الآن", variant="primary", visible=False)
 
-                swap_options = gr.Radio(label="5️⃣ الخيارات المتاحة (اختر المعلم الذي يناسبك لتوليد الرسالة 💬)", choices=[])
-                whatsapp_msg = gr.Textbox(label="💬 معاينة رسالة الواتساب التلقائية (يمكنك التعديل عليها)", lines=6, interactive=True, value="💡 يرجى اختيار أحد المعلمين من القائمة بالأعلى لتوليد مسودة رسالة الواتساب هنا...")
-                wa_html_btn = gr.HTML(value="")
+                swap_options = gr.Radio(
+                    label="5️⃣ الخيارات المتاحة (اختر المعلم الذي يناسبك لتوليد الرسالة 💬)",
+                    choices=[],
+                    visible=True,
+                    elem_classes="swap-radio-square"
+                )
 
-                gr.HTML("<div style='color:#00695c; background:#e0f2f1; padding:15px; border-radius:8px; border-right: 4px solid #00897b;'>💡 <b>توضيح:</b> اختر المعلم والحصة، وسيقوم <b>( الرادار بالعمل)</b> لضمان جلب النتائج بدقة.</div>")
+                whatsapp_msg = gr.Textbox(
+                    label="💬 معاينة رسالة الواتساب التلقائية (يمكنك التعديل عليها)",
+                    lines=6,
+                    interactive=True,
+                    value=SWAP_EMPTY_MSG,
+                    visible=True
+                )
+
+                wa_html_btn = gr.HTML(value="", visible=False)
+                btn_swap_confirm = gr.Button("✅ اعتماد", visible=False, elem_classes="tabadul-btn")
+
+                confirmed_tbl_html = gr.HTML(value=render_swap_table_html({}))
+                btn_swap_img = gr.Button("🖼️ إنشاء صورة جدول التبادلات", elem_classes="export-btn")
+                swap_img_out = gr.Image(label="صورة جدول التبادلات المعتمدة", interactive=False)
+                gr.HTML("<div style='color:#00695c; background:#e0f2f1; padding:15px; border-radius:8px; border-right: 4px solid #00897b;'>💡 <b>توضيح:</b> اختر المعلم والحصة، وسيقوم <b>( الرادار بالعمل)</b> لضمان جلب النتائج بدقة. عند الرجوع للحصة نفسها سيظهر البديل السابق ورسالة الواتساب المحفوظة، وإذا اخترت بديلًا جديدًا ثم ضغطت اعتماد فسيتم تحديث الجدول.</div>")
 
             with gr.Tab("⚖️ الأرصدة والتقارير"):
                 monthly_status = gr.HTML()
@@ -1493,9 +2150,9 @@ with gr.Blocks(css=css, js=js_code) as app:
         msg_summary, msg_individual_html, date_display, admin_zone_title, 
         edit_period, cb_cross_dept, btn_alt, btn_img
     ]
-
-    login_btn.click(attempt_login, inputs=[pin_input, day_in], outputs=[login_container, main_app_container, welcome_html, dept_in, login_msg, up_dept, manual_entry_container, current_user_is_admin] + update_outputs + [t_specialty_edit])
-    pin_input.submit(attempt_login, inputs=[pin_input, day_in], outputs=[login_container, main_app_container, welcome_html, dept_in, login_msg, up_dept, manual_entry_container, current_user_is_admin] + update_outputs + [t_specialty_edit])
+    app.load(sync_current_school_days, None, [day_in, swap_day])
+    login_btn.click(attempt_login, inputs=[pin_input, day_in], outputs=[login_container, main_app_container, welcome_html, dept_in, login_msg, up_dept, manual_entry_container, current_user_is_admin] + update_outputs + [t_specialty_edit, clear_btn])
+    pin_input.submit(attempt_login, inputs=[pin_input, day_in], outputs=[login_container, main_app_container, welcome_html, dept_in, login_msg, up_dept, manual_entry_container, current_user_is_admin] + update_outputs + [t_specialty_edit, clear_btn])
     logout_btn.click(do_logout, inputs=[], outputs=[login_container, main_app_container, welcome_html, dept_in, current_user_is_admin, current_schedule_state, img_out, cb_cross_dept]).then(None, None, None, js="() => { setTimeout(() => { window.location.reload(); }, 300); }")
     
     update_trigger = [dept_in, day_in, current_user_is_admin]
@@ -1503,17 +2160,22 @@ with gr.Blocks(css=css, js=js_code) as app:
     lambda d, dy, adm: refresh_ui_on_change(d, dy, adm) + (gr.update(visible=d in ["العلوم", "المهارات الفردية"]),),
     update_trigger,
     update_outputs + [t_specialty_edit]
-)
+    )
     day_in.change(lambda d, dy, adm: refresh_ui_on_change(d, dy, adm), update_trigger, update_outputs)
     refresh_btn.click(force_refresh_data, [dept_in, day_in, current_user_is_admin, abs_in], update_outputs)
+    refresh_btn.click(sync_current_school_days, None, [day_in, swap_day])
     btn_img.click(generate_image_only, [dept_in, day_in], [img_out])
     
     upload_btn.click(process_uploaded_excel, [excel_upload, up_dept, day_in], [dept_in, abs_in, check_teacher_in, rule_teacher, tbl_bal, tbl_abs, tbl_day, excel_status_html, t_name, excel_upload])
     delete_dept_btn.click(delete_department_data, [up_dept, day_in], [dept_in, abs_in, check_teacher_in, rule_teacher, tbl_bal, tbl_abs, tbl_day, excel_status_html, t_name, excel_upload])
     upload_phone_btn.click(process_phone_excel, [phone_excel_upload], [phone_status_html, phone_excel_upload])
     manual_add_btn.click(add_manual_staff, [manual_name, manual_dept, manual_phone, manual_role, dept_in], [manual_status_html, abs_in, check_teacher_in, rule_teacher, t_name, manual_name, manual_phone])
-    
-    clear_btn.click(clear_all_data, None, [dept_in, abs_in, check_teacher_in, rule_teacher, tbl_bal, tbl_abs, tbl_day, clear_status_html, t_name, excel_upload, tbl_out])
+    upload_admin_btn.click(
+    process_admin_excel,
+    [admin_excel_upload, dept_in],
+    [admin_status_html, abs_in, check_teacher_in, rule_teacher, t_name, admin_excel_upload, tbl_bal]
+    )
+    clear_btn.click(clear_all_data, [current_user_is_admin], [dept_in, abs_in, check_teacher_in, rule_teacher, tbl_bal, tbl_abs, tbl_day, clear_status_html, t_name, excel_upload, tbl_out])
     
     rule_teacher.change(load_teacher_rules, rule_teacher, [rule_days, rule_periods])
     rule_save_btn.click(save_teacher_rules, [rule_teacher, rule_days, rule_periods], rule_status)
@@ -1529,7 +2191,6 @@ with gr.Blocks(css=css, js=js_code) as app:
     btn_apply_tabadul.click(lambda dfs, at, p, ns, dn, dpt, adm, ca: process_admin_action(dfs, at, p, ns, dn, dpt, adm, ca, "tabadul"), [current_schedule_state, edit_abs_t, edit_period, edit_new_sub, day_in, dept_in, current_user_is_admin, abs_in], update_outputs)
     btn_apply_penalty.click(lambda dfs, at, p, ns, dn, dpt, adm, ca: process_admin_action(dfs, at, p, ns, dn, dpt, adm, ca, "penalty"), [current_schedule_state, edit_abs_t, edit_period, edit_new_sub, day_in, dept_in, current_user_is_admin, abs_in], update_outputs)
     btn_cancel_absence.click(cancel_teacher_absence, [edit_abs_t, day_in, dept_in, current_user_is_admin, abs_in], update_outputs)
-
     # ── أحداث الخزنة والتقارير والتبادل ─────────────────────────
     t_name.change(load_teacher_data_for_edit, t_name, [t_dept_edit, t_val, t_abs_val, t_short_val, t_phone_edit, t_specialty_edit, t_role_edit])
     t_dept_edit.change(
@@ -1542,13 +2203,98 @@ with gr.Blocks(css=css, js=js_code) as app:
     export_btn.click(export_excel_report, [dept_in], [report_file])
     reset_month_btn.click(reset_monthly_balances, [dept_in, day_in], [tbl_bal, tbl_abs, tbl_day, monthly_status])
     
-    swap_dept.change(filter_swap_teachers_safe, [swap_dept], [swap_t1])
-    swap_day.change(get_teacher_periods_safe, [swap_t1, swap_day], [swap_p1])
-    swap_t1.change(get_teacher_periods_safe, [swap_t1, swap_day], [swap_p1])
-    
-    btn_run_radar.click(run_radar_safe, [swap_t1, swap_p1, swap_day], [swap_options, whatsapp_msg, wa_html_btn])
-    swap_p1.change(run_radar_safe, [swap_t1, swap_p1, swap_day], [swap_options, whatsapp_msg, wa_html_btn])
-    
-    swap_options.change(generate_wa_msg, [swap_options, swap_t1, swap_p1, swap_day], [whatsapp_msg, wa_html_btn])
+    swap_dept.change(
+        filter_swap_teachers_safe,
+        [swap_dept],
+        [swap_t1],
+        queue=False
+    ).then(
+        lambda: gr.update(choices=[], value=None),
+        None,
+        [swap_p1],
+        queue=False
+    ).then(
+        lambda: ({}, gr.update(value=render_swap_table_html({}))),
+        None,
+        [swap_confirmed_state, confirmed_tbl_html],
+        queue=False
+    ).then(
+        clear_swap_detail_ui,
+        None,
+        [swap_options, whatsapp_msg, wa_html_btn, btn_swap_confirm],
+        queue=False
+    )
+
+    swap_day.change(
+    load_confirmed_swaps_for_context,
+    [swap_t1, swap_day],
+    [swap_confirmed_state, confirmed_tbl_html],
+    queue=False
+).then(
+    get_teacher_periods_marked,
+    [swap_t1, swap_day, swap_confirmed_state, swap_p1],
+    [swap_p1],
+    queue=False
+).then(
+    clear_swap_detail_ui,
+    None,
+    [swap_options, whatsapp_msg, wa_html_btn, btn_swap_confirm],
+    queue=False
+)
+
+    swap_t1.change(
+    load_confirmed_swaps_for_context,
+    [swap_t1, swap_day],
+    [swap_confirmed_state, confirmed_tbl_html],
+    queue=False
+).then(
+    get_teacher_periods_marked,
+    [swap_t1, swap_day, swap_confirmed_state, swap_p1],
+    [swap_p1],
+    queue=False
+).then(
+    clear_swap_detail_ui,
+    None,
+    [swap_options, whatsapp_msg, wa_html_btn, btn_swap_confirm],
+    queue=False
+)
+    swap_p1.change(
+        get_swap_candidates_for_period,
+        [swap_t1, swap_p1, swap_day, swap_confirmed_state],
+        [swap_options, whatsapp_msg, wa_html_btn, btn_swap_confirm],
+        queue=False
+    )
+
+    swap_options.change(
+        on_swap_option_selected,
+        [swap_options, swap_t1, swap_p1, swap_day],
+        [whatsapp_msg, wa_html_btn, btn_swap_confirm],
+        queue=False
+    )
+
+    swap_options.select(
+        on_swap_option_selected_from_event,
+        [swap_t1, swap_p1, swap_day],
+        [whatsapp_msg, wa_html_btn, btn_swap_confirm],
+        queue=False
+    )
+
+    btn_swap_confirm.click(
+    confirm_swap,
+    [swap_t1, swap_p1, swap_options, swap_day, whatsapp_msg, swap_confirmed_state],
+    [swap_confirmed_state, confirmed_tbl_html],
+    queue=False
+).then(
+    get_teacher_periods_marked,
+    [swap_t1, swap_day, swap_confirmed_state, swap_p1],
+    [swap_p1],
+    queue=False
+)
+    btn_swap_img.click(
+    generate_swap_table_image,
+    [swap_confirmed_state, swap_t1, swap_day],
+    [swap_img_out],
+    queue=False
+)
 
 app.launch()
