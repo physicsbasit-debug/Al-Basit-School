@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.env
+.venv/
+school_balances.json
+daily_assignments.json
+friendly_swaps.json
+data/
