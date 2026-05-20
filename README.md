@@ -1,3 +1,14 @@
+---
+title: Masar
+emoji: 🏫
+colorFrom: green
+colorTo: yellow
+sdk: gradio
+sdk_version: "6.10.0"
+app_file: app.py
+pinned: false
+---
+
 # منظومة مسار للاحتياط والتبادل الودي
 
 ## 1. التعريف بالمنظومة
