@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.env
+
+school_balances.json
+daily_assignments.json
+friendly_swaps.json
+
+data/audit_log.json
+data/exemptions_log.json
+data/backups/
+data/generated_images/
+data/schedules/
+data/*.xlsx
+data/*.xls
+data/*.csv
+generated_swap_tables/
