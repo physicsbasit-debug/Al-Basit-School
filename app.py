@@ -13,6 +13,8 @@ import urllib.parse
 import tempfile
 import threading
 import functools
+import zipfile
+import html as html_lib
 matplotlib.use('Agg')  
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
@@ -32,6 +34,7 @@ DATA_DIR = "data"
 IMG_DIR = os.path.join(DATA_DIR, "generated_images")
 SCHEDULES_DIR = os.path.join(DATA_DIR, "schedules")
 BACKUPS_DIR = os.path.join(DATA_DIR, "backups")
+EXPORTS_DIR = os.path.join(DATA_DIR, "exports")
 MAX_BACKUPS_PER_FILE = 10
 
 # v1.6 — أقفال داخلية لحماية الحالة وملفات JSON عند تعدد المستخدمين
@@ -76,6 +79,7 @@ def ensure_data_directories():
     os.makedirs(IMG_DIR, exist_ok=True)
     os.makedirs(SCHEDULES_DIR, exist_ok=True)
     os.makedirs(BACKUPS_DIR, exist_ok=True)
+    os.makedirs(EXPORTS_DIR, exist_ok=True)
 
 
 def _safe_storage_backup_name(file_path):
@@ -997,6 +1001,380 @@ def _flush_audit_changes(entries, actor_name="", actor_role=""):
             actor_name=actor_name,
             actor_role=actor_role,
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v1.7 — لوحة سجل العمليات والنسخ الاحتياطية (مالك النظام فقط)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def load_audit_log_records():
+    """قراءة سجل العمليات الحساسة بصورة آمنة وإرجاع قائمة مرتبة من الأحدث."""
+    lock = _get_json_file_lock(AUDIT_LOG_FILE)
+    with lock:
+        if not os.path.exists(AUDIT_LOG_FILE):
+            return []
+        try:
+            with open(AUDIT_LOG_FILE, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            if not isinstance(loaded, list):
+                return []
+            records = [item for item in loaded if isinstance(item, dict)]
+            records.sort(key=lambda item: str(item.get("timestamp", "")), reverse=True)
+            return records
+        except Exception as e:
+            print(f"load_audit_log_records error: {e}")
+            return []
+
+
+def _audit_value_to_text(value):
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list, tuple)):
+        try:
+            return json.dumps(value, ensure_ascii=False, sort_keys=True)
+        except Exception:
+            return str(value)
+    return str(value)
+
+
+def _parse_audit_date(value, label):
+    raw = str(value or "").strip()
+    if not raw:
+        return None, ""
+    try:
+        return datetime.datetime.strptime(raw, "%Y-%m-%d").date(), ""
+    except Exception:
+        return None, f"صيغة {label} غير صحيحة. استخدم YYYY-MM-DD."
+
+
+def filter_audit_records(records, action_filter="الكل", actor_filter="الكل", teacher_filter="الكل", date_from="", date_to=""):
+    start_date, start_error = _parse_audit_date(date_from, "تاريخ البداية")
+    end_date, end_error = _parse_audit_date(date_to, "تاريخ النهاية")
+    error = start_error or end_error
+    if error:
+        return [], error
+    if start_date and end_date and start_date > end_date:
+        return [], "تاريخ البداية يجب ألا يكون بعد تاريخ النهاية."
+
+    action_filter = str(action_filter or "الكل").strip()
+    actor_filter = str(actor_filter or "الكل").strip()
+    teacher_filter = str(teacher_filter or "الكل").strip()
+
+    filtered = []
+    for record in records:
+        if action_filter != "الكل" and str(record.get("action", "")).strip() != action_filter:
+            continue
+        if actor_filter != "الكل" and str(record.get("actor_name", "")).strip() != actor_filter:
+            continue
+        if teacher_filter != "الكل" and str(record.get("target_teacher", "")).strip() != teacher_filter:
+            continue
+
+        timestamp = str(record.get("timestamp", "")).strip()
+        record_date = None
+        try:
+            record_date = datetime.datetime.strptime(timestamp[:10], "%Y-%m-%d").date()
+        except Exception:
+            pass
+
+        if start_date and (record_date is None or record_date < start_date):
+            continue
+        if end_date and (record_date is None or record_date > end_date):
+            continue
+        filtered.append(record)
+
+    return filtered, ""
+
+
+def _audit_filter_choices(records):
+    actions = sorted({str(r.get("action", "")).strip() for r in records if str(r.get("action", "")).strip()})
+    actors = sorted({str(r.get("actor_name", "")).strip() for r in records if str(r.get("actor_name", "")).strip()})
+    teachers = sorted({str(r.get("target_teacher", "")).strip() for r in records if str(r.get("target_teacher", "")).strip()})
+    return ["الكل"] + actions, ["الكل"] + actors, ["الكل"] + teachers
+
+
+def render_audit_log_html(records, total_records=0, error_message=""):
+    if error_message:
+        return f"<div style='background:#ffebee;color:#b91c1c;border-right:5px solid #c62828;padding:12px;border-radius:10px;font-weight:800;'>{html_lib.escape(error_message)}</div>"
+
+    if not records:
+        return "<div style='background:#f8fafc;border:1px dashed #cbd5e1;border-radius:10px;padding:18px;text-align:center;color:#64748b;'>لا توجد عمليات مطابقة للعرض.</div>"
+
+    display_records = records[:200]
+    rows = []
+    for record in display_records:
+        values = {
+            "timestamp": str(record.get("timestamp", "")),
+            "actor_name": str(record.get("actor_name", "")),
+            "actor_role": str(record.get("actor_role", "")),
+            "action": str(record.get("action", "")),
+            "target_teacher": str(record.get("target_teacher", "")),
+            "old_value": _audit_value_to_text(record.get("old_value")),
+            "new_value": _audit_value_to_text(record.get("new_value")),
+            "details": str(record.get("details", "")),
+        }
+        safe = {key: html_lib.escape(value) for key, value in values.items()}
+        rows.append(f"""
+        <tr>
+            <td>{safe['timestamp']}</td>
+            <td>{safe['actor_name']}</td>
+            <td>{safe['actor_role']}</td>
+            <td><b>{safe['action']}</b></td>
+            <td>{safe['target_teacher']}</td>
+            <td class='audit-wide'>{safe['old_value']}</td>
+            <td class='audit-wide'>{safe['new_value']}</td>
+            <td class='audit-wide'>{safe['details']}</td>
+        </tr>
+        """)
+
+    shown_note = f"يعرض آخر {len(display_records)} سجل من أصل {len(records)} سجل مطابق" if len(records) > 200 else f"عدد السجلات المطابقة: {len(records)}"
+    return f"""
+    <div style='direction:rtl;'>
+        <div style='background:#e8f5e9;color:#004d40;border-right:5px solid #2e7d32;padding:11px 14px;border-radius:10px;margin-bottom:10px;font-weight:800;'>
+            {shown_note} | إجمالي السجلات المحفوظة: {int(total_records)}
+        </div>
+        <div style='overflow-x:auto;border:1px solid #dbe3e8;border-radius:12px;'>
+            <table style='width:100%;min-width:1450px;border-collapse:collapse;text-align:center;font-family:Cairo,Arial,sans-serif;font-size:13px;'>
+                <thead>
+                    <tr style='background:#004d40;color:white;'>
+                        <th>التاريخ والوقت</th><th>المنفذ</th><th>الدور</th><th>العملية</th>
+                        <th>المعلم المتأثر</th><th>القيمة القديمة</th><th>القيمة الجديدة</th><th>التفاصيل</th>
+                    </tr>
+                </thead>
+                <tbody>{''.join(rows)}</tbody>
+            </table>
+        </div>
+    </div>
+    """
+
+
+def refresh_audit_dashboard(action_filter, actor_filter, teacher_filter, date_from, date_to, is_owner=False):
+    if not bool(is_owner):
+        denied = "<div style='color:#b91c1c;background:#ffebee;padding:12px;border-radius:10px;font-weight:800;'>هذه الأداة متاحة لمالك النظام فقط.</div>"
+        return (
+            gr.update(choices=["الكل"], value="الكل"),
+            gr.update(choices=["الكل"], value="الكل"),
+            gr.update(choices=["الكل"], value="الكل"),
+            gr.update(value=denied),
+        )
+
+    records = load_audit_log_records()
+    action_choices, actor_choices, teacher_choices = _audit_filter_choices(records)
+
+    action_value = action_filter if action_filter in action_choices else "الكل"
+    actor_value = actor_filter if actor_filter in actor_choices else "الكل"
+    teacher_value = teacher_filter if teacher_filter in teacher_choices else "الكل"
+
+    filtered, error = filter_audit_records(records, action_value, actor_value, teacher_value, date_from, date_to)
+    return (
+        gr.update(choices=action_choices, value=action_value),
+        gr.update(choices=actor_choices, value=actor_value),
+        gr.update(choices=teacher_choices, value=teacher_value),
+        gr.update(value=render_audit_log_html(filtered, len(records), error)),
+    )
+
+
+def export_audit_log_excel(action_filter, actor_filter, teacher_filter, date_from, date_to, is_owner=False):
+    if not bool(is_owner):
+        return gr.update(value=None), "<div style='color:#b91c1c;font-weight:800;'>هذه العملية متاحة لمالك النظام فقط.</div>"
+
+    records = load_audit_log_records()
+    filtered, error = filter_audit_records(records, action_filter, actor_filter, teacher_filter, date_from, date_to)
+    if error:
+        return gr.update(value=None), f"<div style='color:#b91c1c;font-weight:800;'>{html_lib.escape(error)}</div>"
+    if not filtered:
+        return gr.update(value=None), "<div style='color:#a16207;font-weight:800;'>لا توجد سجلات مطابقة لتصديرها.</div>"
+
+    ensure_data_directories()
+    rows = []
+    for record in filtered:
+        rows.append({
+            "التاريخ والوقت": str(record.get("timestamp", "")),
+            "اسم المنفذ": str(record.get("actor_name", "")),
+            "دور المنفذ": str(record.get("actor_role", "")),
+            "نوع العملية": str(record.get("action", "")),
+            "المعلم المتأثر": str(record.get("target_teacher", "")),
+            "القيمة القديمة": _audit_value_to_text(record.get("old_value")),
+            "القيمة الجديدة": _audit_value_to_text(record.get("new_value")),
+            "التفاصيل": str(record.get("details", "")),
+            "المصدر": str(record.get("source", "")),
+        })
+
+    filename = os.path.join(EXPORTS_DIR, f"سجل_العمليات_الحساسة_{get_now_oman().strftime('%Y%m%d_%H%M%S_%f')}.xlsx")
+    df = pd.DataFrame(rows)
+    with pd.ExcelWriter(filename, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="سجل العمليات")
+        ws = writer.sheets["سجل العمليات"]
+        header_fill = PatternFill(fill_type="solid", fgColor="004D40")
+        header_font = Font(color="FFFFFF", bold=True)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        for cell in ws[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = center
+        for row in ws.iter_rows(min_row=2):
+            for cell in row:
+                cell.alignment = center
+        for column_cells in ws.columns:
+            max_length = max(len(str(cell.value or "")) for cell in column_cells)
+            ws.column_dimensions[column_cells[0].column_letter].width = min(max(max_length + 3, 14), 55)
+        ws.freeze_panes = "A2"
+        ws.sheet_view.rightToLeft = True
+
+    return gr.update(value=os.path.abspath(filename)), f"<div style='color:#166534;background:#dcfce7;padding:10px;border-radius:8px;font-weight:800;'>تم تجهيز ملف Excel ويحتوي على {len(filtered)} سجل.</div>"
+
+
+def _backup_files_for_target(file_path):
+    ensure_data_directories()
+    base = os.path.basename(str(file_path))
+    stem, ext = os.path.splitext(base)
+    if not ext:
+        ext = ".json"
+    prefix = f"{stem}_"
+    candidates = []
+    for name in os.listdir(BACKUPS_DIR):
+        full_path = os.path.join(BACKUPS_DIR, name)
+        if os.path.isfile(full_path) and name.startswith(prefix) and name.endswith(ext):
+            candidates.append(full_path)
+    candidates.sort(key=lambda path: os.path.getmtime(path), reverse=True)
+    return candidates
+
+
+def _format_file_size(size_bytes):
+    try:
+        size = float(size_bytes)
+    except Exception:
+        return "—"
+    if size < 1024:
+        return f"{int(size)} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f} KB"
+    return f"{size / (1024 * 1024):.2f} MB"
+
+
+def get_monitored_backup_files():
+    return [
+        ("قاعدة بيانات المعلمين والأرصدة", DB_FILE),
+        ("التوزيع اليومي", DAILY_DB_FILE),
+        ("التبادلات الودية", SWAP_DB_FILE),
+        ("سجل الإعفاءات", EXEMPTIONS_LOG_FILE),
+        ("سجل العمليات الحساسة", AUDIT_LOG_FILE),
+        ("إعدادات المدرسة", SCHOOL_CONFIG_FILE),
+    ]
+
+
+def render_backup_status_html(is_owner=False):
+    if not bool(is_owner):
+        return "<div style='color:#b91c1c;background:#ffebee;padding:12px;border-radius:10px;font-weight:800;'>هذه الأداة متاحة لمالك النظام فقط.</div>"
+
+    rows = []
+    total_backups = 0
+    for label, source_path in get_monitored_backup_files():
+        backups = _backup_files_for_target(source_path)
+        total_backups += len(backups)
+        source_exists = os.path.exists(source_path)
+        latest = backups[0] if backups else None
+        latest_name = os.path.basename(latest) if latest else "—"
+        latest_at = datetime.datetime.fromtimestamp(os.path.getmtime(latest), tz=tz_oman).strftime("%Y-%m-%d %H:%M:%S") if latest else "—"
+        latest_size = _format_file_size(os.path.getsize(latest)) if latest else "—"
+        source_status = "موجود" if source_exists else "غير موجود"
+        source_color = "#166534" if source_exists else "#b91c1c"
+        rows.append(f"""
+        <tr>
+            <td><b>{html_lib.escape(label)}</b></td>
+            <td style='color:{source_color};font-weight:800;'>{source_status}</td>
+            <td>{len(backups)}</td>
+            <td>{html_lib.escape(latest_name)}</td>
+            <td>{latest_at}</td>
+            <td>{latest_size}</td>
+        </tr>
+        """)
+
+    return f"""
+    <div style='direction:rtl;'>
+        <div style='background:#e0f2fe;color:#0c4a6e;border-right:5px solid #0284c7;padding:11px 14px;border-radius:10px;margin-bottom:10px;font-weight:800;'>
+            إجمالي النسخ الاحتياطية المحلية: {total_backups}
+        </div>
+        <div style='overflow-x:auto;border:1px solid #dbe3e8;border-radius:12px;'>
+            <table style='width:100%;min-width:1050px;border-collapse:collapse;text-align:center;font-family:Cairo,Arial,sans-serif;font-size:13px;'>
+                <thead><tr style='background:#0f766e;color:white;'>
+                    <th>الملف</th><th>حالة الأصل</th><th>عدد النسخ</th><th>أحدث نسخة</th><th>تاريخها</th><th>حجمها</th>
+                </tr></thead>
+                <tbody>{''.join(rows)}</tbody>
+            </table>
+        </div>
+        <div style='margin-top:10px;background:#fff7ed;color:#9a3412;padding:10px;border-radius:8px;border-right:4px solid #ea580c;'>
+            تنبيه: النسخ المحلية لا تضمن الاستمرارية بعد حذف أو إعادة إنشاء الحاوية ما لم تكن بيئة التشغيل تستخدم تخزيناً دائماً.
+        </div>
+    </div>
+    """
+
+
+def refresh_backup_status(is_owner=False):
+    return gr.update(value=render_backup_status_html(is_owner))
+
+
+def _latest_backup_for(file_path):
+    candidates = _backup_files_for_target(file_path)
+    return candidates[0] if candidates else None
+
+
+def create_backup_bundle(is_owner=False):
+    if not bool(is_owner):
+        return gr.update(value=None), "<div style='color:#b91c1c;font-weight:800;'>هذه العملية متاحة لمالك النظام فقط.</div>"
+
+    ensure_data_directories()
+    filename = os.path.join(EXPORTS_DIR, f"نسخة_احتياطية_منظومة_مسار_{get_now_oman().strftime('%Y%m%d_%H%M%S_%f')}.zip")
+    manifest = {
+        "created_at": get_now_oman().strftime("%Y-%m-%d %H:%M:%S"),
+        "school_name": SCHOOL_NAME,
+        "system_name": SYSTEM_NAME,
+        "contents": [],
+    }
+
+    current_files = [path for _label, path in get_monitored_backup_files()]
+    reference_files = [ADMIN_FILE, PHONES_FILE] + list(SCHEDULE_FILES.values())
+
+    with STATE_LOCK:
+        try:
+            with zipfile.ZipFile(filename, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for path in current_files:
+                    if os.path.exists(path) and os.path.isfile(path):
+                        arcname = os.path.join("current", os.path.basename(path))
+                        zf.write(path, arcname=arcname)
+                        manifest["contents"].append(arcname)
+
+                    latest_backup = _latest_backup_for(path)
+                    if latest_backup:
+                        arcname = os.path.join("latest_backups", os.path.basename(latest_backup))
+                        zf.write(latest_backup, arcname=arcname)
+                        manifest["contents"].append(arcname)
+
+                for path in reference_files:
+                    if os.path.exists(path) and os.path.isfile(path):
+                        arcname = os.path.join("reference_files", os.path.basename(path))
+                        zf.write(path, arcname=arcname)
+                        manifest["contents"].append(arcname)
+
+                zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+
+            return gr.update(value=os.path.abspath(filename)), "<div style='color:#166534;background:#dcfce7;padding:10px;border-radius:8px;font-weight:800;'>تم تجهيز النسخة الاحتياطية المضغوطة بنجاح.</div>"
+        except Exception as e:
+            print(f"create_backup_bundle error: {e}")
+            try:
+                if os.path.exists(filename):
+                    os.remove(filename)
+            except Exception:
+                pass
+            return gr.update(value=None), f"<div style='color:#b91c1c;font-weight:800;'>تعذر تجهيز النسخة الاحتياطية: {html_lib.escape(str(e))}</div>"
+
+
+def refresh_owner_tools_dashboard(action_filter, actor_filter, teacher_filter, date_from, date_to, is_owner=False):
+    action_upd, actor_upd, teacher_upd, audit_upd = refresh_audit_dashboard(
+        action_filter, actor_filter, teacher_filter, date_from, date_to, is_owner
+    )
+    backup_upd = refresh_backup_status(is_owner)
+    return action_upd, actor_upd, teacher_upd, audit_upd, backup_upd
+
 
 def load_exemptions_log():
     global exemptions_log
@@ -6530,6 +6908,32 @@ with gr.Blocks() as app:
                         refresh_schedule_reference_btn = gr.Button("🔄 تحديث القسم من الملف المرجعي", elem_classes="admin-btn")
                     schedule_reference_status_html = gr.HTML()
 
+                    with gr.Accordion("🛡️ سجل العمليات والنسخ الاحتياطية", open=False):
+                        gr.HTML("<div style='background:#eef6f3;color:#004d40;padding:12px;border-radius:10px;border-right:5px solid #0f766e;margin-bottom:12px;font-weight:800;'>أدوات رقابية مخصصة لمالك النظام: عرض سجل العمليات، تصديره إلى Excel، فحص النسخ الاحتياطية، وتنزيل حزمة احتياطية كاملة.</div>")
+
+                        with gr.Accordion("📑 سجل العمليات الحساسة", open=True):
+                            with gr.Row():
+                                audit_action_filter = gr.Dropdown(["الكل"], value="الكل", label="نوع العملية")
+                                audit_actor_filter = gr.Dropdown(["الكل"], value="الكل", label="اسم المنفذ")
+                                audit_teacher_filter = gr.Dropdown(["الكل"], value="الكل", label="المعلم المتأثر")
+                            with gr.Row():
+                                audit_date_from = gr.Textbox(label="من تاريخ", placeholder="YYYY-MM-DD")
+                                audit_date_to = gr.Textbox(label="إلى تاريخ", placeholder="YYYY-MM-DD")
+                            with gr.Row():
+                                audit_refresh_btn = gr.Button("تحديث وتطبيق الفلاتر", elem_classes="admin-btn")
+                                audit_export_btn = gr.Button("تصدير السجل إلى Excel", elem_classes="export-btn")
+                            audit_action_status_html = gr.HTML()
+                            audit_table_html = gr.HTML("<div style='text-align:center;color:#64748b;padding:16px;'>افتح القسم أو اضغط تحديث لعرض سجل العمليات.</div>")
+                            audit_export_file = gr.File(label="ملف سجل العمليات", interactive=False)
+
+                        with gr.Accordion("💾 حالة النسخ الاحتياطية", open=True):
+                            backup_status_html = gr.HTML("<div style='text-align:center;color:#64748b;padding:16px;'>اضغط تحديث لعرض حالة النسخ الاحتياطية.</div>")
+                            with gr.Row():
+                                backup_refresh_btn = gr.Button("تحديث حالة النسخ الاحتياطية", elem_classes="admin-btn")
+                                backup_zip_btn = gr.Button("تحميل نسخة احتياطية كاملة ZIP", elem_classes="export-btn")
+                            backup_action_status_html = gr.HTML()
+                            backup_zip_file = gr.File(label="الحزمة الاحتياطية", interactive=False)
+
                     with gr.Accordion("🧩 أدوات إدارية إضافية", open=False, visible=False) as manual_entry_container:
                         gr.Markdown("### 👨‍💼 الإدخال اليدوي للطاقم الإداري")
                         with gr.Row(elem_classes="yellow-box"):
@@ -6708,6 +7112,36 @@ with gr.Blocks() as app:
         refresh_schedule_from_reference,
         [schedule_reference_dept, day_in, current_user_is_owner],
         [schedule_reference_status_html, abs_in, check_teacher_in, rule_teacher, tbl_bal, tbl_abs, tbl_day, school_data_schedules_html, schedule_reference_upload]
+    )
+    school_data_tab.select(
+        refresh_owner_tools_dashboard,
+        [audit_action_filter, audit_actor_filter, audit_teacher_filter, audit_date_from, audit_date_to, current_user_is_owner],
+        [audit_action_filter, audit_actor_filter, audit_teacher_filter, audit_table_html, backup_status_html],
+        queue=False
+    )
+    audit_refresh_btn.click(
+        refresh_audit_dashboard,
+        [audit_action_filter, audit_actor_filter, audit_teacher_filter, audit_date_from, audit_date_to, current_user_is_owner],
+        [audit_action_filter, audit_actor_filter, audit_teacher_filter, audit_table_html],
+        queue=False
+    )
+    audit_export_btn.click(
+        export_audit_log_excel,
+        [audit_action_filter, audit_actor_filter, audit_teacher_filter, audit_date_from, audit_date_to, current_user_is_owner],
+        [audit_export_file, audit_action_status_html],
+        queue=False
+    )
+    backup_refresh_btn.click(
+        refresh_backup_status,
+        [current_user_is_owner],
+        [backup_status_html],
+        queue=False
+    )
+    backup_zip_btn.click(
+        create_backup_bundle,
+        [current_user_is_owner],
+        [backup_zip_file, backup_action_status_html],
+        queue=False
     )
     clear_btn.click(
         clear_all_data,
