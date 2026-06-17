@@ -10,6 +10,9 @@ import random
 import json
 import re
 import urllib.parse
+import tempfile
+import threading
+import functools
 matplotlib.use('Agg')  
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
@@ -30,6 +33,28 @@ IMG_DIR = os.path.join(DATA_DIR, "generated_images")
 SCHEDULES_DIR = os.path.join(DATA_DIR, "schedules")
 BACKUPS_DIR = os.path.join(DATA_DIR, "backups")
 MAX_BACKUPS_PER_FILE = 10
+
+# v1.6 — أقفال داخلية لحماية الحالة وملفات JSON عند تعدد المستخدمين
+STATE_LOCK = threading.RLock()
+_JSON_LOCKS_GUARD = threading.RLock()
+_JSON_FILE_LOCKS = {}
+
+def _get_json_file_lock(file_path):
+    key = os.path.abspath(str(file_path))
+    with _JSON_LOCKS_GUARD:
+        lock = _JSON_FILE_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _JSON_FILE_LOCKS[key] = lock
+        return lock
+
+def state_locked(func):
+    """تنفيذ الدوال المعدلة للحالة العامة بصورة متسلسلة داخل العملية الحالية."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        with STATE_LOCK:
+            return func(*args, **kwargs)
+    return wrapper
 
 ADMIN_FILE = os.path.join(DATA_DIR, "admin_staff.xlsx")
 PHONES_FILE = os.path.join(DATA_DIR, "teacher_phones.xlsx")
@@ -89,50 +114,71 @@ def _prune_old_backups(file_path, max_keep=MAX_BACKUPS_PER_FILE):
 
 def safe_write_json(file_path, data, *, make_backup=True):
     """
-    حفظ JSON آمن:
-    1) إنشاء نسخة احتياطية من الملف القديم إن وجد.
-    2) الكتابة في ملف مؤقت.
-    3) التحقق من صلاحية JSON.
-    4) الاستبدال الذري باستخدام os.replace.
+    v1.6 — حفظ JSON آمن ومتزامن:
+    1) قفل خاص بكل ملف.
+    2) نسخة احتياطية من الملف القديم.
+    3) ملف مؤقت فريد داخل المجلد نفسه.
+    4) التحقق من JSON.
+    5) استبدال ذري باستخدام os.replace.
     """
-    try:
-        ensure_data_directories()
+    target_path = os.path.abspath(str(file_path))
+    target_dir = os.path.dirname(target_path) or os.getcwd()
+    temp_path = None
+    lock = _get_json_file_lock(target_path)
 
-        target_path = str(file_path)
-        target_dir = os.path.dirname(target_path)
-        if target_dir:
+    with lock:
+        try:
+            ensure_data_directories()
             os.makedirs(target_dir, exist_ok=True)
 
-        if make_backup and os.path.exists(target_path):
+            if make_backup and os.path.exists(target_path):
+                try:
+                    backup_path = _safe_storage_backup_name(target_path)
+                    shutil.copy2(target_path, backup_path)
+                    _prune_old_backups(target_path)
+                except Exception as backup_error:
+                    print(f"safe_write_json backup warning for {target_path}: {backup_error}")
+
+            base_name = os.path.basename(target_path)
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=target_dir,
+                prefix=f".{base_name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temp_file:
+                temp_path = temp_file.name
+                json.dump(data, temp_file, ensure_ascii=False, indent=2)
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+
+            with open(temp_path, "r", encoding="utf-8") as check_file:
+                json.load(check_file)
+
+            os.replace(temp_path, target_path)
+            temp_path = None
+
             try:
-                backup_path = _safe_storage_backup_name(target_path)
-                shutil.copy2(target_path, backup_path)
-                _prune_old_backups(target_path)
-            except Exception as backup_error:
-                print(f"safe_write_json backup warning for {target_path}: {backup_error}")
+                dir_fd = os.open(target_dir, os.O_RDONLY)
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+            except Exception:
+                pass
 
-        tmp_path = f"{target_path}.tmp"
+            return True
 
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-            f.flush()
-            os.fsync(f.fileno())
-
-        with open(tmp_path, "r", encoding="utf-8") as f:
-            json.load(f)
-
-        os.replace(tmp_path, target_path)
-        return True
-
-    except Exception as e:
-        print(f"safe_write_json error for {file_path}: {e}")
-        try:
-            tmp_path = f"{str(file_path)}.tmp"
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-        except Exception:
-            pass
-        return False
+        except Exception as e:
+            print(f"safe_write_json error for {file_path}: {e}")
+            if temp_path:
+                try:
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                except Exception:
+                    pass
+            return False
 
 
 
@@ -359,7 +405,10 @@ def render_schedule_reference_cards():
         html_parts.append(render_reference_file_card(f"📘 {dept_name}", file_info))
 
     return "".join(html_parts)
-def save_admin_reference_file(file):
+@state_locked
+def save_admin_reference_file(file, is_owner=False):
+    if not bool(is_owner):
+        return "<div style='color:red; font-weight:bold;'>❌ اعتماد الملفات المرجعية متاح لمالك النظام فقط.</div>", gr.update(value=render_admin_reference_card())
     if file is None:
         return "<div style='color:red; font-weight:bold;'>❌ الرجاء اختيار ملف الإداريين أولاً.</div>", gr.update(value=render_admin_reference_card())
 
@@ -373,7 +422,14 @@ def save_admin_reference_file(file):
         return "<div style='color:#2e7d32; font-weight:bold;'>✅ تم اعتماد ملف الإداريين المرجعي بنجاح.</div>", gr.update(value=render_admin_reference_card())
     except Exception as e:
         return f"<div style='color:red; font-weight:bold;'>❌ خطأ أثناء حفظ الملف المرجعي: {str(e)}</div>", gr.update(value=render_admin_reference_card())
-def refresh_admins_from_reference(dept_filter):
+@state_locked
+def refresh_admins_from_reference(dept_filter, is_owner=False):
+    if not bool(is_owner):
+        return (
+            "<div style='color:red; font-weight:bold;'>❌ تحديث بيانات الإداريين متاح لمالك النظام فقط.</div>",
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(value=render_admin_reference_card()), gr.update(value=None)
+        )
     if not os.path.exists(ADMIN_FILE):
         return (
         "<div style='color:red; font-weight:bold;'>❌ لا يوجد ملف إداريين مرجعي حتى الآن.</div>",
@@ -477,7 +533,10 @@ def refresh_admins_from_reference(dept_filter):
             gr.update(value=render_admin_reference_card()),
             gr.update(value=None)
         )
-def save_phones_reference_file(file):
+@state_locked
+def save_phones_reference_file(file, is_owner=False):
+    if not bool(is_owner):
+        return "<div style='color:red; font-weight:bold;'>❌ اعتماد الملفات المرجعية متاح لمالك النظام فقط.</div>", gr.update(value=render_phones_reference_card())
     if file is None:
         return "<div style='color:red; font-weight:bold;'>❌ الرجاء اختيار ملف أرقام المعلمين أولاً.</div>", gr.update(value=render_phones_reference_card())
 
@@ -495,7 +554,13 @@ def save_phones_reference_file(file):
 
     except Exception as e:
         return f"<div style='color:red; font-weight:bold;'>❌ خطأ أثناء حفظ ملف الأرقام المرجعي: {str(e)}</div>", gr.update(value=render_phones_reference_card())
-def refresh_phones_from_reference(dept_filter):
+@state_locked
+def refresh_phones_from_reference(dept_filter, is_owner=False):
+    if not bool(is_owner):
+        return (
+            "<div style='color:red; font-weight:bold;'>❌ تحديث أرقام المعلمين متاح لمالك النظام فقط.</div>",
+            gr.update(), gr.update(value=render_phones_reference_card()), gr.update(value=None)
+        )
     if not os.path.exists(PHONES_FILE):
         return (
             "<div style='color:red; font-weight:bold;'>❌ لا يوجد ملف أرقام معلمين مرجعي حتى الآن.</div>",
@@ -553,7 +618,13 @@ def refresh_phones_from_reference(dept_filter):
             gr.update(value=render_phones_reference_card()),
             gr.update(value=None)
         )
-def save_schedule_reference_file(file, dept_name):
+@state_locked
+def save_schedule_reference_file(file, dept_name, is_owner=False):
+    if not bool(is_owner):
+        return (
+            "<div style='color:red; font-weight:bold;'>❌ اعتماد الجداول المرجعية متاح لمالك النظام فقط.</div>",
+            gr.update(value=render_schedule_reference_cards())
+        )
     if file is None:
         return (
             "<div style='color:red; font-weight:bold;'>❌ الرجاء اختيار ملف الجدول أولاً.</div>",
@@ -589,7 +660,14 @@ def save_schedule_reference_file(file, dept_name):
             f"<div style='color:red; font-weight:bold;'>❌ خطأ أثناء حفظ الملف المرجعي للقسم ({dept_name}): {str(e)}</div>",
             gr.update(value=render_schedule_reference_cards())
         )
-def refresh_schedule_from_reference(dept_name, current_day):
+@state_locked
+def refresh_schedule_from_reference(dept_name, current_day, is_owner=False):
+    if not bool(is_owner):
+        return (
+            "<div style='color:red; font-weight:bold;'>❌ تحديث الجداول المرجعية متاح لمالك النظام فقط.</div>",
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(value=render_schedule_reference_cards()), gr.update(value=None)
+        )
     if dept_name not in SCHEDULE_FILES:
         return (
             f"<div style='color:red; font-weight:bold;'>❌ القسم غير معتمد: {dept_name}</div>",
@@ -859,41 +937,66 @@ def _audit_json_safe(value):
         return str(value)
 
 def write_audit_log(action, target_teacher="", old_value=None, new_value=None, details="", actor_name="", actor_role=""):
-    """تسجيل العمليات الحساسة فقط في ملف data/audit_log.json."""
-    try:
-        ensure_data_directories()
-        actor_name = str(actor_name or "").strip() or "غير محدد"
-        actor_role = str(actor_role or "").strip() or "غير محدد"
+    """تسجيل العمليات الحساسة فقط في ملف data/audit_log.json بصورة متزامنة."""
+    lock = _get_json_file_lock(AUDIT_LOG_FILE)
+    with lock:
+        try:
+            ensure_data_directories()
+            actor_name = str(actor_name or "").strip() or "غير محدد"
+            actor_role = str(actor_role or "").strip() or "غير محدد"
 
-        record = {
-            "timestamp": get_now_oman().strftime("%Y-%m-%d %H:%M:%S"),
-            "actor_name": actor_name,
-            "actor_role": actor_role,
-            "action": str(action or "").strip(),
-            "target_teacher": str(target_teacher or "").strip(),
-            "old_value": _audit_json_safe(old_value),
-            "new_value": _audit_json_safe(new_value),
-            "details": str(details or "").strip(),
-            "source": "منظومة مسار"
-        }
+            record = {
+                "timestamp": get_now_oman().strftime("%Y-%m-%d %H:%M:%S"),
+                "actor_name": actor_name,
+                "actor_role": actor_role,
+                "action": str(action or "").strip(),
+                "target_teacher": str(target_teacher or "").strip(),
+                "old_value": _audit_json_safe(old_value),
+                "new_value": _audit_json_safe(new_value),
+                "details": str(details or "").strip(),
+                "source": "منظومة مسار"
+            }
 
-        existing = []
-        if os.path.exists(AUDIT_LOG_FILE):
-            try:
-                with open(AUDIT_LOG_FILE, "r", encoding="utf-8") as f:
-                    loaded = json.load(f)
-                if isinstance(loaded, list):
-                    existing = loaded
-            except Exception:
-                existing = []
+            existing = []
+            if os.path.exists(AUDIT_LOG_FILE):
+                try:
+                    with open(AUDIT_LOG_FILE, "r", encoding="utf-8") as f:
+                        loaded = json.load(f)
+                    if isinstance(loaded, list):
+                        existing = loaded
+                except Exception:
+                    existing = []
 
-        existing.append(record)
+            existing.append(record)
 
-        if not safe_write_json(AUDIT_LOG_FILE, existing):
-            print("write_audit_log error: safe_write_json failed")
+            if not safe_write_json(AUDIT_LOG_FILE, existing):
+                print("write_audit_log error: safe_write_json failed")
 
-    except Exception as e:
-        print(f"write_audit_log error: {e}")
+        except Exception as e:
+            print(f"write_audit_log error: {e}")
+
+def _queue_audit_change(entries, action, target_teacher, old_value, new_value, details):
+    if old_value == new_value:
+        return
+    entries.append({
+        "action": action,
+        "target_teacher": target_teacher,
+        "old_value": old_value,
+        "new_value": new_value,
+        "details": details,
+    })
+
+def _flush_audit_changes(entries, actor_name="", actor_role=""):
+    for entry in entries:
+        write_audit_log(
+            entry.get("action", ""),
+            target_teacher=entry.get("target_teacher", ""),
+            old_value=entry.get("old_value"),
+            new_value=entry.get("new_value"),
+            details=entry.get("details", ""),
+            actor_name=actor_name,
+            actor_role=actor_role,
+        )
 
 def load_exemptions_log():
     global exemptions_log
@@ -1446,6 +1549,7 @@ def clear_swap_detail_ui():
 
         
 
+@state_locked
 def confirm_swap(t, period_value, choice, d, msg_text, state, actor_name="", actor_role=""):
     t = str(t or "").split(" (")[0].strip()
     current_state = dict(state) if isinstance(state, dict) else {}
@@ -1748,8 +1852,12 @@ def get_falcon_eye_candidates(absent_t, period, day_name):
     except Exception as e:
         return []
 
-def add_manual_staff(name, dept, phone, role, dept_filter):
-    if not name or not str(name).strip(): return "<div style='color:red; font-weight:bold;'>❌ الرجاء إدخال الاسم.</div>", gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+@state_locked
+def add_manual_staff(name, dept, phone, role, dept_filter, is_owner=False):
+    if not bool(is_owner):
+        return "<div style='color:red; font-weight:bold;'>❌ الإضافة اليدوية للطاقم متاحة لمالك النظام فقط.</div>", gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+    if not name or not str(name).strip():
+        return "<div style='color:red; font-weight:bold;'>❌ الرجاء إدخال الاسم.</div>", gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
     t_name = clean_teacher_name(name)
     if t_name not in teachers_db:
         teachers_db[t_name] = {"dept": dept, "cover_count": 0, "absent_count": 0, "shortcoming_count": 0, "phone": "", "specialty": "", "role": role, "exempt_days": [], "exempt_periods": [], "absence_dates": [], "الأحد": {}, "الإثنين": {}, "الثلاثاء": {}, "الأربعاء": {}, "الخميس": {}}
@@ -1758,7 +1866,8 @@ def add_manual_staff(name, dept, phone, role, dept_filter):
         teachers_db[t_name]["role"] = role
     if phone:
         phone_clean = re.sub(r'\D', '', str(phone))
-        if len(phone_clean) == 8: phone_clean = "968" + phone_clean
+        if len(phone_clean) == 8:
+            phone_clean = "968" + phone_clean
         teachers_db[t_name]["phone"] = phone_clean
     save_db()
     choices_all = get_teacher_choices(dept_filter)
@@ -2623,13 +2732,15 @@ def get_generation_button_updates(absent_list, day_name, dept_filter, generation
     )
 
 
-def rollback_auto_assignments_for_absentees(absent_list, day_name):
+@state_locked
+def rollback_auto_assignments_for_absentees(absent_list, day_name, actor_name="", actor_role=""):
     global daily_db
 
     cleaned = set(normalize_absent_names(absent_list))
     if not cleaned or not day_name:
         return
 
+    audit_entries = []
     target_date = get_date_of_weekday(day_name)
     kept_rows = []
 
@@ -2639,9 +2750,16 @@ def rollback_auto_assignments_for_absentees(absent_list, day_name):
             old_status = row.get("حالة_التكليف", "")
 
             if old_sub != "إشراف إداري" and old_sub in teachers_db and old_status == "":
-                teachers_db[old_sub]["cover_count"] = max(
-                    0,
-                    teachers_db[old_sub].get("cover_count", 0) - 1
+                old_count = int(teachers_db[old_sub].get("cover_count", 0) or 0)
+                new_count = max(0, old_count - 1)
+                teachers_db[old_sub]["cover_count"] = new_count
+                _queue_audit_change(
+                    audit_entries,
+                    "تعديل رصيد الاحتياط",
+                    old_sub,
+                    old_count,
+                    new_count,
+                    f"إلغاء إسناد آلي أثناء إعادة التوليد ليوم {day_name}",
                 )
             continue
 
@@ -2650,6 +2768,7 @@ def rollback_auto_assignments_for_absentees(absent_list, day_name):
     daily_db = kept_rows
     save_db()
     save_daily_db()
+    _flush_audit_changes(audit_entries, actor_name, actor_role)
 
 def clear_generated_image():
     return gr.update(value=None)
@@ -2755,7 +2874,7 @@ def detect_conflicted_absence_slots(display_records):
     return conflicted_teachers, conflicted_slots
 
 
-def run_main_generation(absent_list, day_name, dept_filter, max_reserves, is_admin_logged_in, generation_state):
+def run_main_generation(absent_list, day_name, dept_filter, max_reserves, is_admin_logged_in, generation_state, actor_name="", actor_role=""):
     cleaned = normalize_absent_names(absent_list)
 
     if not cleaned or not day_name:
@@ -2777,7 +2896,7 @@ def run_main_generation(absent_list, day_name, dept_filter, max_reserves, is_adm
         run_list = [name for name in cleaned if name not in prev_absents]
 
     if run_list:
-        assign_logic(run_list, day_name, dept_filter, max_reserves, False, is_admin_logged_in)
+        assign_logic(run_list, day_name, dept_filter, max_reserves, False, is_admin_logged_in, actor_name, actor_role)
 
     new_state = {
         "day": day_name,
@@ -2793,7 +2912,7 @@ def run_main_generation(absent_list, day_name, dept_filter, max_reserves, is_adm
 
     return tuple(ui) + (btn_upd, regen_upd, new_state)
 
-def run_full_regeneration(absent_list, day_name, dept_filter, max_reserves, is_admin_logged_in, generation_state):
+def run_full_regeneration(absent_list, day_name, dept_filter, max_reserves, is_admin_logged_in, generation_state, actor_name="", actor_role=""):
     cleaned = normalize_absent_names(absent_list)
 
     if not cleaned or not day_name:
@@ -2801,8 +2920,8 @@ def run_full_regeneration(absent_list, day_name, dept_filter, max_reserves, is_a
         btn_upd, regen_upd = get_generation_button_updates(cleaned, day_name, dept_filter, generation_state)
         return tuple(ui) + (btn_upd, regen_upd, generation_state)
 
-    rollback_auto_assignments_for_absentees(cleaned, day_name)
-    assign_logic(cleaned, day_name, dept_filter, max_reserves, False, is_admin_logged_in)
+    rollback_auto_assignments_for_absentees(cleaned, day_name, actor_name, actor_role)
+    assign_logic(cleaned, day_name, dept_filter, max_reserves, False, is_admin_logged_in, actor_name, actor_role)
 
     new_state = {
         "day": day_name,
@@ -2983,8 +3102,11 @@ def refresh_ui_on_change(dept, day_name, is_admin_logged_in, current_abs=None):
         gr.update(interactive=is_visible)                
     )
 
-def assign_logic(absent_list, day_name, dept_filter, max_reserves, is_alt, is_admin_logged_in):
+@state_locked
+def assign_logic(absent_list, day_name, dept_filter, max_reserves, is_alt, is_admin_logged_in, actor_name="", actor_role=""):
     global last_assigned_teachers, processed_absences, daily_db
+
+    audit_entries = []
 
     if isinstance(absent_list, str):
         raw_absents = [absent_list]
@@ -3013,8 +3135,6 @@ def assign_logic(absent_list, day_name, dept_filter, max_reserves, is_alt, is_ad
             target_absents.append(name)
 
     if is_alt:
-        # زر "مقترح آخر" يعيد التوزيع الآلي لاحتياط اليوم بالكامل.
-        # يحذف السجلات الآلية فقط، ويحافظ على التبادل والتقصير لأنها قرارات مقصودة.
         records_to_keep = []
         records_to_delete = []
 
@@ -3036,9 +3156,16 @@ def assign_logic(absent_list, day_name, dept_filter, max_reserves, is_alt, is_ad
         for row in records_to_delete:
             old_sub = clean_teacher_name_from_ui(row.get("المعلم البديل", ""))
             if old_sub != "إشراف إداري" and old_sub in teachers_db:
-                teachers_db[old_sub]["cover_count"] = max(
-                    0,
-                    teachers_db[old_sub].get("cover_count", 0) - 1
+                old_count = int(teachers_db[old_sub].get("cover_count", 0) or 0)
+                new_count = max(0, old_count - 1)
+                teachers_db[old_sub]["cover_count"] = new_count
+                _queue_audit_change(
+                    audit_entries,
+                    "تعديل رصيد الاحتياط",
+                    old_sub,
+                    old_count,
+                    new_count,
+                    f"إلغاء إسناد آلي بسبب طلب مقترح آخر ليوم {day_name}",
                 )
 
         generation_absents = target_absents
@@ -3047,7 +3174,17 @@ def assign_logic(absent_list, day_name, dept_filter, max_reserves, is_alt, is_ad
         for abs_t in absent_list_clean:
             if (target_date, abs_t) not in processed_absences:
                 if abs_t in teachers_db:
-                    teachers_db[abs_t]["absent_count"] = teachers_db[abs_t].get("absent_count", 0) + 1
+                    old_absent = int(teachers_db[abs_t].get("absent_count", 0) or 0)
+                    new_absent = old_absent + 1
+                    teachers_db[abs_t]["absent_count"] = new_absent
+                    _queue_audit_change(
+                        audit_entries,
+                        "تعديل مرات الغياب",
+                        abs_t,
+                        old_absent,
+                        new_absent,
+                        f"تسجيل غياب يوم {day_name} ({target_date})",
+                    )
                     if "absence_dates" not in teachers_db[abs_t]:
                         teachers_db[abs_t]["absence_dates"] = []
                     date_entry = f"{day_name} ({target_date})"
@@ -3088,15 +3225,22 @@ def assign_logic(absent_list, day_name, dept_filter, max_reserves, is_alt, is_ad
             cands = []
             for t, t_info in teachers_db.items():
                 if t in all_absent_today:
-                  continue
-                if t_info.get("dept") != abs_dept: continue
-                if p_int in t_info.get(day_name, {}): continue
+                    continue
+                if t_info.get("dept") != abs_dept:
+                    continue
+                if p_int in t_info.get(day_name, {}):
+                    continue
                 role = t_info.get("role", "معلم")
-                if role in ADMIN_ROLES: continue
-                if p_int in assigned_periods_today[t]: continue
-                if daily_assigned_count[t] >= max_reserves: continue
-                if day_name in t_info.get("exempt_days", []): continue
-                if p_int in t_info.get("exempt_periods", []): continue
+                if role in ADMIN_ROLES:
+                    continue
+                if p_int in assigned_periods_today[t]:
+                    continue
+                if daily_assigned_count[t] >= max_reserves:
+                    continue
+                if day_name in t_info.get("exempt_days", []):
+                    continue
+                if p_int in t_info.get("exempt_periods", []):
+                    continue
                 cands.append(t)
             if not cands:
                 res.append({"المعلم الغائب": abs_t, "الصف": cl, "الحصة": str(p_int), "المعلم البديل": "إشراف إداري", "حالة_التكليف": ""})
@@ -3104,7 +3248,17 @@ def assign_logic(absent_list, day_name, dept_filter, max_reserves, is_alt, is_ad
                 random.shuffle(cands)
                 cands.sort(key=lambda t: teachers_db[t]["cover_count"])
                 sel = cands[0]
-                teachers_db[sel]["cover_count"] += 1
+                old_cover = int(teachers_db[sel].get("cover_count", 0) or 0)
+                new_cover = old_cover + 1
+                teachers_db[sel]["cover_count"] = new_cover
+                _queue_audit_change(
+                    audit_entries,
+                    "تعديل رصيد الاحتياط",
+                    sel,
+                    old_cover,
+                    new_cover,
+                    f"إسناد احتياط آلي بدل {abs_t} في الحصة {p_int} يوم {day_name}",
+                )
                 daily_assigned_count[sel] += 1
                 assigned_periods_today[sel].add(p_int)
                 current_assigned.append(sel)
@@ -3116,14 +3270,15 @@ def assign_logic(absent_list, day_name, dept_filter, max_reserves, is_alt, is_ad
         r["date"] = target_date
         r["dept"] = teachers_db.get(r["المعلم الغائب"], {}).get("dept", "عام")
         is_dup = any(
-            x["date"]          == r["date"]          and
+            x["date"] == r["date"] and
             x["المعلم الغائب"] == r["المعلم الغائب"] and
-            x["الحصة"]         == r["الحصة"]
+            x["الحصة"] == r["الحصة"]
             for x in daily_db
         )
         if not is_dup:
             daily_db.append(r)
     save_daily_db()
+    _flush_audit_changes(audit_entries, actor_name, actor_role)
     return refresh_ui_on_change(
         dept_filter,
         day_name,
@@ -3131,16 +3286,17 @@ def assign_logic(absent_list, day_name, dept_filter, max_reserves, is_alt, is_ad
         current_abs=(target_absents if is_alt else absent_list_clean)
     )
     
-def cancel_teacher_absence(abs_t, day_name, dept_filter, is_admin_logged_in, current_abs):
+@state_locked
+def cancel_teacher_absence(abs_t, day_name, dept_filter, is_admin_logged_in, current_abs, actor_name="", actor_role=""):
     global daily_db, processed_absences, teachers_db
     if not abs_t or not day_name:
         return refresh_ui_on_change(dept_filter, day_name, is_admin_logged_in, current_abs=current_abs)
 
-    # تنظيف اسم المعلم القادم من قائمة غرفة العمليات؛ لأنها قد تضيف رموز الرادار ✅ 🚨 🔷 أو المنصب بين قوسين.
     abs_t_clean = clean_teacher_name_from_ui(abs_t)
     if not abs_t_clean:
         return refresh_ui_on_change(dept_filter, day_name, is_admin_logged_in, current_abs=current_abs)
 
+    audit_entries = []
     target_date = get_date_of_weekday(day_name)
     records_to_keep, records_to_delete = [], []
 
@@ -3157,12 +3313,31 @@ def cancel_teacher_absence(abs_t, day_name, dept_filter, is_admin_logged_in, cur
     for r in records_to_delete:
         sub = str(r.get("المعلم البديل", "")).replace(" 🔄", "").replace("🔄", "").strip()
         status = r.get("حالة_التكليف", "")
-        if sub != "إشراف إداري" and sub in teachers_db:
-            if status == "":
-                teachers_db[sub]["cover_count"] = max(0, teachers_db[sub].get("cover_count", 0) - 1)
+        if sub != "إشراف إداري" and sub in teachers_db and status == "":
+            old_cover = int(teachers_db[sub].get("cover_count", 0) or 0)
+            new_cover = max(0, old_cover - 1)
+            teachers_db[sub]["cover_count"] = new_cover
+            _queue_audit_change(
+                audit_entries,
+                "تعديل رصيد الاحتياط",
+                sub,
+                old_cover,
+                new_cover,
+                f"إلغاء احتياط بسبب إلغاء غياب {abs_t_clean} يوم {day_name}",
+            )
 
     if abs_t_clean in teachers_db:
-        teachers_db[abs_t_clean]["absent_count"] = max(0, teachers_db[abs_t_clean].get("absent_count", 0) - 1)
+        old_absent = int(teachers_db[abs_t_clean].get("absent_count", 0) or 0)
+        new_absent = max(0, old_absent - 1)
+        teachers_db[abs_t_clean]["absent_count"] = new_absent
+        _queue_audit_change(
+            audit_entries,
+            "تعديل مرات الغياب",
+            abs_t_clean,
+            old_absent,
+            new_absent,
+            f"إلغاء غياب يوم {day_name} ({target_date})",
+        )
         date_entry = f"{day_name} ({target_date})"
         if "absence_dates" in teachers_db[abs_t_clean]:
             if date_entry in teachers_db[abs_t_clean]["absence_dates"]:
@@ -3175,14 +3350,15 @@ def cancel_teacher_absence(abs_t, day_name, dept_filter, is_admin_logged_in, cur
 
     save_db()
     save_daily_db()
+    _flush_audit_changes(audit_entries, actor_name, actor_role)
 
     updated_abs = []
     if current_abs:
         updated_abs = [t for t in current_abs if clean_teacher_name_from_ui(t) != abs_t_clean]
 
     return refresh_ui_on_change(dept_filter, day_name, is_admin_logged_in, current_abs=updated_abs)
-def cancel_teacher_absence_with_generation_state(abs_t, day_name, dept_filter, is_admin_logged_in, current_abs):
-    ui = cancel_teacher_absence(abs_t, day_name, dept_filter, is_admin_logged_in, current_abs)
+def cancel_teacher_absence_with_generation_state(abs_t, day_name, dept_filter, is_admin_logged_in, current_abs, actor_name="", actor_role=""):
+    ui = cancel_teacher_absence(abs_t, day_name, dept_filter, is_admin_logged_in, current_abs, actor_name, actor_role)
 
     remaining_absents = get_existing_absents_for_context(day_name, dept_filter)
 
@@ -3448,7 +3624,8 @@ def update_available_subs_smart(abs_t, period, intervention_type, day_name, df_s
         opts.append("إشراف إداري")
     return gr.update(choices=opts, value=None, interactive=True)
 
-def process_admin_action(df_state, abs_t, period, new_sub, day_name, dept_filter, is_admin_logged_in, current_abs, action_type):
+@state_locked
+def process_admin_action(df_state, abs_t, period, new_sub, day_name, dept_filter, is_admin_logged_in, current_abs, action_type, actor_name="", actor_role=""):
     global daily_db
     if df_state is None or df_state.empty or not abs_t or not period:
         return refresh_ui_on_change(dept_filter, day_name, is_admin_logged_in, current_abs=current_abs)
@@ -3456,44 +3633,81 @@ def process_admin_action(df_state, abs_t, period, new_sub, day_name, dept_filter
         if not new_sub or str(new_sub).startswith("⚠️") or str(new_sub).startswith("ℹ️"):
             return refresh_ui_on_change(dept_filter, day_name, is_admin_logged_in, current_abs=current_abs)
     target_date = get_date_of_weekday(day_name)
-    
+    audit_entries = []
+
     abs_t_clean = clean_teacher_name_from_ui(abs_t)
     p_str_clean = str(period).split("-")[0].replace("الحصة", "").strip()
-    
+
     for r in daily_db:
         if r["date"] == target_date and r["المعلم الغائب"] == abs_t_clean and r["الحصة"] == p_str_clean:
             old_sub = r["المعلم البديل"]
             old_status = r.get("حالة_التكليف", "")
-            
-            if action_type == "penalty": target_sub = old_sub
+
+            if action_type == "penalty":
+                target_sub = old_sub
             else:
-                if not new_sub: return refresh_ui_on_change(dept_filter, day_name, is_admin_logged_in, current_abs=current_abs)
-                if new_sub == "إشراف إداري": target_sub = new_sub
-                else: target_sub = new_sub.split(" (")[0].replace("🦅 ", "").strip()
-                
-            if old_sub == target_sub and action_type == "normal" and old_status == "": break
-            
-            if old_sub != "إشراف إداري" and old_sub in teachers_db:
-                if old_status == "": teachers_db[old_sub]["cover_count"] = max(0, teachers_db[old_sub].get("cover_count", 0) - 1)
-                
+                if not new_sub:
+                    return refresh_ui_on_change(dept_filter, day_name, is_admin_logged_in, current_abs=current_abs)
+                if new_sub == "إشراف إداري":
+                    target_sub = new_sub
+                else:
+                    target_sub = new_sub.split(" (")[0].replace("🦅 ", "").strip()
+
+            if old_sub == target_sub and action_type == "normal" and old_status == "":
+                break
+
+            if old_sub != "إشراف إداري" and old_sub in teachers_db and old_status == "":
+                old_count = int(teachers_db[old_sub].get("cover_count", 0) or 0)
+                new_count = max(0, old_count - 1)
+                teachers_db[old_sub]["cover_count"] = new_count
+                _queue_audit_change(
+                    audit_entries,
+                    "تعديل رصيد الاحتياط",
+                    old_sub,
+                    old_count,
+                    new_count,
+                    f"إلغاء تكليف سابق للحصة {p_str_clean} يوم {day_name}",
+                )
+
             if action_type == "penalty":
                 if target_sub != "إشراف إداري" and old_status != "تقصير" and target_sub in teachers_db:
-                    teachers_db[target_sub]["shortcoming_count"] = teachers_db[target_sub].get("shortcoming_count", 0) + 1
-                r["المعلم البديل"] = target_sub 
+                    old_short = int(teachers_db[target_sub].get("shortcoming_count", 0) or 0)
+                    new_short = old_short + 1
+                    teachers_db[target_sub]["shortcoming_count"] = new_short
+                    _queue_audit_change(
+                        audit_entries,
+                        "تعديل حالات التقصير",
+                        target_sub,
+                        old_short,
+                        new_short,
+                        f"رصد تقصير في تكليف الحصة {p_str_clean} يوم {day_name}",
+                    )
+                r["المعلم البديل"] = target_sub
                 r["حالة_التكليف"] = "تقصير"
-                
+
             elif action_type == "tabadul":
                 r["المعلم البديل"] = target_sub
                 r["حالة_التكليف"] = "تبادل"
-                
+
             elif action_type == "normal":
                 r["المعلم البديل"] = target_sub
                 r["حالة_التكليف"] = ""
                 if target_sub != "إشراف إداري" and target_sub in teachers_db:
-                    teachers_db[target_sub]["cover_count"] = teachers_db[target_sub].get("cover_count", 0) + 1
-                    
+                    old_count = int(teachers_db[target_sub].get("cover_count", 0) or 0)
+                    new_count = old_count + 1
+                    teachers_db[target_sub]["cover_count"] = new_count
+                    _queue_audit_change(
+                        audit_entries,
+                        "تعديل رصيد الاحتياط",
+                        target_sub,
+                        old_count,
+                        new_count,
+                        f"تكليف احتياط رسمي للحصة {p_str_clean} يوم {day_name}",
+                    )
+
             save_db()
             save_daily_db()
+            _flush_audit_changes(audit_entries, actor_name, actor_role)
             break
     return refresh_ui_on_change(dept_filter, day_name, is_admin_logged_in, current_abs=current_abs)
     
@@ -3530,6 +3744,7 @@ def load_teacher_data_for_edit(selected_teacher, is_admin=False, is_owner=False)
     
 def toggle_specialty_visibility(dept): return gr.update(visible=dept in ["العلوم", "المهارات الفردية"])
 
+@state_locked
 def update_manual_count(name, new_val, new_abs_val, new_short_val, new_phone, new_specialty, new_role, dept_filter, day_val, df_state, abs_in_list, is_admin=False, is_owner=False, actor_name="", actor_role=""):
     permissions = get_permissions_from_flags(is_admin=is_admin, is_owner=is_owner)
     can_edit_vault = permissions["can_edit_vault_basic"]
@@ -3621,8 +3836,11 @@ def update_manual_count(name, new_val, new_abs_val, new_short_val, new_phone, ne
         return (gr.update(value=get_updated_balance(dept_filter)), gr.update(value=get_updated_absences(dept_filter)), gr.update(value=get_updated_shortcomings(dept_filter)), gr.update(value=get_day_overview(day_val, dept_filter)), f"<div style='color:#2e7d32; font-weight:bold; background:#e8f5e9; padding:10px; border-radius:5px; text-align:center;'>✅ تم حفظ التعديلات للأستاذ ({name}) بنجاح!{permission_note}</div>", gr.update(choices=abs_choices), gr.update(choices=choices_all, value=None), gr.update(choices=choices_all, value=None))
     return (gr.update(value=get_updated_balance(dept_filter)), gr.update(value=get_updated_absences(dept_filter)), gr.update(value=get_updated_shortcomings(dept_filter)), gr.update(value=get_day_overview(day_val, dept_filter)), "<div style='color:red;'>❌ لم يتم الحفظ</div>", gr.update(), gr.update(), gr.update())
 
-def delete_single_teacher(name, dept_filter, day_val):
+@state_locked
+def delete_single_teacher(name, dept_filter, day_val, is_owner=False):
     global teachers_db
+    if not bool(is_owner):
+        return (gr.update(), gr.update(), gr.update(), gr.update(), "<div style='color:red;'>❌ حذف السجل متاح لمالك النظام فقط.</div>", gr.update(), gr.update(), gr.update(), gr.update())
     if name and name in teachers_db:
         del teachers_db[name]
         save_db()
@@ -3669,7 +3887,12 @@ def load_teacher_rules(t_name):
         )
     return gr.update(value=[]), gr.update(value=[])
 
-def save_teacher_rules(t_name, days, periods, actor_name="", actor_role=""):
+@state_locked
+def save_teacher_rules(t_name, days, periods, actor_name="", actor_role="", is_admin=False, is_owner=False):
+    permissions = get_permissions(role=actor_role, is_owner=is_owner, is_admin_flag=is_admin)
+    if not permissions["can_manage_exemptions"]:
+        return "<div style='color:#b91c1c; font-weight:bold; background:#fee2e2; padding:10px; border-radius:5px; text-align:center;'>❌ لا تملك صلاحية تعديل حالات الإعفاء.</div>", gr.update(value=render_exemptions_log_html())
+
     t_key = resolve_teacher_key_from_ui(t_name)
     if t_key and t_key in teachers_db:
         if teachers_db[t_key].get("dept") == "الهيئة الإدارية" or teachers_db[t_key].get("role", "معلم") in ADMIN_ROLES:
@@ -3753,8 +3976,23 @@ def export_excel_report(dept_filter):
             worksheet.column_dimensions[column].width = adjusted_width
     return gr.update(value=filename)
 
-def reset_monthly_balances(dept_filter, day_val):
+@state_locked
+def reset_monthly_balances(dept_filter, day_val, is_admin=False, is_owner=False, actor_name="", actor_role=""):
     global daily_db, processed_absences, last_assigned_teachers
+
+    permissions = get_permissions(role=actor_role, is_owner=is_owner, is_admin_flag=is_admin)
+    if not permissions["can_close_month"]:
+        return (
+            gr.update(value=get_updated_balance(dept_filter)),
+            gr.update(value=get_updated_absences(dept_filter)),
+            gr.update(value=get_updated_shortcomings(dept_filter)),
+            gr.update(value=get_day_overview(day_val, dept_filter)),
+            "<div style='color:#c62828; font-weight:bold; background:#ffebee; padding:12px; border-radius:8px; text-align:center;'>❌ إقفال الشهر متاح لمالك النظام والإدارة فقط.</div>"
+        )
+
+    old_cover = {t: int(info.get("cover_count", 0) or 0) for t, info in teachers_db.items() if int(info.get("cover_count", 0) or 0) != 0}
+    old_absent = {t: int(info.get("absent_count", 0) or 0) for t, info in teachers_db.items() if int(info.get("absent_count", 0) or 0) != 0}
+    old_short = {t: int(info.get("shortcoming_count", 0) or 0) for t, info in teachers_db.items() if int(info.get("shortcoming_count", 0) or 0) != 0}
 
     for t in teachers_db:
         teachers_db[t]["cover_count"] = 0
@@ -3767,10 +4005,16 @@ def reset_monthly_balances(dept_filter, day_val):
     daily_db = []
     processed_absences = set()
     last_assigned_teachers = []
-
     save_daily_db()
 
-    msg = "<div style='color:#1565c0; font-weight:bold; background:#e3f2fd; padding:15px; border-radius:10px; text-align:center; margin-bottom:10px;'>✅ تم إقفال الشهر بنجاح! جميع الأرصدة والتواريخ وحالات التقصير عادت للصفر.</div>"
+    if old_cover:
+        write_audit_log("تعديل رصيد الاحتياط", "جميع المعلمين", old_cover, 0, "إقفال الشهر وتصفير أرصدة الاحتياط", actor_name, actor_role)
+    if old_absent:
+        write_audit_log("تعديل مرات الغياب", "جميع المعلمين", old_absent, 0, "إقفال الشهر وتصفير مرات وتواريخ الغياب", actor_name, actor_role)
+    if old_short:
+        write_audit_log("تعديل حالات التقصير", "جميع المعلمين", old_short, 0, "إقفال الشهر وتصفير حالات التقصير", actor_name, actor_role)
+
+    msg = "<div style='color:#1565c0; font-weight:bold; background:#e3f2fd; padding:15px; border-radius:10px; text-align:center; margin-bottom:10px;'>✅ تم إقفال الشهر بنجاح! تم حفظ نسخ احتياطية ثم تصفير الأرصدة والغياب والتقصير.</div>"
 
     return (
         gr.update(value=get_updated_balance(dept_filter)),
@@ -3780,7 +4024,8 @@ def reset_monthly_balances(dept_filter, day_val):
         msg
     )
     
-def clear_all_data(is_admin_logged_in):
+@state_locked
+def clear_all_data(is_owner_logged_in):
     global teachers_db, daily_db, processed_absences, last_assigned_teachers
 
     empty_balance_df = pd.DataFrame(columns=["المعلم", "الرصيد"])
@@ -3793,7 +4038,7 @@ def clear_all_data(is_admin_logged_in):
     empty_day_html, _, _, _ = render_day_table_html(empty_day_df, 0, PAGE_SIZE)
     empty_generation_state = get_empty_generation_state()
 
-    if not is_admin_logged_in:
+    if not is_owner_logged_in:
         return (
             gr.update(),
             gr.update(),
@@ -3809,7 +4054,7 @@ def clear_all_data(is_admin_logged_in):
             gr.update(),
             gr.update(),
             gr.update(),
-            "<div style='color:red; font-weight:bold;'>❌ هذه العملية متاحة للإدارة فقط.</div>",
+            "<div style='color:red; font-weight:bold;'>❌ هذه العملية متاحة لمالك النظام فقط.</div>",
             gr.update(),
             gr.update(),
             gr.update(),
@@ -3833,11 +4078,9 @@ def clear_all_data(is_admin_logged_in):
     processed_absences = set()
     last_assigned_teachers = []
 
-    if os.path.exists(DB_FILE):
-        os.remove(DB_FILE)
-
-    if os.path.exists(DAILY_DB_FILE):
-        os.remove(DAILY_DB_FILE)
+    # الحفظ الآمن ينشئ نسخة احتياطية قبل كتابة الحالة الفارغة.
+    save_db()
+    save_daily_db()
 
     return (
         gr.update(choices=["الكل"] + OFFICIAL_DEPTS, value="الكل"),
@@ -3910,6 +4153,10 @@ def get_permissions(role="", is_owner=False, dept_value="", is_admin_flag=None):
     can_edit_vault_basic = bool((owner_mode or admin_mode) and not shared_teacher_mode)
     can_edit_sensitive_teacher_data = bool(owner_mode)
     can_clear_system = bool(owner_mode)
+    can_close_month = bool((owner_mode or admin_mode) and not shared_teacher_mode)
+    can_manage_school_data = bool(owner_mode)
+    can_add_manual_staff = bool(owner_mode)
+    can_delete_teacher = bool(owner_mode)
 
     return {
         "is_owner": owner_mode,
@@ -3938,6 +4185,10 @@ def get_permissions(role="", is_owner=False, dept_value="", is_admin_flag=None):
         "can_edit_vault_basic": can_edit_vault_basic,
         "can_edit_sensitive_teacher_data": can_edit_sensitive_teacher_data,
         "can_clear_system": can_clear_system,
+        "can_close_month": can_close_month,
+        "can_manage_school_data": can_manage_school_data,
+        "can_add_manual_staff": can_add_manual_staff,
+        "can_delete_teacher": can_delete_teacher,
     }
 
 def get_permissions_from_flags(is_admin=False, is_owner=False):
@@ -3983,7 +4234,7 @@ def attempt_login(pin, day_val):
 
         if is_admin:
             up_dept_update = gr.update(interactive=True)
-            manual_entry_visibility = gr.update(visible=True)
+            manual_entry_visibility = gr.update(visible=is_owner)
         else:
             up_dept_update = gr.update(value=None, interactive=False)
             manual_entry_visibility = gr.update(visible=False)
@@ -6102,7 +6353,7 @@ with gr.Blocks() as app:
 
                     with gr.Row(elem_classes="yellow-box"):
                         export_btn = gr.Button("📥 تصدير تقرير المدرسة (Excel)", elem_classes="export-btn")
-                        reset_month_btn = gr.Button("🔄 إقفال الشهر (تصفير الأرصدة فقط)", elem_classes="reset-btn")
+                        reset_month_btn = gr.Button("🔄 إقفال الشهر (تصفير الأرصدة فقط)", elem_classes="reset-btn", visible=False)
                 
                     report_file = gr.File(label="📥 التقرير الجاهز للتحميل")
 
@@ -6334,6 +6585,11 @@ with gr.Blocks() as app:
         [],
         [exemptions_log_html],
         queue=False
+    ).then(
+        lambda adm, own: gr.update(visible=bool(adm or own)),
+        [current_user_is_admin, current_user_is_owner],
+        [reset_month_btn],
+        queue=False
     )
     pin_input.submit(
         attempt_login,
@@ -6359,6 +6615,11 @@ with gr.Blocks() as app:
         lambda: gr.update(value=render_exemptions_log_html()),
         [],
         [exemptions_log_html],
+        queue=False
+    ).then(
+        lambda adm, own: gr.update(visible=bool(adm or own)),
+        [current_user_is_admin, current_user_is_owner],
+        [reset_month_btn],
         queue=False
     )
     logout_btn.click(do_logout, inputs=[], outputs=[login_container, main_app_container, welcome_html, dept_in, current_user_is_admin, current_user_is_owner, current_user_name, current_user_role, current_schedule_state, img_out, cb_cross_dept, school_data_tab, controls_row, exemptions_tab, distribution_tab, balances_tab, swap_tab, day_tab, teacher_tab, swap_export_row, reserve_generation_state, swap_confirmed_state]).then(
@@ -6417,40 +6678,40 @@ with gr.Blocks() as app:
     btn_apply_penalty.click(clear_generated_image, None, [img_out], queue=False)
     btn_cancel_absence.click(clear_generated_image, None, [img_out], queue=False)
     
-    manual_add_btn.click(add_manual_staff, [manual_name, manual_dept, manual_phone, manual_role, dept_in], [manual_status_html, abs_in, check_teacher_in, rule_teacher, t_name, manual_name, manual_phone])
+    manual_add_btn.click(add_manual_staff, [manual_name, manual_dept, manual_phone, manual_role, dept_in, current_user_is_owner], [manual_status_html, abs_in, check_teacher_in, rule_teacher, t_name, manual_name, manual_phone])
     save_admin_reference_btn.click(
         save_admin_reference_file,
-        [admin_reference_upload],
+        [admin_reference_upload, current_user_is_owner],
         [admin_reference_status_html, school_data_admin_html]
     )
     refresh_admin_reference_btn.click(
         refresh_admins_from_reference,
-        [dept_in],
+        [dept_in, current_user_is_owner],
         [admin_reference_status_html, abs_in, check_teacher_in, rule_teacher, t_name, tbl_bal, school_data_admin_html, admin_reference_upload]
     )
     save_phones_reference_btn.click(
         save_phones_reference_file,
-        [phones_reference_upload],
+        [phones_reference_upload, current_user_is_owner],
         [phones_reference_status_html, school_data_phones_html]
     )
     refresh_phones_reference_btn.click(
         refresh_phones_from_reference,
-        [dept_in],
+        [dept_in, current_user_is_owner],
         [phones_reference_status_html, tbl_bal, school_data_phones_html, phones_reference_upload]
     )
     save_schedule_reference_btn.click(
         save_schedule_reference_file,
-        [schedule_reference_upload, schedule_reference_dept],
+        [schedule_reference_upload, schedule_reference_dept, current_user_is_owner],
         [schedule_reference_status_html, school_data_schedules_html]
     )
     refresh_schedule_reference_btn.click(
         refresh_schedule_from_reference,
-        [schedule_reference_dept, day_in],
+        [schedule_reference_dept, day_in, current_user_is_owner],
         [schedule_reference_status_html, abs_in, check_teacher_in, rule_teacher, tbl_bal, tbl_abs, tbl_day, school_data_schedules_html, schedule_reference_upload]
     )
     clear_btn.click(
         clear_all_data,
-        [current_user_is_admin],
+        [current_user_is_owner],
         [
             dept_in,
             abs_in,
@@ -6491,7 +6752,7 @@ with gr.Blocks() as app:
         rule_teacher,
         [rule_days, rule_periods, rule_status, exemptions_log_html]
     )
-    rule_save_btn.click(save_teacher_rules, [rule_teacher, rule_days, rule_periods, current_user_name, current_user_role], [rule_status, exemptions_log_html])
+    rule_save_btn.click(save_teacher_rules, [rule_teacher, rule_days, rule_periods, current_user_name, current_user_role, current_user_is_admin, current_user_is_owner], [rule_status, exemptions_log_html])
     exemptions_tab.select(
         lambda: gr.update(value=render_exemptions_log_html()),
         [],
@@ -6501,15 +6762,15 @@ with gr.Blocks() as app:
     
     btn.click(
         run_main_generation,
-        [abs_in, day_in, dept_in, max_reserves_input, current_user_is_admin, reserve_generation_state],
+        [abs_in, day_in, dept_in, max_reserves_input, current_user_is_admin, reserve_generation_state, current_user_name, current_user_role],
         update_outputs + [btn, btn_regenerate, reserve_generation_state]
     )
     btn_regenerate.click(
         run_full_regeneration,
-        [abs_in, day_in, dept_in, max_reserves_input, current_user_is_admin, reserve_generation_state],
+        [abs_in, day_in, dept_in, max_reserves_input, current_user_is_admin, reserve_generation_state, current_user_name, current_user_role],
         update_outputs + [btn, btn_regenerate, reserve_generation_state]
     )
-    btn_alt.click(lambda a, d, dp, mr, adm: assign_logic(a, d, dp, mr, True, adm), [abs_in, day_in, dept_in, max_reserves_input, current_user_is_admin], update_outputs)
+    btn_alt.click(lambda a, d, dp, mr, adm, an, ar: assign_logic(a, d, dp, mr, True, adm, an, ar), [abs_in, day_in, dept_in, max_reserves_input, current_user_is_admin, current_user_name, current_user_role], update_outputs)
     abs_in.change(
         get_generation_button_updates,
         [abs_in, day_in, dept_in, reserve_generation_state],
@@ -6557,12 +6818,12 @@ with gr.Blocks() as app:
         [btn_apply_override, btn_apply_tabadul, btn_apply_penalty, btn_cancel_absence],
         queue=False
     )
-    btn_apply_override.click(lambda dfs, at, p, ns, dn, dpt, adm, ca: process_admin_action(dfs, at, p, ns, dn, dpt, adm, ca, "normal"), [current_schedule_state, edit_abs_t, edit_period, edit_new_sub, day_in, dept_in, current_user_is_admin, abs_in], update_outputs)
-    btn_apply_tabadul.click(lambda dfs, at, p, ns, dn, dpt, adm, ca: process_admin_action(dfs, at, p, ns, dn, dpt, adm, ca, "tabadul"), [current_schedule_state, edit_abs_t, edit_period, edit_new_sub, day_in, dept_in, current_user_is_admin, abs_in], update_outputs)
-    btn_apply_penalty.click(lambda dfs, at, p, ns, dn, dpt, adm, ca: process_admin_action(dfs, at, p, ns, dn, dpt, adm, ca, "penalty"), [current_schedule_state, edit_abs_t, edit_period, edit_new_sub, day_in, dept_in, current_user_is_admin, abs_in], update_outputs)
+    btn_apply_override.click(lambda dfs, at, p, ns, dn, dpt, adm, ca, an, ar: process_admin_action(dfs, at, p, ns, dn, dpt, adm, ca, "normal", an, ar), [current_schedule_state, edit_abs_t, edit_period, edit_new_sub, day_in, dept_in, current_user_is_admin, abs_in, current_user_name, current_user_role], update_outputs)
+    btn_apply_tabadul.click(lambda dfs, at, p, ns, dn, dpt, adm, ca, an, ar: process_admin_action(dfs, at, p, ns, dn, dpt, adm, ca, "tabadul", an, ar), [current_schedule_state, edit_abs_t, edit_period, edit_new_sub, day_in, dept_in, current_user_is_admin, abs_in, current_user_name, current_user_role], update_outputs)
+    btn_apply_penalty.click(lambda dfs, at, p, ns, dn, dpt, adm, ca, an, ar: process_admin_action(dfs, at, p, ns, dn, dpt, adm, ca, "penalty", an, ar), [current_schedule_state, edit_abs_t, edit_period, edit_new_sub, day_in, dept_in, current_user_is_admin, abs_in, current_user_name, current_user_role], update_outputs)
     btn_cancel_absence.click(
         cancel_teacher_absence_with_generation_state,
-        [edit_abs_t, day_in, dept_in, current_user_is_admin, abs_in],
+        [edit_abs_t, day_in, dept_in, current_user_is_admin, abs_in, current_user_name, current_user_role],
         update_outputs + [btn, btn_regenerate, reserve_generation_state]
     )
     # ── أحداث الخزنة والتقارير والتبادل ─────────────────────────
@@ -6580,9 +6841,9 @@ with gr.Blocks() as app:
     t_specialty_edit
     )
     t_btn.click(update_manual_count, [t_name, t_val, t_abs_val, t_short_val, t_phone_edit, t_specialty_edit, t_role_edit, dept_in, day_in, current_schedule_state, abs_in, current_user_is_admin, current_user_is_owner, current_user_name, current_user_role], [tbl_bal, tbl_abs, tbl_short, tbl_day, vault_status, abs_in, check_teacher_in, rule_teacher])
-    t_del_btn.click(delete_single_teacher, [t_name, dept_in, day_in], [tbl_bal, tbl_abs, tbl_short, tbl_day, vault_status, abs_in, check_teacher_in, rule_teacher, t_name])
+    t_del_btn.click(delete_single_teacher, [t_name, dept_in, day_in, current_user_is_owner], [tbl_bal, tbl_abs, tbl_short, tbl_day, vault_status, abs_in, check_teacher_in, rule_teacher, t_name])
     export_btn.click(export_excel_report, [dept_in], [report_file])
-    reset_month_btn.click(reset_monthly_balances, [dept_in, day_in], [tbl_bal, tbl_abs, tbl_short, tbl_day, monthly_status])
+    reset_month_btn.click(reset_monthly_balances, [dept_in, day_in, current_user_is_admin, current_user_is_owner, current_user_name, current_user_role], [tbl_bal, tbl_abs, tbl_short, tbl_day, monthly_status])
     
     swap_dept.change(
         filter_swap_teachers_safe,
