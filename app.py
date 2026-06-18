@@ -15,6 +15,8 @@ import threading
 import functools
 import zipfile
 import html as html_lib
+import base64
+import mimetypes
 matplotlib.use('Agg')  
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
@@ -35,6 +37,7 @@ IMG_DIR = os.path.join(DATA_DIR, "generated_images")
 SCHEDULES_DIR = os.path.join(DATA_DIR, "schedules")
 BACKUPS_DIR = os.path.join(DATA_DIR, "backups")
 EXPORTS_DIR = os.path.join(DATA_DIR, "exports")
+BRANDING_DIR = os.path.join(DATA_DIR, "branding")
 MAX_BACKUPS_PER_FILE = 10
 
 # v1.6 — أقفال داخلية لحماية الحالة وملفات JSON عند تعدد المستخدمين
@@ -80,6 +83,7 @@ def ensure_data_directories():
     os.makedirs(SCHEDULES_DIR, exist_ok=True)
     os.makedirs(BACKUPS_DIR, exist_ok=True)
     os.makedirs(EXPORTS_DIR, exist_ok=True)
+    os.makedirs(BRANDING_DIR, exist_ok=True)
 
 
 def _safe_storage_backup_name(file_path):
@@ -958,7 +962,7 @@ def write_audit_log(action, target_teacher="", old_value=None, new_value=None, d
                 "old_value": _audit_json_safe(old_value),
                 "new_value": _audit_json_safe(new_value),
                 "details": str(details or "").strip(),
-                "source": "منظومة مسار"
+                "source": SYSTEM_NAME
             }
 
             existing = []
@@ -1376,6 +1380,507 @@ def refresh_owner_tools_dashboard(action_filter, actor_filter, teacher_filter, d
     return action_upd, actor_upd, teacher_upd, audit_upd, backup_upd
 
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v1.8 — إعداد هوية المدرسة من الواجهة (مالك النظام فقط)
+# ─────────────────────────────────────────────────────────────────────────────
+
+IDENTITY_CONFIG_KEYS = (
+    "system_name",
+    "system_subtitle",
+    "school_name",
+    "developer_credit",
+    "logo_url",
+    "theme_color",
+    "theme_color_2",
+    "accent_color",
+)
+
+def _normalize_identity_text(value, fallback="", max_length=220):
+    cleaned = re.sub(r"\s+", " ", str(value or "").strip())
+    if not cleaned:
+        cleaned = str(fallback or "").strip()
+    return cleaned[:max_length]
+
+def _normalize_hex_color(value, fallback):
+    raw = str(value or "").strip()
+    if re.fullmatch(r"#[0-9a-fA-F]{6}", raw):
+        return raw.lower()
+    fallback_raw = str(fallback or "#004d40").strip()
+    return fallback_raw.lower() if re.fullmatch(r"#[0-9a-fA-F]{6}", fallback_raw) else "#004d40"
+
+def _is_valid_identity_logo_value(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return False
+    if raw.startswith("data:image/"):
+        return True
+    parsed = urllib.parse.urlparse(raw)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return True
+    path = os.path.abspath(raw)
+    return os.path.isfile(path)
+
+def _resolve_identity_logo_source(value=None):
+    raw = str(value if value is not None else SCHOOL_LOGO_URL).strip()
+    if not raw:
+        raw = str(DEFAULT_SCHOOL_CONFIG["logo_url"])
+
+    if raw.startswith(("http://", "https://", "data:image/")):
+        return raw
+
+    candidate = os.path.abspath(raw)
+    if not os.path.isfile(candidate):
+        return str(DEFAULT_SCHOOL_CONFIG["logo_url"])
+
+    mime_type = mimetypes.guess_type(candidate)[0] or "image/png"
+    try:
+        encoded = base64.b64encode(Path(candidate).read_bytes()).decode("ascii")
+        return f"data:{mime_type};base64,{encoded}"
+    except Exception:
+        return str(DEFAULT_SCHOOL_CONFIG["logo_url"])
+
+def _save_uploaded_identity_logo(uploaded_file):
+    if uploaded_file is None:
+        return None
+
+    source_path = getattr(uploaded_file, "name", uploaded_file)
+    source_path = str(source_path or "").strip()
+    if not source_path or not os.path.isfile(source_path):
+        raise ValueError("ملف الشعار المرفوع غير صالح.")
+
+    try:
+        with Image.open(source_path) as image:
+            image.verify()
+    except Exception as exc:
+        raise ValueError("الملف المرفوع ليس صورة صالحة.") from exc
+
+    ext = Path(source_path).suffix.lower()
+    if ext not in {".png", ".jpg", ".jpeg", ".webp"}:
+        ext = ".png"
+
+    ensure_data_directories()
+    destination = os.path.join(BRANDING_DIR, f"school_logo{ext}")
+    shutil.copy2(source_path, destination)
+    return os.path.relpath(destination, os.getcwd())
+
+def _apply_school_identity_globals(config):
+    global SCHOOL_CONFIG
+    global SYSTEM_NAME, SYSTEM_SUBTITLE, SCHOOL_NAME, DEVELOPER_CREDIT
+    global SCHOOL_LOGO_URL, THEME_COLOR, THEME_COLOR_2, ACCENT_COLOR
+
+    SCHOOL_CONFIG = dict(config)
+    SYSTEM_NAME = _normalize_identity_text(
+        SCHOOL_CONFIG.get("system_name"),
+        DEFAULT_SCHOOL_CONFIG["system_name"],
+        100,
+    )
+    SYSTEM_SUBTITLE = _normalize_identity_text(
+        SCHOOL_CONFIG.get("system_subtitle"),
+        DEFAULT_SCHOOL_CONFIG["system_subtitle"],
+        120,
+    )
+    SCHOOL_NAME = _normalize_identity_text(
+        SCHOOL_CONFIG.get("school_name"),
+        DEFAULT_SCHOOL_CONFIG["school_name"],
+        140,
+    )
+    DEVELOPER_CREDIT = _normalize_identity_text(
+        SCHOOL_CONFIG.get("developer_credit"),
+        DEFAULT_SCHOOL_CONFIG["developer_credit"],
+        220,
+    )
+    SCHOOL_LOGO_URL = str(
+        SCHOOL_CONFIG.get("logo_url") or DEFAULT_SCHOOL_CONFIG["logo_url"]
+    ).strip()
+    THEME_COLOR = _normalize_hex_color(
+        SCHOOL_CONFIG.get("theme_color"),
+        DEFAULT_SCHOOL_CONFIG["theme_color"],
+    )
+    THEME_COLOR_2 = _normalize_hex_color(
+        SCHOOL_CONFIG.get("theme_color_2"),
+        DEFAULT_SCHOOL_CONFIG["theme_color_2"],
+    )
+    ACCENT_COLOR = _normalize_hex_color(
+        SCHOOL_CONFIG.get("accent_color"),
+        DEFAULT_SCHOOL_CONFIG["accent_color"],
+    )
+
+def _current_identity_config():
+    return {
+        "system_name": SYSTEM_NAME,
+        "system_subtitle": SYSTEM_SUBTITLE,
+        "school_name": SCHOOL_NAME,
+        "developer_credit": DEVELOPER_CREDIT,
+        "logo_url": SCHOOL_LOGO_URL,
+        "theme_color": THEME_COLOR,
+        "theme_color_2": THEME_COLOR_2,
+        "accent_color": ACCENT_COLOR,
+    }
+
+def build_login_branding_html(config=None):
+    cfg = dict(_current_identity_config())
+    if isinstance(config, dict):
+        cfg.update(config)
+
+    system_name = html_lib.escape(str(cfg.get("system_name", SYSTEM_NAME)))
+    school_name = html_lib.escape(str(cfg.get("school_name", SCHOOL_NAME)))
+    logo_src = html_lib.escape(
+        _resolve_identity_logo_source(cfg.get("logo_url")),
+        quote=True,
+    )
+    theme = _normalize_hex_color(cfg.get("theme_color"), THEME_COLOR)
+    theme_2 = _normalize_hex_color(cfg.get("theme_color_2"), THEME_COLOR_2)
+    accent = _normalize_hex_color(cfg.get("accent_color"), ACCENT_COLOR)
+
+    return f"""
+<div style="
+    background:linear-gradient(145deg,#003d33 0%,{theme} 40%,{theme_2} 80%,{theme} 100%);
+    margin:0px 0px 20px 0px;
+    padding:30px 20px 25px;
+    padding-bottom:0 !important;
+    overflow:hidden;
+    border-radius:16px 16px 0 0;
+    text-align:center;
+    border-bottom:none;
+">
+    <img id="main-logo" src="{logo_src}" alt="{system_name}" style="
+        width:115px;height:115px;
+        border-radius:50%;
+        border:3px solid {accent};
+        background:white;
+        padding:3px;
+        display:inline-block;
+        margin-bottom:14px;
+        object-fit:contain;
+        box-shadow:
+            0 15px 40px rgba(0,0,0,0.6),
+            0 6px 15px rgba(0,0,0,0.4),
+            0 0 0 5px rgba(255,202,40,0.3),
+            0 0 0 10px rgba(0,77,64,0.15),
+            4px -4px 15px rgba(255,255,255,0.2),
+            -4px 4px 15px rgba(0,0,0,0.3);
+        animation:logo4d 4s ease-in-out infinite;
+        cursor:pointer;
+    ">
+    <div style="font-size:26px;font-weight:900;color:{accent};text-shadow:0 2px 8px rgba(0,0,0,0.4);margin-bottom:6px;">
+        بوابة الدخول
+    </div>
+    <div style="font-size:13px;color:rgba(255,255,255,0.92);font-weight:700;">
+        {school_name}
+    </div>
+    <div style="font-size:11px;color:rgba(255,255,255,0.78);font-weight:600;margin-top:4px;">
+        {system_name}
+    </div>
+
+    <div style="margin-bottom:-4px;line-height:0;overflow:hidden;margin-left:-28px;margin-right:-28px;">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2880 60" preserveAspectRatio="none" style="display:block;width:200%;height:15px;animation:waveMove 4s linear infinite;">
+            <path fill="{accent}" fill-opacity="1" d="M-10,35 C180,5 360,55 540,25 C720,0 900,50 1080,20 C1260,-5 1400,45 1450,30 C1620,5 1800,55 1980,25 C2160,0 2340,50 2520,20 C2700,-5 2840,45 2890,30 L2890,65 L-10,65 Z"/>
+        </svg>
+    </div>
+</div>
+"""
+
+def build_login_credits_html(config=None):
+    cfg = dict(_current_identity_config())
+    if isinstance(config, dict):
+        cfg.update(config)
+    credit = html_lib.escape(str(cfg.get("developer_credit", DEVELOPER_CREDIT)))
+    return (
+        "<div style='text-align:center;'>"
+        f"<div class='credits-box' style='font-size:10px;padding:5px 10px;'>{credit}</div>"
+        "</div>"
+    )
+
+def build_header_html(config=None):
+    cfg = dict(_current_identity_config())
+    if isinstance(config, dict):
+        cfg.update(config)
+
+    system_name = html_lib.escape(str(cfg.get("system_name", SYSTEM_NAME)))
+    subtitle = html_lib.escape(str(cfg.get("system_subtitle", SYSTEM_SUBTITLE)))
+    school_name = html_lib.escape(str(cfg.get("school_name", SCHOOL_NAME)))
+    credit = html_lib.escape(str(cfg.get("developer_credit", DEVELOPER_CREDIT)))
+    logo_src = html_lib.escape(
+        _resolve_identity_logo_source(cfg.get("logo_url")),
+        quote=True,
+    )
+    accent = _normalize_hex_color(cfg.get("accent_color"), ACCENT_COLOR)
+
+    return f"""
+<div class='main-header'>
+    <div class='header-grid'>
+        <div class='h-logo'><img src='{logo_src}' alt='Logo'></div>
+        <div class='h-ministry'>وزارة التعليم<br>مديرية التعليم بالمحافظة</div>
+        <div class='h-title'>
+            <div class='h-title-main'>{system_name}</div>
+            <div class='h-title-sub'>{subtitle}</div>
+        </div>
+        <div class='h-school' style='color:{accent} !important;-webkit-text-fill-color:{accent} !important;white-space:nowrap;'>{school_name}</div>
+        <div class='h-credits'><div class='credits-box'>{credit}</div></div>
+    </div>
+</div>
+"""
+
+def build_home_hero_html(config=None):
+    cfg = dict(_current_identity_config())
+    if isinstance(config, dict):
+        cfg.update(config)
+    system_name = html_lib.escape(str(cfg.get("system_name", SYSTEM_NAME)))
+    school_name = html_lib.escape(str(cfg.get("school_name", SCHOOL_NAME)))
+    return f"""
+<div class='masar-home-hero'>
+    <div class='masar-home-title'>مرحبًا بك في {system_name}</div>
+    <div class='masar-home-subtitle'>{school_name}</div>
+    <div class='masar-home-note'>تم تجهيز لوحة العمل حسب صلاحيتك. اختر القسم المناسب للبدء.</div>
+</div>
+"""
+
+def render_school_config_summary_html(config=None):
+    cfg = dict(_current_identity_config())
+    if isinstance(config, dict):
+        cfg.update(config)
+    return f"""
+<div style='background:#fffde7;color:#4d3b00;padding:12px;border-radius:10px;border-right:5px solid {html_lib.escape(str(cfg.get("accent_color", ACCENT_COLOR)))};margin-bottom:12px;font-weight:800;line-height:1.8;'>
+    ملف إعدادات المدرسة: <b>data/school_config.json</b><br>
+    المدرسة الحالية: <b>{html_lib.escape(str(cfg.get("school_name", SCHOOL_NAME)))}</b><br>
+    اسم النظام: <b>{html_lib.escape(str(cfg.get("system_name", SYSTEM_NAME)))} - {html_lib.escape(str(cfg.get("system_subtitle", SYSTEM_SUBTITLE)))}</b><br>
+    عدد الحصص اليومية: <b>{MAX_PERIODS}</b>
+</div>
+"""
+
+def render_school_identity_preview_html(
+    system_name,
+    system_subtitle,
+    school_name,
+    developer_credit,
+    logo_url,
+    theme_color,
+    theme_color_2,
+    accent_color,
+):
+    preview_cfg = {
+        "system_name": _normalize_identity_text(
+            system_name, DEFAULT_SCHOOL_CONFIG["system_name"], 100
+        ),
+        "system_subtitle": _normalize_identity_text(
+            system_subtitle, DEFAULT_SCHOOL_CONFIG["system_subtitle"], 120
+        ),
+        "school_name": _normalize_identity_text(
+            school_name, DEFAULT_SCHOOL_CONFIG["school_name"], 140
+        ),
+        "developer_credit": _normalize_identity_text(
+            developer_credit, DEFAULT_SCHOOL_CONFIG["developer_credit"], 220
+        ),
+        "logo_url": str(logo_url or SCHOOL_LOGO_URL).strip(),
+        "theme_color": _normalize_hex_color(
+            theme_color, DEFAULT_SCHOOL_CONFIG["theme_color"]
+        ),
+        "theme_color_2": _normalize_hex_color(
+            theme_color_2, DEFAULT_SCHOOL_CONFIG["theme_color_2"]
+        ),
+        "accent_color": _normalize_hex_color(
+            accent_color, DEFAULT_SCHOOL_CONFIG["accent_color"]
+        ),
+    }
+
+    logo_src = html_lib.escape(
+        _resolve_identity_logo_source(preview_cfg["logo_url"]),
+        quote=True,
+    )
+    return f"""
+<div style='direction:rtl;border:1px solid #d1d5db;border-radius:16px;overflow:hidden;background:#ffffff;box-shadow:0 8px 22px rgba(0,0,0,0.08);'>
+    <div style='background:linear-gradient(145deg,#003d33 0%,{preview_cfg["theme_color"]} 45%,{preview_cfg["theme_color_2"]} 100%);padding:22px;text-align:center;'>
+        <img src='{logo_src}' style='width:92px;height:92px;object-fit:contain;border-radius:50%;background:#fff;padding:4px;border:3px solid {preview_cfg["accent_color"]};'>
+        <div style='font-size:24px;font-weight:900;color:{preview_cfg["accent_color"]};margin-top:12px;'>{html_lib.escape(preview_cfg["system_name"])}</div>
+        <div style='font-size:14px;font-weight:700;color:#fff;margin-top:4px;'>{html_lib.escape(preview_cfg["system_subtitle"])}</div>
+        <div style='font-size:13px;font-weight:700;color:rgba(255,255,255,0.9);margin-top:8px;'>{html_lib.escape(preview_cfg["school_name"])}</div>
+    </div>
+    <div style='padding:12px;text-align:center;color:#334155;font-weight:700;'>{html_lib.escape(preview_cfg["developer_credit"])}</div>
+</div>
+"""
+
+def preview_school_identity_settings(
+    system_name,
+    system_subtitle,
+    school_name,
+    developer_credit,
+    logo_url,
+    theme_color,
+    theme_color_2,
+    accent_color,
+    is_owner=False,
+):
+    if not bool(is_owner):
+        return (
+            gr.update(),
+            "<div style='color:#b91c1c;font-weight:800;'>هذه الأداة مخصصة لمالك النظام فقط.</div>",
+        )
+
+    preview = render_school_identity_preview_html(
+        system_name,
+        system_subtitle,
+        school_name,
+        developer_credit,
+        logo_url,
+        theme_color,
+        theme_color_2,
+        accent_color,
+    )
+    return (
+        gr.update(value=preview),
+        "<div style='color:#0f766e;font-weight:800;'>تم تحديث المعاينة فقط، ولم تُحفظ التغييرات بعد.</div>",
+    )
+
+def _identity_full_output(config, status_html):
+    preview = render_school_identity_preview_html(
+        config["system_name"],
+        config["system_subtitle"],
+        config["school_name"],
+        config["developer_credit"],
+        config["logo_url"],
+        config["theme_color"],
+        config["theme_color_2"],
+        config["accent_color"],
+    )
+    return (
+        gr.update(value=config["system_name"]),
+        gr.update(value=config["system_subtitle"]),
+        gr.update(value=config["school_name"]),
+        gr.update(value=config["developer_credit"]),
+        gr.update(value=config["logo_url"]),
+        gr.update(value=None),
+        gr.update(value=config["theme_color"]),
+        gr.update(value=config["theme_color_2"]),
+        gr.update(value=config["accent_color"]),
+        gr.update(value=status_html),
+        gr.update(value=preview),
+        gr.update(value=build_login_branding_html(config)),
+        gr.update(value=build_login_credits_html(config)),
+        gr.update(value=build_header_html(config)),
+        gr.update(value=build_home_hero_html(config)),
+        gr.update(value=render_school_config_summary_html(config)),
+    )
+
+@state_locked
+def save_school_identity_settings(
+    system_name,
+    system_subtitle,
+    school_name,
+    developer_credit,
+    logo_url,
+    logo_upload,
+    theme_color,
+    theme_color_2,
+    accent_color,
+    is_owner=False,
+):
+    if not bool(is_owner):
+        return _identity_full_output(
+            _current_identity_config(),
+            "<div style='color:#b91c1c;font-weight:800;'>رفض الحفظ: إعدادات الهوية مخصصة لمالك النظام فقط.</div>",
+        )
+
+    system_name_clean = _normalize_identity_text(system_name, "", 100)
+    school_name_clean = _normalize_identity_text(school_name, "", 140)
+    if not system_name_clean or not school_name_clean:
+        return _identity_full_output(
+            _current_identity_config(),
+            "<div style='color:#b91c1c;font-weight:800;'>اسم النظام واسم المدرسة حقول إلزامية.</div>",
+        )
+
+    colors = {
+        "theme_color": str(theme_color or "").strip(),
+        "theme_color_2": str(theme_color_2 or "").strip(),
+        "accent_color": str(accent_color or "").strip(),
+    }
+    invalid_colors = [
+        key for key, value in colors.items()
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", value)
+    ]
+    if invalid_colors:
+        return _identity_full_output(
+            _current_identity_config(),
+            "<div style='color:#b91c1c;font-weight:800;'>ألوان الهوية يجب أن تكون بصيغة HEX مثل #004d40.</div>",
+        )
+
+    saved_logo_value = str(logo_url or "").strip()
+    try:
+        uploaded_logo = _save_uploaded_identity_logo(logo_upload)
+        if uploaded_logo:
+            saved_logo_value = uploaded_logo
+    except Exception as exc:
+        return _identity_full_output(
+            _current_identity_config(),
+            f"<div style='color:#b91c1c;font-weight:800;'>{html_lib.escape(str(exc))}</div>",
+        )
+
+    if not saved_logo_value:
+        saved_logo_value = str(DEFAULT_SCHOOL_CONFIG["logo_url"])
+
+    if not _is_valid_identity_logo_value(saved_logo_value):
+        return _identity_full_output(
+            _current_identity_config(),
+            "<div style='color:#b91c1c;font-weight:800;'>رابط أو ملف الشعار غير صالح.</div>",
+        )
+
+    new_config = load_school_config()
+    new_config.update({
+        "system_name": system_name_clean,
+        "system_subtitle": _normalize_identity_text(
+            system_subtitle,
+            DEFAULT_SCHOOL_CONFIG["system_subtitle"],
+            120,
+        ),
+        "school_name": school_name_clean,
+        "developer_credit": _normalize_identity_text(
+            developer_credit,
+            DEFAULT_SCHOOL_CONFIG["developer_credit"],
+            220,
+        ),
+        "logo_url": saved_logo_value,
+        "theme_color": colors["theme_color"].lower(),
+        "theme_color_2": colors["theme_color_2"].lower(),
+        "accent_color": colors["accent_color"].lower(),
+    })
+
+    if not safe_write_json(SCHOOL_CONFIG_FILE, new_config):
+        return _identity_full_output(
+            _current_identity_config(),
+            "<div style='color:#b91c1c;font-weight:800;'>تعذر حفظ ملف إعدادات المدرسة.</div>",
+        )
+
+    _apply_school_identity_globals(new_config)
+    return _identity_full_output(
+        _current_identity_config(),
+        "<div style='color:#166534;background:#dcfce7;padding:10px;border-radius:8px;font-weight:800;'>تم حفظ هوية المدرسة بنجاح. العناوين والشعار تحدثت فورًا، وتُطبق الألوان العامة بالكامل بعد إعادة تشغيل التطبيق.</div>",
+    )
+
+@state_locked
+def reset_school_identity_settings(is_owner=False):
+    if not bool(is_owner):
+        return _identity_full_output(
+            _current_identity_config(),
+            "<div style='color:#b91c1c;font-weight:800;'>رفض الاستعادة: هذه الأداة مخصصة لمالك النظام فقط.</div>",
+        )
+
+    config = load_school_config()
+    for key in IDENTITY_CONFIG_KEYS:
+        config[key] = DEFAULT_SCHOOL_CONFIG[key]
+
+    if not safe_write_json(SCHOOL_CONFIG_FILE, config):
+        return _identity_full_output(
+            _current_identity_config(),
+            "<div style='color:#b91c1c;font-weight:800;'>تعذر استعادة الهوية الافتراضية.</div>",
+        )
+
+    _apply_school_identity_globals(config)
+    return _identity_full_output(
+        _current_identity_config(),
+        "<div style='color:#166534;background:#dcfce7;padding:10px;border-radius:8px;font-weight:800;'>تمت استعادة هوية المدرسة الافتراضية. تُطبق الألوان العامة بالكامل بعد إعادة تشغيل التطبيق.</div>",
+    )
+
+
 def load_exemptions_log():
     global exemptions_log
     if os.path.exists(EXEMPTIONS_LOG_FILE):
@@ -1756,7 +2261,7 @@ def generate_swap_table_image(state, teacher_name, day_name):
         draw = ImageDraw.Draw(image)
 
         # Header
-        header_bg = "#004d40"
+        header_bg = THEME_COLOR
         draw.rectangle((0, 0, image_width, header_h), fill=header_bg)
 
         title = "جدول التبادلات الودية المعتمدة"
@@ -1764,7 +2269,7 @@ def generate_swap_table_image(state, teacher_name, day_name):
 
         title_w, title_h = text_size(title, font_title)
         subtitle_w, subtitle_h = text_size(subtitle, font_subtitle)
-        draw.text(((image_width - title_w) / 2, 24), title, font=font_title, fill="#ffca28")
+        draw.text(((image_width - title_w) / 2, 24), title, font=font_title, fill=ACCENT_COLOR)
         draw.text(((image_width - subtitle_w) / 2, 78), subtitle, font=font_subtitle, fill="#ffffff")
 
         # Table: RTL columns
@@ -1800,9 +2305,9 @@ def generate_swap_table_image(state, teacher_name, day_name):
 
             y += row_h
 
-        footer_text = "منظومة مسار للاحتياط والتبادل الودي"
+        footer_text = f"{SYSTEM_NAME} {SYSTEM_SUBTITLE}"
         footer_w, footer_h = text_size(footer_text, font_footer)
-        draw.text(((image_width - footer_w) / 2, image_height - 39), footer_text, font=font_footer, fill="#004d40")
+        draw.text(((image_width - footer_w) / 2, image_height - 39), footer_text, font=font_footer, fill=THEME_COLOR)
 
         filename = os.path.join(
             SWAP_IMG_DIR,
@@ -5961,6 +6466,22 @@ button.home-back-btn {
 
 """
 
+
+def apply_school_theme_to_css(css_text):
+    """تطبيق ألوان الهوية المحفوظة عند تشغيل التطبيق."""
+    themed = str(css_text)
+    replacements = {
+        "#004d40": THEME_COLOR,
+        "#00695c": THEME_COLOR_2,
+        "#ffca28": ACCENT_COLOR,
+    }
+    for old_color, new_color in replacements.items():
+        themed = themed.replace(old_color, new_color)
+        themed = themed.replace(old_color.upper(), new_color)
+    return themed
+
+css = apply_school_theme_to_css(css)
+
 js_code = """
 function() {
     let isRunning = false;
@@ -6032,20 +6553,7 @@ document.addEventListener('DOMContentLoaded', setupMainLogoTouchInteraction);
 
 """
 
-header_html = """
-<div class='main-header'>
-    <div class='header-grid'>
-        <div class='h-logo'><img src='https://i.imgur.com/1cxFlX7.png' alt='Logo'></div>
-        <div class='h-ministry'>وزارة التعليم<br>المديرية العامة للتعليم بمحافظة<br>جنوب الباطنة</div>
-        <div class='h-title'>
-            <div class='h-title-main'>منظومة مسار</div>
-            <div class='h-title-sub'>للاحتياط والتبادل الودي</div>
-        </div>
-        <div class='h-school' style='color: #ffca28 !important; -webkit-text-fill-color: #ffca28 !important; white-space: nowrap;'>مدرسة الباسط للتعليم الأساسي (8-10)</div>
-        <div class='h-credits'><div class='credits-box'>👑 فكرة وتطوير: أ. محمود اليحيائي - أ. وليد الهنائي</div></div>
-    </div>
-</div>
-"""
+header_html = build_header_html()
 
 def filter_swap_teachers_safe(dept):
     try:
@@ -6567,57 +7075,15 @@ with gr.Blocks() as app:
     reserve_generation_state = gr.State(value=get_empty_generation_state())
 
     with gr.Column(visible=True, elem_classes="login-box") as login_container:
-        gr.HTML("""
-<div style="
-    background:linear-gradient(145deg,#003d33 0%,#004d40 40%,#00695c 80%,#004d40 100%);
-    margin:0px 0px 20px 0px;
-    padding:30px 20px 25px;
-    padding-bottom: 0 !important;
-    overflow: hidden;
-    border-radius:16px 16px 0 0;
-    text-align:center;
-    border-bottom: none;
-">
-    <img id="main-logo" src='https://i.imgur.com/1cxFlX7.png' style='
-        width:115px; height:115px;
-        border-radius:50%;
-        border:3px solid #ffca28;
-        background:white;
-        padding:3px;
-        display:inline-block;
-        margin-bottom:14px;
-        box-shadow:
-            0 15px 40px rgba(0,0,0,0.6),
-            0 6px 15px rgba(0,0,0,0.4),
-            0 0 0 5px rgba(255,202,40,0.3),
-            0 0 0 10px rgba(0,77,64,0.15),
-            4px -4px 15px rgba(255,255,255,0.2),
-            -4px 4px 15px rgba(0,0,0,0.3);
-        animation: logo4d 4s ease-in-out infinite;
-        cursor: pointer;
-    '>
-    <div style='font-size:26px;font-weight:900;color:#ffca28;text-shadow:0 2px 8px rgba(0,0,0,0.4);margin-bottom:6px;'>
-         بوابة الدخول
-    </div>
-    <div style='font-size:13px;color:rgba(255,255,255,0.9);font-weight:600;'>
-        مدرسة الباسط للتعليم الأساسي (8-10)
-    </div>
-
-    <div style="margin-bottom: -4px; line-height: 0; overflow: hidden; margin-left: -28px; margin-right: -28px;">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2880 60" preserveAspectRatio="none" style="display:block; width:200%; height:15px; animation: waveMove 4s linear infinite;">
-            <path fill="#ffca28" fill-opacity="1" d="M-10,35 C180,5 360,55 540,25 C720,0 900,50 1080,20 C1260,-5 1400,45 1450,30 C1620,5 1800,55 1980,25 C2160,0 2340,50 2520,20 C2700,-5 2840,45 2890,30 L2890,65 L-10,65 Z"/>
-        </svg>
-    </div>
-</div>
-""")
+        login_branding_html = gr.HTML(value=build_login_branding_html())
 
         pin_input = gr.Textbox(type="password", show_label=False, placeholder="Enter ثم اضغط (PIN) 🔑 أدخل رمز الدخول", text_align="center")
         login_btn = gr.Button("تسجيل الدخول", elem_classes="admin-btn")
         login_msg = gr.HTML()
-        gr.HTML("<div style='text-align:center;'><div class='credits-box' style='font-size: 10px; padding: 5px 10px;'>👑 فكرة وتطوير: أ. محمود اليحيائي - أ. وليد الهنائي © 2026</div></div>")
+        login_credits_html = gr.HTML(value=build_login_credits_html())
 
     with gr.Column(visible=False) as main_app_container:
-        gr.HTML(header_html)
+        header_branding_html = gr.HTML(value=build_header_html())
         
         with gr.Row(elem_classes="top-user-row"):
             with gr.Column(scale=5, elem_classes="welcome-col"):
@@ -6626,13 +7092,7 @@ with gr.Blocks() as app:
                 logout_btn = gr.Button("🚪 خروج و إقفال", elem_classes=["reset-btn", "logout-btn"])
         
         with gr.Column(visible=True, elem_id="masar_home_dashboard", elem_classes="masar-home-dashboard") as home_dashboard:
-            gr.HTML("""
-            <div class='masar-home-hero'>
-                <div class='masar-home-title'>👋 مرحبًا بك في منظومة مسار</div>
-                <div class='masar-home-subtitle'>تم تجهيز لوحة العمل حسب صلاحيتك.</div>
-                <div class='masar-home-note'>اختر القسم المناسب للبدء.</div>
-            </div>
-            """)
+            home_hero_html = gr.HTML(value=build_home_hero_html())
 
             with gr.Row(elem_classes="masar-card-grid"):
                 with gr.Column(visible=True, elem_classes="masar-card") as card_distribution:
@@ -6869,7 +7329,49 @@ with gr.Blocks() as app:
                 with gr.Tab("🗄️ مركز البيانات المدرسية", id="school_data") as school_data_tab:
                     gr.Markdown("### 🗄️ مركز البيانات المدرسية")
                     gr.HTML("<div style='background:#e8f5e9; color:#004d40; padding:14px; border-radius:10px; border-right:5px solid #2e7d32; margin-bottom:12px;'>هذه البوابة هي المرجع الرسمي لاعتماد ملفات الإداريين وأرقام المعلمين والجداول المرجعية للأقسام، بدلاً من الرفع التشغيلي المباشر.</div>")
-                    gr.HTML(f"<div style='background:#fffde7; color:#4d3b00; padding:12px; border-radius:10px; border-right:5px solid #ca8a04; margin-bottom:12px; font-weight:800; line-height:1.8;'>ملف إعدادات المدرسة: <b>data/school_config.json</b><br>المدرسة الحالية: <b>{SCHOOL_NAME}</b><br>اسم النظام: <b>{SYSTEM_NAME} - {SYSTEM_SUBTITLE}</b><br>عدد الحصص اليومية: <b>{MAX_PERIODS}</b></div>")
+
+                    school_config_summary_html = gr.HTML(value=render_school_config_summary_html())
+
+                    with gr.Accordion("🎨 إعدادات هوية المدرسة", open=False):
+                        gr.HTML("<div style='background:#eef6f3;color:#004d40;padding:12px;border-radius:10px;border-right:5px solid #0f766e;margin-bottom:12px;font-weight:800;line-height:1.8;'>هذه اللوحة مخصصة لمالك النظام. يمكن تعديل الهوية البصرية دون تعديل app.py. العناوين والشعار تتحدث فورًا، أما الألوان العامة فتُطبق بالكامل بعد إعادة تشغيل التطبيق.</div>")
+
+                        with gr.Row():
+                            identity_system_name = gr.Textbox(value=SYSTEM_NAME, label="اسم المنظومة")
+                            identity_system_subtitle = gr.Textbox(value=SYSTEM_SUBTITLE, label="العنوان الفرعي")
+                        with gr.Row():
+                            identity_school_name = gr.Textbox(value=SCHOOL_NAME, label="اسم المدرسة")
+                            identity_developer_credit = gr.Textbox(value=DEVELOPER_CREDIT, label="عبارة الحقوق والتطوير")
+                        with gr.Row():
+                            identity_logo_url = gr.Textbox(value=SCHOOL_LOGO_URL, label="رابط الشعار أو مساره المحلي")
+                            identity_logo_upload = gr.File(
+                                label="رفع شعار بديل اختياري",
+                                file_types=[".png", ".jpg", ".jpeg", ".webp"],
+                                type="filepath",
+                            )
+                        with gr.Row():
+                            identity_theme_color = gr.Textbox(value=THEME_COLOR, label="اللون الأساسي HEX")
+                            identity_theme_color_2 = gr.Textbox(value=THEME_COLOR_2, label="اللون الثانوي HEX")
+                            identity_accent_color = gr.Textbox(value=ACCENT_COLOR, label="اللون البارز HEX")
+
+                        with gr.Row():
+                            identity_preview_btn = gr.Button("معاينة الهوية", elem_classes="admin-btn")
+                            identity_save_btn = gr.Button("حفظ هوية المدرسة", elem_classes="admin-btn")
+                            identity_reset_btn = gr.Button("استعادة الهوية الافتراضية", elem_classes="reset-btn")
+
+                        identity_status_html = gr.HTML()
+                        identity_preview_html = gr.HTML(
+                            value=render_school_identity_preview_html(
+                                SYSTEM_NAME,
+                                SYSTEM_SUBTITLE,
+                                SCHOOL_NAME,
+                                DEVELOPER_CREDIT,
+                                SCHOOL_LOGO_URL,
+                                THEME_COLOR,
+                                THEME_COLOR_2,
+                                ACCENT_COLOR,
+                            )
+                        )
+
 
                     with gr.Row(visible=False):
                         clear_noop = gr.Textbox(label="noop", value="", visible=False)
@@ -7113,6 +7615,83 @@ with gr.Blocks() as app:
         [schedule_reference_dept, day_in, current_user_is_owner],
         [schedule_reference_status_html, abs_in, check_teacher_in, rule_teacher, tbl_bal, tbl_abs, tbl_day, school_data_schedules_html, schedule_reference_upload]
     )
+
+    identity_preview_btn.click(
+        preview_school_identity_settings,
+        [
+            identity_system_name,
+            identity_system_subtitle,
+            identity_school_name,
+            identity_developer_credit,
+            identity_logo_url,
+            identity_theme_color,
+            identity_theme_color_2,
+            identity_accent_color,
+            current_user_is_owner,
+        ],
+        [identity_preview_html, identity_status_html],
+        queue=False,
+    )
+
+    identity_save_btn.click(
+        save_school_identity_settings,
+        [
+            identity_system_name,
+            identity_system_subtitle,
+            identity_school_name,
+            identity_developer_credit,
+            identity_logo_url,
+            identity_logo_upload,
+            identity_theme_color,
+            identity_theme_color_2,
+            identity_accent_color,
+            current_user_is_owner,
+        ],
+        [
+            identity_system_name,
+            identity_system_subtitle,
+            identity_school_name,
+            identity_developer_credit,
+            identity_logo_url,
+            identity_logo_upload,
+            identity_theme_color,
+            identity_theme_color_2,
+            identity_accent_color,
+            identity_status_html,
+            identity_preview_html,
+            login_branding_html,
+            login_credits_html,
+            header_branding_html,
+            home_hero_html,
+            school_config_summary_html,
+        ],
+        queue=False,
+    )
+
+    identity_reset_btn.click(
+        reset_school_identity_settings,
+        [current_user_is_owner],
+        [
+            identity_system_name,
+            identity_system_subtitle,
+            identity_school_name,
+            identity_developer_credit,
+            identity_logo_url,
+            identity_logo_upload,
+            identity_theme_color,
+            identity_theme_color_2,
+            identity_accent_color,
+            identity_status_html,
+            identity_preview_html,
+            login_branding_html,
+            login_credits_html,
+            header_branding_html,
+            home_hero_html,
+            school_config_summary_html,
+        ],
+        queue=False,
+    )
+
     school_data_tab.select(
         refresh_owner_tools_dashboard,
         [audit_action_filter, audit_actor_filter, audit_teacher_filter, audit_date_from, audit_date_to, current_user_is_owner],
