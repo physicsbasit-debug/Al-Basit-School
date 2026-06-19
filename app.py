@@ -27,17 +27,57 @@ from PIL import Image, ImageDraw, ImageFont
 
 # --- 1. الإعدادات والوقت ---
 tz_oman = datetime.timezone(datetime.timedelta(hours=4))
-DB_FILE = "school_balances.json"
-DAILY_DB_FILE = "daily_assignments.json" 
-SWAP_IMG_DIR = "generated_swap_tables"
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
 PAGE_SIZE = 12
 
-DATA_DIR = "data"
+# v1.8.1 — الاستمرارية والتخزين الدائم
+LOCAL_DATA_DIR = os.path.join(APP_DIR, "data")
+REQUESTED_PERSISTENT_DATA_DIR = os.getenv("MASAR_DATA_DIR", "/data/masar").strip() or "/data/masar"
+
+def _probe_writable_directory(path_value):
+    """التحقق من أن مسار التخزين موجود وقابل للكتابة."""
+    try:
+        target = os.path.abspath(str(path_value))
+        os.makedirs(target, exist_ok=True)
+        probe_path = os.path.join(target, f".masar_write_probe_{os.getpid()}")
+        with open(probe_path, "w", encoding="utf-8") as probe_file:
+            probe_file.write("ok")
+            probe_file.flush()
+            os.fsync(probe_file.fileno())
+        os.remove(probe_path)
+        return True, target, ""
+    except Exception as exc:
+        return False, os.path.abspath(str(path_value)), str(exc)
+
+_persistent_ok, _persistent_path, _persistent_error = _probe_writable_directory(
+    REQUESTED_PERSISTENT_DATA_DIR
+)
+
+if _persistent_ok:
+    DATA_DIR = _persistent_path
+    PERSISTENT_STORAGE_ACTIVE = True
+    STORAGE_MODE = "persistent"
+    STORAGE_ERROR = ""
+else:
+    os.makedirs(LOCAL_DATA_DIR, exist_ok=True)
+    DATA_DIR = os.path.abspath(LOCAL_DATA_DIR)
+    PERSISTENT_STORAGE_ACTIVE = False
+    STORAGE_MODE = "local_fallback"
+    STORAGE_ERROR = _persistent_error
+
+DB_FILE = os.path.join(DATA_DIR, "school_balances.json")
+DAILY_DB_FILE = os.path.join(DATA_DIR, "daily_assignments.json")
+SWAP_DB_FILE = os.path.join(DATA_DIR, "friendly_swaps.json")
+AUTH_DB_FILE = os.getenv("AUTH_DB_FILE", os.path.join(DATA_DIR, "auth_db.json"))
+
 IMG_DIR = os.path.join(DATA_DIR, "generated_images")
+SWAP_IMG_DIR = os.path.join(DATA_DIR, "generated_swap_tables")
 SCHEDULES_DIR = os.path.join(DATA_DIR, "schedules")
 BACKUPS_DIR = os.path.join(DATA_DIR, "backups")
 EXPORTS_DIR = os.path.join(DATA_DIR, "exports")
 BRANDING_DIR = os.path.join(DATA_DIR, "branding")
+REFERENCE_STATUS_FILE = os.path.join(DATA_DIR, "reference_files_status.json")
+MIGRATION_STATUS_FILE = os.path.join(DATA_DIR, ".v1_8_1_migration.json")
 MAX_BACKUPS_PER_FILE = 10
 
 # v1.6 — أقفال داخلية لحماية الحالة وملفات JSON عند تعدد المستخدمين
@@ -80,6 +120,7 @@ SCHEDULE_FILES = {
 def ensure_data_directories():
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(IMG_DIR, exist_ok=True)
+    os.makedirs(SWAP_IMG_DIR, exist_ok=True)
     os.makedirs(SCHEDULES_DIR, exist_ok=True)
     os.makedirs(BACKUPS_DIR, exist_ok=True)
     os.makedirs(EXPORTS_DIR, exist_ok=True)
@@ -190,24 +231,329 @@ def safe_write_json(file_path, data, *, make_backup=True):
 
 
 
-def get_reference_file_status(file_path):
-    if os.path.exists(file_path):
+# ─────────────────────────────────────────────────────────────────────────────
+# v1.8.1 — ترحيل البيانات القديمة وحالة التخزين الدائم
+# ─────────────────────────────────────────────────────────────────────────────
+
+LEGACY_ROOT_FILES = {
+    os.path.join(APP_DIR, "school_balances.json"): DB_FILE,
+    os.path.join(APP_DIR, "daily_assignments.json"): DAILY_DB_FILE,
+    os.path.join(APP_DIR, "friendly_swaps.json"): SWAP_DB_FILE,
+    os.path.join(APP_DIR, "auth_db.json"): AUTH_DB_FILE,
+}
+
+LEGACY_DATA_FILES = {
+    os.path.join(LOCAL_DATA_DIR, "admin_staff.xlsx"): ADMIN_FILE,
+    os.path.join(LOCAL_DATA_DIR, "teacher_phones.xlsx"): PHONES_FILE,
+    os.path.join(LOCAL_DATA_DIR, "exemptions_log.json"): EXEMPTIONS_LOG_FILE,
+    os.path.join(LOCAL_DATA_DIR, "audit_log.json"): AUDIT_LOG_FILE,
+    os.path.join(LOCAL_DATA_DIR, "school_config.json"): SCHOOL_CONFIG_FILE,
+    os.path.join(LOCAL_DATA_DIR, "reference_files_status.json"): REFERENCE_STATUS_FILE,
+}
+
+LEGACY_DATA_DIRECTORIES = {
+    os.path.join(LOCAL_DATA_DIR, "schedules"): SCHEDULES_DIR,
+    os.path.join(LOCAL_DATA_DIR, "backups"): BACKUPS_DIR,
+    os.path.join(LOCAL_DATA_DIR, "branding"): BRANDING_DIR,
+    os.path.join(LOCAL_DATA_DIR, "exports"): EXPORTS_DIR,
+    os.path.join(LOCAL_DATA_DIR, "generated_images"): IMG_DIR,
+    os.path.join(APP_DIR, "generated_swap_tables"): SWAP_IMG_DIR,
+}
+
+def _atomic_copy_file_if_missing(source_path, destination_path):
+    """نسخ الملف القديم فقط إذا لم يوجد في التخزين الدائم."""
+    source = os.path.abspath(str(source_path))
+    destination = os.path.abspath(str(destination_path))
+
+    if source == destination:
+        return "same"
+    if not os.path.isfile(source):
+        return "missing"
+    if os.path.exists(destination):
+        return "skipped_existing"
+
+    os.makedirs(os.path.dirname(destination), exist_ok=True)
+    temp_destination = f"{destination}.migration_{os.getpid()}.tmp"
+    try:
+        shutil.copy2(source, temp_destination)
+        os.replace(temp_destination, destination)
+        return "copied"
+    finally:
+        try:
+            if os.path.exists(temp_destination):
+                os.remove(temp_destination)
+        except Exception:
+            pass
+
+def _copy_directory_missing_only(source_dir, destination_dir):
+    copied = 0
+    skipped = 0
+    errors = []
+
+    source = os.path.abspath(str(source_dir))
+    destination = os.path.abspath(str(destination_dir))
+
+    if source == destination or not os.path.isdir(source):
+        return copied, skipped, errors
+
+    for root, _dirs, files in os.walk(source):
+        rel = os.path.relpath(root, source)
+        target_root = destination if rel == "." else os.path.join(destination, rel)
+        os.makedirs(target_root, exist_ok=True)
+
+        for filename in files:
+            source_file = os.path.join(root, filename)
+            target_file = os.path.join(target_root, filename)
+            try:
+                result = _atomic_copy_file_if_missing(source_file, target_file)
+                if result == "copied":
+                    copied += 1
+                elif result == "skipped_existing":
+                    skipped += 1
+            except Exception as exc:
+                errors.append(f"{source_file}: {exc}")
+
+    return copied, skipped, errors
+
+def migrate_legacy_data_once():
+    """ترحيل البيانات السابقة مرة واحدة دون استبدال بيانات الـBucket."""
+    ensure_data_directories()
+    report = {
+        "version": "1.8.1",
+        "created_at": datetime.datetime.now(tz_oman).strftime("%Y-%m-%d %H:%M:%S"),
+        "persistent_storage_active": bool(PERSISTENT_STORAGE_ACTIVE),
+        "data_dir": DATA_DIR,
+        "copied_files": [],
+        "skipped_existing": [],
+        "missing_sources": [],
+        "errors": [],
+    }
+
+    if not PERSISTENT_STORAGE_ACTIVE:
+        report["note"] = "يعمل التطبيق على التخزين المحلي الاحتياطي."
+        return report
+
+    if os.path.exists(MIGRATION_STATUS_FILE):
+        try:
+            with open(MIGRATION_STATUS_FILE, "r", encoding="utf-8") as status_file:
+                previous = json.load(status_file)
+            if isinstance(previous, dict):
+                previous["already_completed"] = True
+                return previous
+        except Exception:
+            pass
+
+    mappings = {}
+    mappings.update(LEGACY_ROOT_FILES)
+    mappings.update(LEGACY_DATA_FILES)
+
+    for source_path, destination_path in mappings.items():
+        try:
+            result = _atomic_copy_file_if_missing(source_path, destination_path)
+            if result == "copied":
+                report["copied_files"].append(destination_path)
+            elif result == "skipped_existing":
+                report["skipped_existing"].append(destination_path)
+            elif result == "missing":
+                report["missing_sources"].append(source_path)
+        except Exception as exc:
+            report["errors"].append(f"{source_path}: {exc}")
+
+    for source_dir, destination_dir in LEGACY_DATA_DIRECTORIES.items():
+        try:
+            copied, skipped, errors = _copy_directory_missing_only(
+                source_dir, destination_dir
+            )
+            if copied:
+                report["copied_files"].append(f"{destination_dir} ({copied} ملف)")
+            if skipped:
+                report["skipped_existing"].append(
+                    f"{destination_dir} ({skipped} ملف موجود)"
+                )
+            report["errors"].extend(errors)
+        except Exception as exc:
+            report["errors"].append(f"{source_dir}: {exc}")
+
+    safe_write_json(MIGRATION_STATUS_FILE, report, make_backup=False)
+    return report
+
+MIGRATION_REPORT = migrate_legacy_data_once()
+
+def get_persistent_storage_health():
+    ensure_data_directories()
+    writable = False
+    error = ""
+    probe_path = os.path.join(DATA_DIR, f".health_probe_{os.getpid()}")
+
+    try:
+        with open(probe_path, "w", encoding="utf-8") as probe:
+            probe.write("ok")
+            probe.flush()
+            os.fsync(probe.fileno())
+        writable = True
+    except Exception as exc:
+        error = str(exc)
+    finally:
+        try:
+            if os.path.exists(probe_path):
+                os.remove(probe_path)
+        except Exception:
+            pass
+
+    return {
+        "persistent": bool(PERSISTENT_STORAGE_ACTIVE),
+        "writable": bool(writable),
+        "path": DATA_DIR,
+        "mode": STORAGE_MODE,
+        "error": error or STORAGE_ERROR,
+        "migration": MIGRATION_REPORT,
+    }
+
+def render_persistent_storage_status_html():
+    health = get_persistent_storage_health()
+
+    if health["persistent"] and health["writable"]:
+        title = "التخزين الدائم متصل ويعمل"
+        bg, fg, border, icon = "#dcfce7", "#166534", "#16a34a", "✅"
+    elif health["writable"]:
+        title = "التخزين المحلي يعمل، لكن الـBucket غير متصل"
+        bg, fg, border, icon = "#fff7ed", "#9a3412", "#ea580c", "⚠️"
+    else:
+        title = "مسار التخزين غير قابل للكتابة"
+        bg, fg, border, icon = "#fee2e2", "#991b1b", "#dc2626", "❌"
+
+    migration = health.get("migration") or {}
+    copied_count = len(migration.get("copied_files", []) or [])
+    skipped_count = len(migration.get("skipped_existing", []) or [])
+    error_text = html_lib.escape(str(health.get("error", "")))
+    error_html = (
+        f"<div style='margin-top:6px;'>التفاصيل: {error_text}</div>"
+        if error_text else ""
+    )
+
+    return f"""
+    <div style='background:{bg};color:{fg};padding:13px;border-radius:10px;
+                border-right:5px solid {border};margin-bottom:12px;
+                font-weight:800;line-height:1.8;direction:rtl;'>
+        <div style='font-size:17px;'>{icon} {title}</div>
+        <div>المسار الفعلي: <code>{html_lib.escape(DATA_DIR)}</code></div>
+        <div>وضع التشغيل: <b>{html_lib.escape(STORAGE_MODE)}</b></div>
+        <div>الترحيل: نُسخ {copied_count} بند، وتُرك {skipped_count} بند موجود دون استبدال.</div>
+        {error_html}
+    </div>
+    """
+
+def load_reference_status_registry():
+    if not os.path.exists(REFERENCE_STATUS_FILE):
+        return {}
+    try:
+        with open(REFERENCE_STATUS_FILE, "r", encoding="utf-8") as registry_file:
+            loaded = json.load(registry_file)
+        return loaded if isinstance(loaded, dict) else {}
+    except Exception as exc:
+        print(f"load_reference_status_registry error: {exc}")
+        return {}
+
+def save_reference_status_registry(registry):
+    return safe_write_json(REFERENCE_STATUS_FILE, registry)
+
+def update_reference_file_status(
+    status_key,
+    stored_path,
+    *,
+    original_name="",
+    applied=None,
+    extracted_count=None,
+    department="",
+):
+    registry = load_reference_status_registry()
+    record = registry.get(str(status_key), {})
+    now_text = datetime.datetime.now(tz_oman).strftime("%Y-%m-%d %H:%M:%S")
+
+    record.update({
+        "status_key": str(status_key),
+        "stored_path": str(stored_path or ""),
+        "stored_name": os.path.basename(str(stored_path or "")) if stored_path else "",
+        "department": str(department or record.get("department", "")),
+        "updated_at": now_text,
+    })
+
+    if original_name:
+        record["original_name"] = os.path.basename(str(original_name))
+    if applied is not None:
+        record["applied"] = bool(applied)
+        if bool(applied):
+            record["applied_at"] = now_text
+    if extracted_count is not None:
+        try:
+            record["extracted_count"] = int(extracted_count)
+        except Exception:
+            record["extracted_count"] = extracted_count
+
+    registry[str(status_key)] = record
+    save_reference_status_registry(registry)
+    return record
+
+def _reference_status_key(kind, department=""):
+    if kind == "schedule":
+        return f"schedule::{str(department).strip()}"
+    return str(kind).strip()
+
+
+
+def get_reference_file_status(file_path, status_key="", data_loaded=False):
+    registry = load_reference_status_registry()
+    record = registry.get(str(status_key), {}) if status_key else {}
+    file_exists = os.path.isfile(file_path)
+    data_active = bool(data_loaded or record.get("applied", False))
+
+    if file_exists:
         modified_time = datetime.datetime.fromtimestamp(
             os.path.getmtime(file_path),
             tz=tz_oman
         ).strftime("%Y-%m-%d %H:%M")
+        file_name = (
+            record.get("original_name")
+            or record.get("stored_name")
+            or os.path.basename(file_path)
+        )
+
+        if data_active:
+            return {
+                "exists": True,
+                "data_loaded": True,
+                "status_kind": "active",
+                "status_text": "✅ الملف محفوظ والبيانات مفعّلة",
+                "file_name": file_name,
+                "modified_at": record.get("applied_at") or modified_time,
+            }
+
         return {
             "exists": True,
-            "status_text": "✅ موجود",
-            "file_name": os.path.basename(file_path),
+            "data_loaded": False,
+            "status_kind": "stored",
+            "status_text": "🟠 الملف محفوظ وينتظر تحديث البيانات",
+            "file_name": file_name,
             "modified_at": modified_time,
+        }
+
+    if data_active:
+        return {
+            "exists": False,
+            "data_loaded": True,
+            "status_kind": "loaded_only",
+            "status_text": "🔵 البيانات محمّلة والملف المرجعي غير موجود",
+            "file_name": record.get("original_name") or "—",
+            "modified_at": record.get("applied_at") or record.get("updated_at") or "—",
         }
 
     return {
         "exists": False,
-        "status_text": "❌ غير موجود",
-        "file_name": "—",
-        "modified_at": "—",
+        "data_loaded": False,
+        "status_kind": "missing",
+        "status_text": "❌ لا يوجد ملف ولا بيانات مفعّلة",
+        "file_name": record.get("original_name") or "—",
+        "modified_at": record.get("updated_at") or "—",
     }
 
 DEFAULT_SCHOOL_CONFIG = {
@@ -280,8 +626,6 @@ ADMIN_ACCESS_ROLES = ["مدير المدرسة", "المدير المساعد"]
 DEPT_LEADER_ROLES = ["معلم أول", "منسق مادة"]
 
 
-AUTH_DB_FILE = os.getenv("AUTH_DB_FILE", "auth_db.json")
-
 
 def load_auth_db():
     auth_map = {}
@@ -351,28 +695,40 @@ def dept_has_loaded_schedule_data(dept_name):
 def get_school_data_center_status():
     schedules_status = {}
     for dept_name, file_path in SCHEDULE_FILES.items():
-        file_info = get_reference_file_status(file_path)
-        if not file_info["exists"] and dept_has_loaded_schedule_data(dept_name):
-            db_modified = datetime.datetime.fromtimestamp(
-                os.path.getmtime(DB_FILE),
-                tz=tz_oman
-            ).strftime("%Y-%m-%d %H:%M") if os.path.exists(DB_FILE) else "—"
-            file_info = {
-                "exists": True,
-                "status_text": "✅ محمّل داخل المنظومة",
-                "file_name": "—",
-                "modified_at": db_modified,
-            }
-        schedules_status[dept_name] = file_info
+        schedules_status[dept_name] = get_reference_file_status(
+            file_path,
+            _reference_status_key("schedule", dept_name),
+            dept_has_loaded_schedule_data(dept_name),
+        )
+
+    admin_loaded = any(
+        str(info.get("dept", "")).strip() == "الهيئة الإدارية"
+        or str(info.get("role", "")).strip() in ADMIN_ROLES
+        for info in teachers_db.values()
+    )
+    phones_loaded = any(
+        str(info.get("phone", "")).strip()
+        for info in teachers_db.values()
+    )
 
     return {
-        "admin_file": get_reference_file_status(ADMIN_FILE),
-        "phones_file": get_reference_file_status(PHONES_FILE),
+        "admin_file": get_reference_file_status(
+            ADMIN_FILE, _reference_status_key("admin"), admin_loaded
+        ),
+        "phones_file": get_reference_file_status(
+            PHONES_FILE, _reference_status_key("phones"), phones_loaded
+        ),
         "schedules": schedules_status,
     }
 def render_reference_file_card(title, file_info):
-    status_color = "#2e7d32" if file_info["exists"] else "#c62828"
-    bg_color = "#e8f5e9" if file_info["exists"] else "#ffebee"
+    status_kind = file_info.get("status_kind", "missing")
+    palettes = {
+        "active": ("#2e7d32", "#e8f5e9"),
+        "stored": ("#d97706", "#fff7ed"),
+        "loaded_only": ("#0284c7", "#e0f2fe"),
+        "missing": ("#c62828", "#ffebee"),
+    }
+    status_color, bg_color = palettes.get(status_kind, palettes["missing"])
 
     return f"""
     <div style="
@@ -426,7 +782,13 @@ def save_admin_reference_file(file, is_owner=False):
 
     try:
         ensure_data_directories()
-        shutil.copy(file.name, ADMIN_FILE)
+        shutil.copy2(file.name, ADMIN_FILE)
+        update_reference_file_status(
+            _reference_status_key("admin"),
+            ADMIN_FILE,
+            original_name=file.name,
+            applied=False,
+        )
         return "<div style='color:#2e7d32; font-weight:bold;'>✅ تم اعتماد ملف الإداريين المرجعي بنجاح.</div>", gr.update(value=render_admin_reference_card())
     except Exception as e:
         return f"<div style='color:red; font-weight:bold;'>❌ خطأ أثناء حفظ الملف المرجعي: {str(e)}</div>", gr.update(value=render_admin_reference_card())
@@ -505,6 +867,12 @@ def refresh_admins_from_reference(dept_filter, is_owner=False):
             added_or_updated += 1
 
         save_db()
+        update_reference_file_status(
+            _reference_status_key("admin"),
+            ADMIN_FILE,
+            applied=True,
+            extracted_count=added_or_updated,
+        )
 
         dept_filter = resolve_effective_dept(dept_filter)
         choices_all = get_teacher_choices(dept_filter)
@@ -556,7 +924,13 @@ def save_phones_reference_file(file, is_owner=False):
             return f"<div style='color:red; font-weight:bold;'>{msg}</div>", gr.update(value=render_phones_reference_card())
 
         ensure_data_directories()
-        shutil.copy(file_path, PHONES_FILE)
+        shutil.copy2(file_path, PHONES_FILE)
+        update_reference_file_status(
+            _reference_status_key("phones"),
+            PHONES_FILE,
+            original_name=file_path,
+            applied=False,
+        )
 
         return "<div style='color:#2e7d32; font-weight:bold;'>✅ تم اعتماد ملف أرقام المعلمين المرجعي بنجاح.</div>", gr.update(value=render_phones_reference_card())
 
@@ -609,6 +983,12 @@ def refresh_phones_from_reference(dept_filter, is_owner=False):
                     break
 
         save_db()
+        update_reference_file_status(
+            _reference_status_key("phones"),
+            PHONES_FILE,
+            applied=True,
+            extracted_count=updated,
+        )
 
         msg = f"<div style='color:#2e7d32; font-weight:bold; background:#e8f5e9; padding:10px; border-radius:5px;'>✅ تم تحديث أرقام ({updated}) من المعلمين من الملف المرجعي بنجاح.</div>"
 
@@ -656,7 +1036,14 @@ def save_schedule_reference_file(file, dept_name, is_owner=False):
             )
 
         ensure_data_directories()
-        shutil.copy(file_path, SCHEDULE_FILES[dept_name])
+        shutil.copy2(file_path, SCHEDULE_FILES[dept_name])
+        update_reference_file_status(
+            _reference_status_key("schedule", dept_name),
+            SCHEDULE_FILES[dept_name],
+            original_name=file_path,
+            applied=False,
+            department=dept_name,
+        )
 
         return (
             f"<div style='color:#2e7d32; font-weight:bold;'>✅ تم اعتماد الملف المرجعي لقسم ({dept_name}) بنجاح.</div>",
@@ -806,6 +1193,13 @@ def refresh_schedule_from_reference(dept_name, current_day, is_owner=False):
                                 teachers_db[t_name][current_day_val][pnum] = cls
 
         save_db()
+        update_reference_file_status(
+            _reference_status_key("schedule", dept_name),
+            schedule_file,
+            applied=True,
+            extracted_count=len(found_in_file),
+            department=dept_name,
+        )
 
         t_names_all = sorted(list(teachers_db.keys()))
         choices_all = get_teacher_choices("الكل")
@@ -865,7 +1259,6 @@ def get_date_of_weekday(target_day_name):
     target_date = now + datetime.timedelta(days=diff)
     return target_date.strftime("%Y-%m-%d")
 
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
 candidate_font_paths = [
     os.path.join(APP_DIR, "Cairo-Regular.ttf"),
     "/app/Cairo-Regular.ttf",
@@ -1293,6 +1686,22 @@ def render_backup_status_html(is_owner=False):
         </tr>
         """)
 
+    if PERSISTENT_STORAGE_ACTIVE:
+        storage_note = (
+            "<div style='margin-top:10px;background:#dcfce7;color:#166534;padding:10px;"
+            "border-radius:8px;border-right:4px solid #16a34a;'>"
+            "✅ النسخ محفوظة داخل التخزين الدائم: "
+            + html_lib.escape(DATA_DIR)
+            + "</div>"
+        )
+    else:
+        storage_note = (
+            "<div style='margin-top:10px;background:#fff7ed;color:#9a3412;padding:10px;"
+            "border-radius:8px;border-right:4px solid #ea580c;'>"
+            "⚠️ التطبيق يعمل على التخزين المحلي الاحتياطي؛ تحقّق من تركيب الـBucket."
+            "</div>"
+        )
+
     return f"""
     <div style='direction:rtl;'>
         <div style='background:#e0f2fe;color:#0c4a6e;border-right:5px solid #0284c7;padding:11px 14px;border-radius:10px;margin-bottom:10px;font-weight:800;'>
@@ -1306,9 +1715,7 @@ def render_backup_status_html(is_owner=False):
                 <tbody>{''.join(rows)}</tbody>
             </table>
         </div>
-        <div style='margin-top:10px;background:#fff7ed;color:#9a3412;padding:10px;border-radius:8px;border-right:4px solid #ea580c;'>
-            تنبيه: النسخ المحلية لا تضمن الاستمرارية بعد حذف أو إعادة إنشاء الحاوية ما لم تكن بيئة التشغيل تستخدم تخزيناً دائماً.
-        </div>
+        {storage_note}
     </div>
     """
 
@@ -1336,7 +1743,11 @@ def create_backup_bundle(is_owner=False):
     }
 
     current_files = [path for _label, path in get_monitored_backup_files()]
-    reference_files = [ADMIN_FILE, PHONES_FILE] + list(SCHEDULE_FILES.values())
+    reference_files = [
+        ADMIN_FILE,
+        PHONES_FILE,
+        REFERENCE_STATUS_FILE,
+    ] + list(SCHEDULE_FILES.values())
 
     with STATE_LOCK:
         try:
@@ -1642,7 +2053,7 @@ def render_school_config_summary_html(config=None):
         cfg.update(config)
     return f"""
 <div style='background:#fffde7;color:#4d3b00;padding:12px;border-radius:10px;border-right:5px solid {html_lib.escape(str(cfg.get("accent_color", ACCENT_COLOR)))};margin-bottom:12px;font-weight:800;line-height:1.8;'>
-    ملف إعدادات المدرسة: <b>data/school_config.json</b><br>
+    ملف إعدادات المدرسة: <b>{html_lib.escape(SCHOOL_CONFIG_FILE)}</b><br>
     المدرسة الحالية: <b>{html_lib.escape(str(cfg.get("school_name", SCHOOL_NAME)))}</b><br>
     اسم النظام: <b>{html_lib.escape(str(cfg.get("system_name", SYSTEM_NAME)))} - {html_lib.escape(str(cfg.get("system_subtitle", SYSTEM_SUBTITLE)))}</b><br>
     عدد الحصص اليومية: <b>{MAX_PERIODS}</b>
@@ -2006,7 +2417,6 @@ def load_daily_db():
         daily_db = []
         processed_absences = set()
 load_daily_db()
-SWAP_DB_FILE = "friendly_swaps.json"
 SWAP_EMPTY_MSG = "💡 يرجى اختيار أحد المعلمين من القائمة بالأعلى لتوليد مسودة رسالة الواتساب هنا..."
 swap_db = {}
 
@@ -7330,6 +7740,7 @@ with gr.Blocks() as app:
                     gr.Markdown("### 🗄️ مركز البيانات المدرسية")
                     gr.HTML("<div style='background:#e8f5e9; color:#004d40; padding:14px; border-radius:10px; border-right:5px solid #2e7d32; margin-bottom:12px;'>هذه البوابة هي المرجع الرسمي لاعتماد ملفات الإداريين وأرقام المعلمين والجداول المرجعية للأقسام، بدلاً من الرفع التشغيلي المباشر.</div>")
 
+                    persistent_storage_status_html = gr.HTML(value=render_persistent_storage_status_html())
                     school_config_summary_html = gr.HTML(value=render_school_config_summary_html())
 
                     with gr.Accordion("🎨 إعدادات هوية المدرسة", open=False):
