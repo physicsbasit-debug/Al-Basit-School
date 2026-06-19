@@ -1792,6 +1792,24 @@ def refresh_owner_tools_dashboard(action_filter, actor_filter, teacher_filter, d
 
 
 
+def refresh_school_data_center_cards(is_owner=False):
+    """
+    إعادة قراءة حالة التخزين والملفات المرجعية عند كل دخول إلى مركز البيانات.
+    يمنع رجوع البطاقات إلى القيم الحمراء الابتدائية بعد الخروج أو تحديث الصفحة.
+    """
+    if not bool(is_owner):
+        denied = gr.update()
+        return denied, denied, denied, denied, denied
+
+    return (
+        gr.update(value=render_persistent_storage_status_html()),
+        gr.update(value=render_school_config_summary_html()),
+        gr.update(value=render_admin_reference_card()),
+        gr.update(value=render_phones_reference_card()),
+        gr.update(value=render_schedule_reference_cards()),
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # v1.8 — إعداد هوية المدرسة من الواجهة (مالك النظام فقط)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -7875,7 +7893,26 @@ with gr.Blocks() as app:
     btn_open_swap.click(lambda: open_home_section("swap"), [], [home_dashboard, tabs_container, main_tabs], queue=False).then(None, None, None, js=show_selected_tab_container_js())
     btn_open_day.click(lambda: open_home_section("day_table"), [], [home_dashboard, tabs_container, main_tabs], queue=False).then(None, None, None, js=show_selected_tab_container_js())
     btn_open_teacher.click(lambda: open_home_section("teacher_table"), [], [home_dashboard, tabs_container, main_tabs], queue=False).then(None, None, None, js=show_selected_tab_container_js())
-    btn_open_school_data.click(lambda: open_home_section("school_data"), [], [home_dashboard, tabs_container, main_tabs], queue=False).then(None, None, None, js=show_selected_tab_container_js())
+    btn_open_school_data.click(
+        lambda: open_home_section("school_data"),
+        [],
+        [home_dashboard, tabs_container, main_tabs],
+        queue=False,
+    ).then(
+        refresh_school_data_center_cards,
+        [current_user_is_owner],
+        [
+            persistent_storage_status_html,
+            school_config_summary_html,
+            school_data_admin_html,
+            school_data_phones_html,
+            school_data_schedules_html,
+        ],
+        queue=False,
+    ).then(
+        None, None, None,
+        js=show_selected_tab_container_js(),
+    )
     btn_back_home.click(return_to_home_dashboard, [], [home_dashboard, tabs_container], queue=False).then(None, None, None, js=return_home_dashboard_js())
     login_btn.click(
         attempt_login,
@@ -8108,6 +8145,18 @@ with gr.Blocks() as app:
         [audit_action_filter, audit_actor_filter, audit_teacher_filter, audit_date_from, audit_date_to, current_user_is_owner],
         [audit_action_filter, audit_actor_filter, audit_teacher_filter, audit_table_html, backup_status_html],
         queue=False
+    )
+    school_data_tab.select(
+        refresh_school_data_center_cards,
+        [current_user_is_owner],
+        [
+            persistent_storage_status_html,
+            school_config_summary_html,
+            school_data_admin_html,
+            school_data_phones_html,
+            school_data_schedules_html,
+        ],
+        queue=False,
     )
     audit_refresh_btn.click(
         refresh_audit_dashboard,
