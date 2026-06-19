@@ -1435,13 +1435,58 @@ def _audit_value_to_text(value):
 
 
 def _parse_audit_date(value, label):
+    if value is None or value == "":
+        return None, ""
+
+    if isinstance(value, datetime.datetime):
+        return value.date(), ""
+
+    if isinstance(value, datetime.date):
+        return value, ""
+
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.datetime.fromtimestamp(
+                float(value),
+                tz=tz_oman,
+            ).date(), ""
+        except Exception:
+            return None, f"قيمة {label} غير صالحة."
+
     raw = str(value or "").strip()
     if not raw:
         return None, ""
+
+    # يدعم YYYY-MM-DD وكذلك قيم ISO التي قد يعيدها مكوّن Gradio DateTime.
+    date_part = raw[:10]
     try:
-        return datetime.datetime.strptime(raw, "%Y-%m-%d").date(), ""
+        return datetime.datetime.strptime(date_part, "%Y-%m-%d").date(), ""
     except Exception:
-        return None, f"صيغة {label} غير صحيحة. استخدم YYYY-MM-DD."
+        return None, f"صيغة {label} غير صحيحة. اختر التاريخ من التقويم."
+
+
+
+def get_audit_date_range(preset):
+    """إرجاع نطاق تاريخ جاهز وفق توقيت سلطنة عمان."""
+    today = datetime.datetime.now(tz_oman).date()
+    preset_value = str(preset or "").strip()
+
+    if preset_value == "today":
+        start_date = today
+        end_date = today
+    elif preset_value == "last_7_days":
+        start_date = today - datetime.timedelta(days=6)
+        end_date = today
+    elif preset_value == "this_month":
+        start_date = today.replace(day=1)
+        end_date = today
+    elif preset_value == "clear":
+        return None, None
+    else:
+        return None, None
+
+    return start_date.isoformat(), end_date.isoformat()
+
 
 
 def filter_audit_records(records, action_filter="الكل", actor_filter="الكل", teacher_filter="الكل", date_from="", date_to=""):
@@ -1572,52 +1617,116 @@ def refresh_audit_dashboard(action_filter, actor_filter, teacher_filter, date_fr
 
 def export_audit_log_excel(action_filter, actor_filter, teacher_filter, date_from, date_to, is_owner=False):
     if not bool(is_owner):
-        return gr.update(value=None), "<div style='color:#b91c1c;font-weight:800;'>هذه العملية متاحة لمالك النظام فقط.</div>"
+        return (
+            gr.update(value=None),
+            "<div style='color:#b91c1c;font-weight:800;'>هذه العملية متاحة لمالك النظام فقط.</div>",
+        )
 
-    records = load_audit_log_records()
-    filtered, error = filter_audit_records(records, action_filter, actor_filter, teacher_filter, date_from, date_to)
-    if error:
-        return gr.update(value=None), f"<div style='color:#b91c1c;font-weight:800;'>{html_lib.escape(error)}</div>"
-    if not filtered:
-        return gr.update(value=None), "<div style='color:#a16207;font-weight:800;'>لا توجد سجلات مطابقة لتصديرها.</div>"
+    try:
+        records = load_audit_log_records()
+        filtered, error = filter_audit_records(
+            records,
+            action_filter,
+            actor_filter,
+            teacher_filter,
+            date_from,
+            date_to,
+        )
 
-    ensure_data_directories()
-    rows = []
-    for record in filtered:
-        rows.append({
-            "التاريخ والوقت": str(record.get("timestamp", "")),
-            "اسم المنفذ": str(record.get("actor_name", "")),
-            "دور المنفذ": str(record.get("actor_role", "")),
-            "نوع العملية": str(record.get("action", "")),
-            "المعلم المتأثر": str(record.get("target_teacher", "")),
-            "القيمة القديمة": _audit_value_to_text(record.get("old_value")),
-            "القيمة الجديدة": _audit_value_to_text(record.get("new_value")),
-            "التفاصيل": str(record.get("details", "")),
-            "المصدر": str(record.get("source", "")),
-        })
+        if error:
+            return (
+                gr.update(value=None),
+                f"<div style='color:#b91c1c;font-weight:800;'>{html_lib.escape(error)}</div>",
+            )
 
-    filename = os.path.join(EXPORTS_DIR, f"سجل_العمليات_الحساسة_{get_now_oman().strftime('%Y%m%d_%H%M%S_%f')}.xlsx")
-    df = pd.DataFrame(rows)
-    with pd.ExcelWriter(filename, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="سجل العمليات")
-        ws = writer.sheets["سجل العمليات"]
-        header_fill = PatternFill(fill_type="solid", fgColor="004D40")
-        header_font = Font(color="FFFFFF", bold=True)
-        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        for cell in ws[1]:
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = center
-        for row in ws.iter_rows(min_row=2):
-            for cell in row:
+        if not filtered:
+            return (
+                gr.update(value=None),
+                "<div style='color:#a16207;font-weight:800;'>لا توجد سجلات مطابقة لتصديرها.</div>",
+            )
+
+        ensure_data_directories()
+        rows = []
+        for record in filtered:
+            rows.append({
+                "التاريخ والوقت": str(record.get("timestamp", "")),
+                "اسم المنفذ": str(record.get("actor_name", "")),
+                "دور المنفذ": str(record.get("actor_role", "")),
+                "نوع العملية": str(record.get("action", "")),
+                "المعلم المتأثر": str(record.get("target_teacher", "")),
+                "القيمة القديمة": _audit_value_to_text(record.get("old_value")),
+                "القيمة الجديدة": _audit_value_to_text(record.get("new_value")),
+                "التفاصيل": str(record.get("details", "")),
+                "المصدر": str(record.get("source", "")),
+            })
+
+        filename = os.path.join(
+            EXPORTS_DIR,
+            f"سجل_العمليات_الحساسة_{get_now_oman().strftime('%Y%m%d_%H%M%S_%f')}.xlsx",
+        )
+
+        df = pd.DataFrame(rows)
+        with pd.ExcelWriter(filename, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="سجل العمليات")
+            ws = writer.sheets["سجل العمليات"]
+
+            header_fill = PatternFill(fill_type="solid", fgColor="004D40")
+            header_font = Font(color="FFFFFF", bold=True)
+            center = Alignment(
+                horizontal="center",
+                vertical="center",
+                wrap_text=True,
+            )
+
+            for cell in ws[1]:
+                cell.fill = header_fill
+                cell.font = header_font
                 cell.alignment = center
-        for column_cells in ws.columns:
-            max_length = max(len(str(cell.value or "")) for cell in column_cells)
-            ws.column_dimensions[column_cells[0].column_letter].width = min(max(max_length + 3, 14), 55)
-        ws.freeze_panes = "A2"
-        ws.sheet_view.rightToLeft = True
 
-    return gr.update(value=os.path.abspath(filename)), f"<div style='color:#166534;background:#dcfce7;padding:10px;border-radius:8px;font-weight:800;'>تم تجهيز ملف Excel ويحتوي على {len(filtered)} سجل.</div>"
+            for row in ws.iter_rows(min_row=2):
+                for cell in row:
+                    cell.alignment = center
+
+            for column_cells in ws.columns:
+                max_length = max(
+                    len(str(cell.value or ""))
+                    for cell in column_cells
+                )
+                ws.column_dimensions[
+                    column_cells[0].column_letter
+                ].width = min(max(max_length + 3, 14), 55)
+
+            ws.freeze_panes = "A2"
+            ws.sheet_view.rightToLeft = True
+
+        absolute_filename = os.path.abspath(filename)
+        if not os.path.isfile(absolute_filename):
+            raise FileNotFoundError(
+                "تم إنشاء طلب التصدير لكن ملف Excel غير موجود في مسار المخرجات."
+            )
+
+        return (
+            gr.update(value=absolute_filename),
+            (
+                "<div style='color:#166534;background:#dcfce7;padding:10px;"
+                "border-radius:8px;font-weight:800;'>"
+                f"تم تجهيز ملف Excel ويحتوي على {len(filtered)} سجل."
+                "</div>"
+            ),
+        )
+
+    except Exception as exc:
+        print(f"export_audit_log_excel error: {exc}")
+        return (
+            gr.update(value=None),
+            (
+                "<div style='color:#b91c1c;background:#fee2e2;padding:10px;"
+                "border-radius:8px;font-weight:800;'>"
+                "تعذر تصدير السجل. التفاصيل التقنية: "
+                f"{html_lib.escape(str(exc))}"
+                "</div>"
+            ),
+        )
 
 
 def _backup_files_for_target(file_path):
@@ -7840,7 +7949,7 @@ with gr.Blocks() as app:
                     schedule_reference_status_html = gr.HTML()
 
                     with gr.Accordion("🛡️ سجل العمليات والنسخ الاحتياطية", open=False):
-                        gr.HTML("<div style='background:#eef6f3;color:#004d40;padding:12px;border-radius:10px;border-right:5px solid #0f766e;margin-bottom:12px;font-weight:800;'>أدوات رقابية مخصصة لمالك النظام: عرض سجل العمليات، تصديره إلى Excel، فحص النسخ الاحتياطية، وتنزيل حزمة احتياطية كاملة.</div>")
+                        gr.HTML("<div style='background:#eef6f3;color:#004d40;padding:12px;border-radius:10px;border-right:5px solid #0f766e;margin-bottom:12px;font-weight:800;line-height:1.8;'>هذه أدوات رقابية لمالك النظام فقط. سجل العمليات لا ينفذ أي تعديل؛ بل يوضح من غيّر ماذا، وعلى أي معلم، وما القيمة القديمة والجديدة، ومتى حدث ذلك. اختر الفلاتر للعرض، ثم صدّر النتائج المطابقة إلى Excel عند الحاجة.</div>")
 
                         with gr.Accordion("📑 سجل العمليات الحساسة", open=True):
                             with gr.Row():
@@ -7848,10 +7957,27 @@ with gr.Blocks() as app:
                                 audit_actor_filter = gr.Dropdown(["الكل"], value="الكل", label="اسم المنفذ")
                                 audit_teacher_filter = gr.Dropdown(["الكل"], value="الكل", label="المعلم المتأثر")
                             with gr.Row():
-                                audit_date_from = gr.Textbox(label="من تاريخ", placeholder="YYYY-MM-DD")
-                                audit_date_to = gr.Textbox(label="إلى تاريخ", placeholder="YYYY-MM-DD")
+                                audit_date_from = gr.DateTime(
+                                    label="من تاريخ",
+                                    include_time=False,
+                                    type="string",
+                                    timezone="Asia/Muscat",
+                                    info="اختر تاريخ البداية من التقويم",
+                                )
+                                audit_date_to = gr.DateTime(
+                                    label="إلى تاريخ",
+                                    include_time=False,
+                                    type="string",
+                                    timezone="Asia/Muscat",
+                                    info="اختر تاريخ النهاية من التقويم",
+                                )
                             with gr.Row():
-                                audit_refresh_btn = gr.Button("تحديث وتطبيق الفلاتر", elem_classes="admin-btn")
+                                audit_today_btn = gr.Button("اليوم", elem_classes="admin-btn")
+                                audit_last_7_days_btn = gr.Button("آخر 7 أيام", elem_classes="admin-btn")
+                                audit_this_month_btn = gr.Button("هذا الشهر", elem_classes="admin-btn")
+                                audit_clear_dates_btn = gr.Button("مسح التاريخ", elem_classes="reset-btn")
+                            with gr.Row():
+                                audit_refresh_btn = gr.Button("عرض النتائج حسب الفلاتر", elem_classes="admin-btn")
                                 audit_export_btn = gr.Button("تصدير السجل إلى Excel", elem_classes="export-btn")
                             audit_action_status_html = gr.HTML()
                             audit_table_html = gr.HTML("<div style='text-align:center;color:#64748b;padding:16px;'>افتح القسم أو اضغط تحديث لعرض سجل العمليات.</div>")
@@ -8158,11 +8284,84 @@ with gr.Blocks() as app:
         ],
         queue=False,
     )
+    audit_today_btn.click(
+        lambda: get_audit_date_range("today"),
+        [],
+        [audit_date_from, audit_date_to],
+        queue=False,
+    ).then(
+        refresh_audit_dashboard,
+        [audit_action_filter, audit_actor_filter, audit_teacher_filter, audit_date_from, audit_date_to, current_user_is_owner],
+        [audit_action_filter, audit_actor_filter, audit_teacher_filter, audit_table_html],
+        queue=False,
+    ).then(
+        lambda: (gr.update(value=None), gr.update(value="")),
+        [],
+        [audit_export_file, audit_action_status_html],
+        queue=False,
+    )
+
+    audit_last_7_days_btn.click(
+        lambda: get_audit_date_range("last_7_days"),
+        [],
+        [audit_date_from, audit_date_to],
+        queue=False,
+    ).then(
+        refresh_audit_dashboard,
+        [audit_action_filter, audit_actor_filter, audit_teacher_filter, audit_date_from, audit_date_to, current_user_is_owner],
+        [audit_action_filter, audit_actor_filter, audit_teacher_filter, audit_table_html],
+        queue=False,
+    ).then(
+        lambda: (gr.update(value=None), gr.update(value="")),
+        [],
+        [audit_export_file, audit_action_status_html],
+        queue=False,
+    )
+
+    audit_this_month_btn.click(
+        lambda: get_audit_date_range("this_month"),
+        [],
+        [audit_date_from, audit_date_to],
+        queue=False,
+    ).then(
+        refresh_audit_dashboard,
+        [audit_action_filter, audit_actor_filter, audit_teacher_filter, audit_date_from, audit_date_to, current_user_is_owner],
+        [audit_action_filter, audit_actor_filter, audit_teacher_filter, audit_table_html],
+        queue=False,
+    ).then(
+        lambda: (gr.update(value=None), gr.update(value="")),
+        [],
+        [audit_export_file, audit_action_status_html],
+        queue=False,
+    )
+
+    audit_clear_dates_btn.click(
+        lambda: get_audit_date_range("clear"),
+        [],
+        [audit_date_from, audit_date_to],
+        queue=False,
+    ).then(
+        refresh_audit_dashboard,
+        [audit_action_filter, audit_actor_filter, audit_teacher_filter, audit_date_from, audit_date_to, current_user_is_owner],
+        [audit_action_filter, audit_actor_filter, audit_teacher_filter, audit_table_html],
+        queue=False,
+    ).then(
+        lambda: (gr.update(value=None), gr.update(value="")),
+        [],
+        [audit_export_file, audit_action_status_html],
+        queue=False,
+    )
+
     audit_refresh_btn.click(
         refresh_audit_dashboard,
         [audit_action_filter, audit_actor_filter, audit_teacher_filter, audit_date_from, audit_date_to, current_user_is_owner],
         [audit_action_filter, audit_actor_filter, audit_teacher_filter, audit_table_html],
         queue=False
+    ).then(
+        lambda: (gr.update(value=None), gr.update(value="")),
+        [],
+        [audit_export_file, audit_action_status_html],
+        queue=False,
     )
     audit_export_btn.click(
         export_audit_log_excel,
@@ -8429,5 +8628,10 @@ app.launch(
     js=js_code,
     server_name="0.0.0.0",
     server_port=7860,
-    ssr_mode=False
+    ssr_mode=False,
+    allowed_paths=[
+        EXPORTS_DIR,
+        IMG_DIR,
+        SWAP_IMG_DIR,
+    ],
 )
