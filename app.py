@@ -3131,15 +3131,10 @@ def build_login_branding_html(config=None):
         {system_name}
     </div>
 
-    <div class="masar-login-wave-wrap">
-        <div class="masar-login-wave-track">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 60" preserveAspectRatio="none" aria-hidden="true">
-                <path fill="{accent}" fill-opacity="1" d="M0,35 C120,5 240,55 360,25 C480,0 600,50 720,20 C840,-5 960,45 1080,22 C1200,0 1320,50 1440,25 L1440,65 L0,65 Z"/>
-            </svg>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 60" preserveAspectRatio="none" aria-hidden="true">
-                <path fill="{accent}" fill-opacity="1" d="M0,35 C120,5 240,55 360,25 C480,0 600,50 720,20 C840,-5 960,45 1080,22 C1200,0 1320,50 1440,25 L1440,65 L0,65 Z"/>
-            </svg>
-        </div>
+    <div style="margin-bottom:-4px;line-height:0;overflow:hidden;margin-left:-28px;margin-right:-28px;">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2880 60" preserveAspectRatio="none" style="display:block;width:200%;height:15px;animation:waveMove 4s linear infinite;">
+            <path fill="{accent}" fill-opacity="1" d="M-10,35 C180,5 360,55 540,25 C720,0 900,50 1080,20 C1260,-5 1400,45 1450,30 C1620,5 1800,55 1980,25 C2160,0 2340,50 2520,20 C2700,-5 2840,45 2890,30 L2890,65 L-10,65 Z"/>
+        </svg>
     </div>
 </div>
 """
@@ -5352,18 +5347,24 @@ def show_school_data_panel(panel_name="overview"):
     panel = str(panel_name or "overview").strip()
     labels = {
         "overview": "يعرض مركز البيانات الآن حالة التخزين الدائم وملف إعدادات المدرسة فقط. اختر بطاقة من الأعلى لفتح القسم المطلوب.",
-        "references": "🗂️ الملفات المرجعية: الجداول، أرقام المعلمين، الإداريون، والأدوات الإدارية الإضافية. يظهر القسم مباشرة بعد الضغط.",
-        "identity": "🎨 هوية المدرسة: اسم المدرسة، المحافظة، الشعار، والألوان. لا توجد قائمة منسدلة إضافية.",
+        "references": "🗂️ الملفات المرجعية: الجداول، أرقام المعلمين، الإداريون، والأدوات الإدارية الإضافية.",
+        "identity": "🎨 هوية المدرسة: اسم المدرسة، المحافظة، الشعار، والألوان.",
         "accounts": "🔐 حسابات الدخول: الرموز، تفعيل الحسابات، وتخصيص الترحيب في صفحة واحدة.",
-        "audit": "🛡️ السجل والنسخ: سجل العمليات الحساسة والنسخ الاحتياطية دون ضغط إضافي.",
+        "audit": "🛡️ السجل والنسخ: سجل العمليات الحساسة والنسخ الاحتياطية.",
     }
+
+    show_overview_cards = panel == "overview"
+
     return (
         gr.update(value=f"<div class='school-data-panel-title'>{labels.get(panel, labels['overview'])}</div>"),
+        gr.update(visible=show_overview_cards),
+        gr.update(visible=show_overview_cards),
         gr.update(visible=(panel == "references")),
         gr.update(visible=(panel == "identity")),
         gr.update(visible=(panel == "accounts")),
         gr.update(visible=(panel == "audit")),
     )
+
 def detect_absence_assignment_conflicts_for_context(day_name, dept_filter, current_abs=None):
     effective_dept = resolve_effective_dept(dept_filter)
     cleaned = normalize_absent_names(current_abs) if current_abs else []
@@ -8510,6 +8511,119 @@ div[data-testid="dropdown-options"] *,
     margin-bottom: 14px !important;
 }
 
+
+
+/* v1.8.3 Fix 8 — restore old login wave feel, official header centering, and panel focus */
+.main-header {
+    direction: ltr !important;
+    position: relative !important;
+}
+
+.main-header .header-grid,
+.header-grid {
+    direction: ltr !important;
+    display: grid !important;
+    grid-template-columns: 300px minmax(0, 1fr) 300px !important;
+    grid-template-areas:
+        "logo title ministry"
+        "logo school ministry"
+        "logo credits ministry" !important;
+    align-items: center !important;
+    justify-items: center !important;
+    gap: 5px 16px !important;
+    width: 100% !important;
+    max-width: 1220px !important;
+    margin: 0 auto !important;
+}
+
+.main-header .h-logo,
+.h-logo {
+    grid-area: logo !important;
+    justify-self: start !important;
+    text-align: left !important;
+    direction: ltr !important;
+}
+
+.main-header .h-ministry,
+.h-ministry {
+    grid-area: ministry !important;
+    justify-self: end !important;
+    text-align: right !important;
+    direction: rtl !important;
+    width: 300px !important;
+}
+
+.main-header .h-title,
+.h-title {
+    grid-area: title !important;
+    justify-self: center !important;
+    text-align: center !important;
+    direction: rtl !important;
+    width: 100% !important;
+}
+
+.main-header .h-school,
+.h-school {
+    grid-area: school !important;
+    justify-self: center !important;
+    text-align: center !important;
+    direction: rtl !important;
+    width: 100% !important;
+}
+
+.main-header .h-credits,
+.h-credits {
+    grid-area: credits !important;
+    justify-self: center !important;
+    text-align: center !important;
+    direction: rtl !important;
+    width: 100% !important;
+}
+
+.main-header .credits-box,
+.h-credits .credits-box {
+    margin-left: auto !important;
+    margin-right: auto !important;
+    text-align: center !important;
+}
+
+@media (max-width: 900px) {
+    .main-header .header-grid,
+    .header-grid {
+        grid-template-columns: 150px minmax(0, 1fr) 150px !important;
+        gap: 4px 10px !important;
+    }
+    .main-header .h-ministry,
+    .h-ministry {
+        width: 150px !important;
+        font-size: 11px !important;
+    }
+}
+
+@media (max-width: 768px) {
+    .main-header .header-grid,
+    .header-grid {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        text-align: center !important;
+    }
+    .main-header .h-logo,
+    .main-header .h-ministry,
+    .main-header .h-title,
+    .main-header .h-school,
+    .main-header .h-credits,
+    .h-logo,
+    .h-ministry,
+    .h-title,
+    .h-school,
+    .h-credits {
+        justify-self: center !important;
+        text-align: center !important;
+        width: 100% !important;
+    }
+}
+
 """
 
 
@@ -9696,25 +9810,25 @@ with gr.Blocks() as app:
     btn_school_data_references_panel.click(
         lambda: show_school_data_panel("references"),
         [],
-        [school_data_section_status, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
+        [school_data_section_status, persistent_storage_status_html, school_config_summary_html, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
         queue=False,
     )
     btn_school_data_identity_panel.click(
         lambda: show_school_data_panel("identity"),
         [],
-        [school_data_section_status, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
+        [school_data_section_status, persistent_storage_status_html, school_config_summary_html, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
         queue=False,
     )
     btn_school_data_accounts_panel.click(
         lambda: show_school_data_panel("accounts"),
         [],
-        [school_data_section_status, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
+        [school_data_section_status, persistent_storage_status_html, school_config_summary_html, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
         queue=False,
     )
     btn_school_data_audit_panel.click(
         lambda: show_school_data_panel("audit"),
         [],
-        [school_data_section_status, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
+        [school_data_section_status, persistent_storage_status_html, school_config_summary_html, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
         queue=False,
     )
 
@@ -9732,7 +9846,7 @@ with gr.Blocks() as app:
     ).then(
         lambda: show_school_data_panel("overview"),
         [],
-        [school_data_section_status, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
+        [school_data_section_status, persistent_storage_status_html, school_config_summary_html, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
         queue=False,
     ).then(
         refresh_school_data_center_cards,
@@ -10138,7 +10252,7 @@ with gr.Blocks() as app:
     school_data_tab.select(
         lambda: show_school_data_panel("overview"),
         [],
-        [school_data_section_status, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
+        [school_data_section_status, persistent_storage_status_html, school_config_summary_html, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
         queue=False,
     )
     school_data_tab.select(
