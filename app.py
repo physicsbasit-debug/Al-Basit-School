@@ -3131,10 +3131,15 @@ def build_login_branding_html(config=None):
         {system_name}
     </div>
 
-    <div style="margin-bottom:-4px;line-height:0;overflow:hidden;margin-left:-28px;margin-right:-28px;">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2880 60" preserveAspectRatio="none" style="display:block;width:200%;height:15px;animation:waveMove 4s linear infinite;">
-            <path fill="{accent}" fill-opacity="1" d="M-10,35 C180,5 360,55 540,25 C720,0 900,50 1080,20 C1260,-5 1400,45 1450,30 C1620,5 1800,55 1980,25 C2160,0 2340,50 2520,20 C2700,-5 2840,45 2890,30 L2890,65 L-10,65 Z"/>
-        </svg>
+    <div class="masar-login-wave-safe" style="--masar-wave-gold:{accent};--masar-wave-green:{theme};">
+        <div class="masar-login-wave-safe-track">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 60" preserveAspectRatio="none" aria-hidden="true">
+                <path fill="{theme}" fill-opacity="1" d="M0,0 L0,34 C120,8 240,58 360,34 C480,8 600,58 720,34 C840,8 960,58 1080,34 C1200,8 1320,58 1440,34 L1440,0 Z"/>
+            </svg>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 60" preserveAspectRatio="none" aria-hidden="true">
+                <path fill="{theme}" fill-opacity="1" d="M0,0 L0,34 C120,8 240,58 360,34 C480,8 600,58 720,34 C840,8 960,58 1080,34 C1200,8 1320,58 1440,34 L1440,0 Z"/>
+            </svg>
+        </div>
     </div>
 </div>
 """
@@ -5353,16 +5358,14 @@ def show_school_data_panel(panel_name="overview"):
         "audit": "🛡️ السجل والنسخ: سجل العمليات الحساسة والنسخ الاحتياطية.",
     }
 
-    show_overview_cards = panel == "overview"
-
     return (
         gr.update(value=f"<div class='school-data-panel-title'>{labels.get(panel, labels['overview'])}</div>"),
-        gr.update(visible=show_overview_cards),
-        gr.update(visible=show_overview_cards),
-        gr.update(visible=(panel == "references")),
-        gr.update(visible=(panel == "identity")),
-        gr.update(visible=(panel == "accounts")),
-        gr.update(visible=(panel == "audit")),
+        gr.update(visible=True),
+        gr.update(visible=True),
+        gr.update(visible=True),
+        gr.update(visible=True),
+        gr.update(visible=True),
+        gr.update(visible=True),
     )
 
 def detect_absence_assignment_conflicts_for_context(day_name, dept_filter, current_abs=None):
@@ -8624,6 +8627,83 @@ div[data-testid="dropdown-options"] *,
     }
 }
 
+
+
+/* v1.8.3 Fix 9 — safe continuous login wave + instant school data panels */
+.masar-login-wave-safe {
+    height: 18px !important;
+    margin-bottom: -4px !important;
+    margin-left: -28px !important;
+    margin-right: -28px !important;
+    overflow: hidden !important;
+    line-height: 0 !important;
+    direction: ltr !important;
+    background: var(--masar-wave-gold, #ffca28) !important;
+    position: relative !important;
+}
+
+.masar-login-wave-safe-track {
+    display: flex !important;
+    width: 200% !important;
+    height: 18px !important;
+    animation: masarWaveSafeMove 4.5s linear infinite !important;
+    will-change: transform !important;
+    direction: ltr !important;
+}
+
+.masar-login-wave-safe-track svg {
+    display: block !important;
+    width: 50% !important;
+    min-width: 50% !important;
+    height: 18px !important;
+    flex: 0 0 50% !important;
+}
+
+@keyframes masarWaveSafeMove {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+}
+
+/* Default school-data state: show overview, hide panels. */
+#school_data_panel_references,
+#school_data_panel_identity,
+#school_data_panel_accounts,
+#school_data_panel_audit {
+    display: none !important;
+}
+
+body.masar-sd-panel-references #school_data_panel_references,
+body.masar-sd-panel-identity #school_data_panel_identity,
+body.masar-sd-panel-accounts #school_data_panel_accounts,
+body.masar-sd-panel-audit #school_data_panel_audit {
+    display: block !important;
+}
+
+body.masar-sd-panel-references #school_data_overview_storage,
+body.masar-sd-panel-references #school_data_overview_config,
+body.masar-sd-panel-identity #school_data_overview_storage,
+body.masar-sd-panel-identity #school_data_overview_config,
+body.masar-sd-panel-accounts #school_data_overview_storage,
+body.masar-sd-panel-accounts #school_data_overview_config,
+body.masar-sd-panel-audit #school_data_overview_storage,
+body.masar-sd-panel-audit #school_data_overview_config {
+    display: none !important;
+}
+
+body.masar-sd-panel-references #school_data_btn_references,
+body.masar-sd-panel-identity #school_data_btn_identity,
+body.masar-sd-panel-accounts #school_data_btn_accounts,
+body.masar-sd-panel-audit #school_data_btn_audit {
+    border-color: #004d40 !important;
+    background: #eef6f3 !important;
+    box-shadow: 0 8px 18px rgba(0, 77, 64, 0.16) !important;
+    transform: translateY(-1px);
+}
+
+.school-data-panel-box {
+    margin-top: 12px !important;
+}
+
 """
 
 
@@ -8710,6 +8790,52 @@ setTimeout(setupMainLogoTouchInteraction, 300);
 setTimeout(setupMainLogoTouchInteraction, 1000);
 setTimeout(setupMainLogoTouchInteraction, 2500);
 document.addEventListener('DOMContentLoaded', setupMainLogoTouchInteraction);
+
+
+
+// v1.8.3 Fix 9 — instant school data panel switching
+(function () {
+    const classes = [
+        "masar-sd-panel-references",
+        "masar-sd-panel-identity",
+        "masar-sd-panel-accounts",
+        "masar-sd-panel-audit"
+    ];
+
+    function setSchoolDataPanel(panel) {
+        document.body.classList.remove(...classes);
+        if (panel && panel !== "overview") {
+            document.body.classList.add("masar-sd-panel-" + panel);
+        }
+
+        const status = document.querySelector("#school_data_section_status");
+        const labels = {
+            references: "🗂️ الملفات المرجعية: الجداول، أرقام المعلمين، الإداريون، والأدوات الإدارية الإضافية.",
+            identity: "🎨 هوية المدرسة: اسم المدرسة، المحافظة، الشعار، والألوان.",
+            accounts: "🔐 حسابات الدخول: الرموز، تفعيل الحسابات، وتخصيص الترحيب في صفحة واحدة.",
+            audit: "🛡️ السجل والنسخ: سجل العمليات الحساسة والنسخ الاحتياطية.",
+            overview: "يعرض مركز البيانات الآن حالة التخزين الدائم وملف إعدادات المدرسة فقط. اختر بطاقة من الأعلى لفتح القسم المطلوب."
+        };
+        if (status) {
+            status.innerHTML = "<div class='school-data-panel-title'>" + (labels[panel] || labels.overview) + "</div>";
+        }
+    }
+
+    document.addEventListener("click", function (event) {
+        const target = event.target;
+        if (target.closest("#school_data_btn_references")) {
+            setSchoolDataPanel("references");
+        } else if (target.closest("#school_data_btn_identity")) {
+            setSchoolDataPanel("identity");
+        } else if (target.closest("#school_data_btn_accounts")) {
+            setSchoolDataPanel("accounts");
+        } else if (target.closest("#school_data_btn_audit")) {
+            setSchoolDataPanel("audit");
+        }
+    }, true);
+
+    window.masarSetSchoolDataPanel = setSchoolDataPanel;
+})();
 
 """
 
@@ -9522,20 +9648,21 @@ with gr.Blocks() as app:
 </div>
 """)
                     with gr.Row(elem_classes="school-data-nav-row"):
-                        btn_school_data_references_panel = gr.Button("🗂️\nالملفات المرجعية", elem_classes=["school-data-nav-btn"])
-                        btn_school_data_identity_panel = gr.Button("🎨\nهوية المدرسة", elem_classes=["school-data-nav-btn"])
-                        btn_school_data_accounts_panel = gr.Button("🔐\nحسابات الدخول", elem_classes=["school-data-nav-btn"])
-                        btn_school_data_audit_panel = gr.Button("🛡️\nالسجل والنسخ", elem_classes=["school-data-nav-btn"])
+                        btn_school_data_references_panel = gr.Button("🗂️\nالملفات المرجعية", elem_id="school_data_btn_references", elem_classes=["school-data-nav-btn"])
+                        btn_school_data_identity_panel = gr.Button("🎨\nهوية المدرسة", elem_id="school_data_btn_identity", elem_classes=["school-data-nav-btn"])
+                        btn_school_data_accounts_panel = gr.Button("🔐\nحسابات الدخول", elem_id="school_data_btn_accounts", elem_classes=["school-data-nav-btn"])
+                        btn_school_data_audit_panel = gr.Button("🛡️\nالسجل والنسخ", elem_id="school_data_btn_audit", elem_classes=["school-data-nav-btn"])
 
-                    persistent_storage_status_html = gr.HTML(value=render_persistent_storage_status_html())
-                    school_config_summary_html = gr.HTML(value=render_school_config_summary_html())
+                    persistent_storage_status_html = gr.HTML(value=render_persistent_storage_status_html(), elem_id="school_data_overview_storage")
+                    school_config_summary_html = gr.HTML(value=render_school_config_summary_html(), elem_id="school_data_overview_config")
 
 
                     school_data_section_status = gr.HTML(
+                        elem_id="school_data_section_status",
                         value="<div class='school-data-panel-title'>يعرض مركز البيانات الآن حالة التخزين الدائم وملف إعدادات المدرسة فقط. اختر بطاقة من الأعلى لفتح القسم المطلوب.</div>"
                     )
 
-                    with gr.Column(visible=False, elem_classes="school-data-panel-box") as school_data_references_panel:
+                    with gr.Column(visible=True, elem_id="school_data_panel_references", elem_classes="school-data-panel-box") as school_data_references_panel:
                         gr.HTML("<div class='school-data-panel-title'>🗂️ الملفات المرجعية والأدوات الإدارية الإضافية</div>")
                         with gr.Row(visible=False):
                             clear_noop = gr.Textbox(label="noop", value="", visible=False)
@@ -9589,7 +9716,7 @@ with gr.Blocks() as app:
                         clear_btn = gr.Button("🧨 مسح وتصفير المنظومة", elem_classes="reset-btn", visible=False)
 
 
-                    with gr.Column(visible=False, elem_classes="school-data-panel-box") as school_data_identity_panel:
+                    with gr.Column(visible=True, elem_id="school_data_panel_identity", elem_classes="school-data-panel-box") as school_data_identity_panel:
                         gr.HTML("<div class='school-data-panel-title'>🎨 هوية المدرسة — تظهر مباشرة بعد الضغط على البطاقة</div>")
                         with gr.Accordion("🎨 إعدادات هوية المدرسة", open=True, elem_classes=["direct-panel-accordion", "identity-direct-panel"]):
                             gr.HTML("<div style='background:#eef6f3;color:#004d40;padding:12px;border-radius:10px;border-right:5px solid #0f766e;margin-bottom:12px;font-weight:800;line-height:1.8;'>هذه اللوحة مخصصة لمالك النظام. يمكن تعديل الهوية البصرية دون تعديل app.py. العناوين والشعار تتحدث فورًا، أما الألوان العامة فتُطبق بالكامل بعد إعادة تشغيل التطبيق.</div>")
@@ -9655,7 +9782,7 @@ with gr.Blocks() as app:
 
 
 
-                    with gr.Column(visible=False, elem_classes="school-data-panel-box") as school_data_accounts_panel:
+                    with gr.Column(visible=True, elem_id="school_data_panel_accounts", elem_classes="school-data-panel-box") as school_data_accounts_panel:
                         gr.HTML("<div class='school-data-panel-title'>🔐 حسابات الدخول والترحيب — أدوات الرمز والتخصيص في صفحة واحدة</div>")
                         with gr.Accordion("🔐 إدارة حسابات الدخول", open=True, elem_classes=["direct-panel-accordion", "accounts-direct-panel"]):
                             gr.HTML(
@@ -9753,7 +9880,7 @@ with gr.Blocks() as app:
                             owner_accounts_status = gr.HTML()
 
 
-                    with gr.Column(visible=False, elem_classes="school-data-panel-box") as school_data_audit_panel:
+                    with gr.Column(visible=True, elem_id="school_data_panel_audit", elem_classes="school-data-panel-box") as school_data_audit_panel:
                         gr.HTML("<div class='school-data-panel-title'>🛡️ السجل والنسخ — عرض مباشر دون ضغط إضافي</div>")
                         with gr.Accordion("🛡️ سجل العمليات والنسخ الاحتياطية", open=True, elem_classes=["direct-panel-accordion", "audit-direct-panel"]):
                             gr.HTML("<div style='background:#eef6f3;color:#004d40;padding:12px;border-radius:10px;border-right:5px solid #0f766e;margin-bottom:12px;font-weight:800;line-height:1.8;'>هذه أدوات رقابية لمالك النظام فقط. سجل العمليات لا ينفذ أي تعديل؛ بل يوضح من غيّر ماذا، وعلى أي معلم، وما القيمة القديمة والجديدة، ومتى حدث ذلك. اختر الفلاتر للعرض، ثم صدّر النتائج المطابقة إلى Excel عند الحاجة.</div>")
