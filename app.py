@@ -17,6 +17,9 @@ import zipfile
 import html as html_lib
 import base64
 import mimetypes
+import hashlib
+import hmac
+import secrets
 matplotlib.use('Agg')  
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
@@ -77,6 +80,7 @@ BACKUPS_DIR = os.path.join(DATA_DIR, "backups")
 EXPORTS_DIR = os.path.join(DATA_DIR, "exports")
 BRANDING_DIR = os.path.join(DATA_DIR, "branding")
 REFERENCE_STATUS_FILE = os.path.join(DATA_DIR, "reference_files_status.json")
+AUTH_ACCOUNTS_FILE = os.path.join(DATA_DIR, "auth_accounts.json")
 MIGRATION_STATUS_FILE = os.path.join(DATA_DIR, ".v1_8_1_migration.json")
 MAX_BACKUPS_PER_FILE = 10
 
@@ -249,6 +253,7 @@ LEGACY_DATA_FILES = {
     os.path.join(LOCAL_DATA_DIR, "audit_log.json"): AUDIT_LOG_FILE,
     os.path.join(LOCAL_DATA_DIR, "school_config.json"): SCHOOL_CONFIG_FILE,
     os.path.join(LOCAL_DATA_DIR, "reference_files_status.json"): REFERENCE_STATUS_FILE,
+    os.path.join(LOCAL_DATA_DIR, "auth_accounts.json"): AUTH_ACCOUNTS_FILE,
 }
 
 LEGACY_DATA_DIRECTORIES = {
@@ -662,6 +667,633 @@ def load_auth_db():
 
 
 AUTH_DB = load_auth_db()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v1.8.2 — حسابات دخول مشفرة قابلة للتغيير وإعادة التعيين
+# ─────────────────────────────────────────────────────────────────────────────
+
+AUTH_ACCOUNTS_VERSION = 1
+PIN_HASH_ALGORITHM = "pbkdf2_sha256"
+PIN_HASH_ITERATIONS = 210_000
+OWNER_ACCOUNT_ID = "__owner_secret__"
+
+def _auth_now_text():
+    return datetime.datetime.now(tz_oman).strftime("%Y-%m-%d %H:%M:%S")
+
+def _pin_hash(pin_value, *, salt_hex=None, iterations=PIN_HASH_ITERATIONS):
+    pin_text = str(pin_value or "")
+    if salt_hex:
+        salt = bytes.fromhex(str(salt_hex))
+    else:
+        salt = secrets.token_bytes(16)
+
+    derived = hashlib.pbkdf2_hmac(
+        "sha256",
+        pin_text.encode("utf-8"),
+        salt,
+        int(iterations),
+    )
+    return (
+        f"{PIN_HASH_ALGORITHM}${int(iterations)}$"
+        f"{salt.hex()}${derived.hex()}"
+    )
+
+def _verify_pin_hash(pin_value, stored_hash):
+    try:
+        algorithm, iterations, salt_hex, expected_hex = str(stored_hash).split("$", 3)
+        if algorithm != PIN_HASH_ALGORITHM:
+            return False
+        calculated = _pin_hash(
+            pin_value,
+            salt_hex=salt_hex,
+            iterations=int(iterations),
+        )
+        calculated_hex = calculated.rsplit("$", 1)[-1]
+        return hmac.compare_digest(calculated_hex, expected_hex)
+    except Exception:
+        return False
+
+def _account_display_name(record):
+    name = str(record.get("name", "")).strip()
+    role = str(record.get("role", "")).strip()
+    dept = str(record.get("dept", "")).strip()
+
+    if role == SHARED_TEACHER_ROLE:
+        return name or "الدخول العام"
+    if name:
+        return name
+    if dept and dept not in {"الكل", "المعلمون"}:
+        return f"{role} — {dept}"
+    return role or "حساب غير مسمى"
+
+def _make_legacy_account_id(record, index):
+    raw = "|".join([
+        str(record.get("role", "")),
+        str(record.get("dept", "")),
+        str(record.get("name", "")),
+        str(index),
+    ])
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+    return f"account_{digest}"
+
+def _empty_auth_accounts_payload():
+    return {
+        "version": AUTH_ACCOUNTS_VERSION,
+        "updated_at": _auth_now_text(),
+        "accounts": {},
+    }
+
+def load_auth_accounts():
+    if not os.path.exists(AUTH_ACCOUNTS_FILE):
+        return _empty_auth_accounts_payload()
+
+    try:
+        with open(AUTH_ACCOUNTS_FILE, "r", encoding="utf-8") as auth_file:
+            payload = json.load(auth_file)
+        if not isinstance(payload, dict):
+            return _empty_auth_accounts_payload()
+        if not isinstance(payload.get("accounts"), dict):
+            payload["accounts"] = {}
+        payload.setdefault("version", AUTH_ACCOUNTS_VERSION)
+        return payload
+    except Exception as exc:
+        print(f"load_auth_accounts error: {exc}")
+        return _empty_auth_accounts_payload()
+
+def save_auth_accounts(payload):
+    clean_payload = dict(payload or {})
+    clean_payload["version"] = AUTH_ACCOUNTS_VERSION
+    clean_payload["updated_at"] = _auth_now_text()
+    clean_payload.setdefault("accounts", {})
+    return safe_write_json(AUTH_ACCOUNTS_FILE, clean_payload)
+
+def initialize_auth_accounts():
+    """
+    ترحيل رموز الدخول القديمة مرة واحدة إلى Hash مشفر.
+    رمز مالك النظام مستثنى ويبقى داخل Secret.
+    """
+    if os.path.exists(AUTH_ACCOUNTS_FILE):
+        return load_auth_accounts()
+
+    payload = _empty_auth_accounts_payload()
+    accounts = payload["accounts"]
+
+    migrated_index = 0
+    for legacy_pin, legacy_info in AUTH_DB.items():
+        if not isinstance(legacy_info, dict):
+            continue
+
+        role = str(legacy_info.get("role", "")).strip()
+        is_owner = bool(
+            legacy_info.get("is_owner", False)
+            or role == OWNER_ROLE
+        )
+        if is_owner:
+            continue
+
+        pin_text = str(legacy_pin or "").strip()
+        if not pin_text:
+            continue
+
+        account_record = {
+            "role": role,
+            "dept": str(legacy_info.get("dept", "الكل")).strip() or "الكل",
+            "name": str(legacy_info.get("name", "")).strip(),
+            "is_owner": False,
+            "enabled": True,
+            "pin_hash": _pin_hash(pin_text),
+            "must_change_pin": False,
+            "created_at": _auth_now_text(),
+            "updated_at": _auth_now_text(),
+            "migration_source": "legacy_auth",
+        }
+
+        account_id = _make_legacy_account_id(
+            account_record,
+            migrated_index,
+        )
+        while account_id in accounts:
+            migrated_index += 1
+            account_id = _make_legacy_account_id(
+                account_record,
+                migrated_index,
+            )
+
+        account_record["account_id"] = account_id
+        accounts[account_id] = account_record
+        migrated_index += 1
+
+    safe_write_json(
+        AUTH_ACCOUNTS_FILE,
+        payload,
+        make_backup=False,
+    )
+    return payload
+
+AUTH_ACCOUNTS = initialize_auth_accounts()
+
+def _owner_login_record(pin_value):
+    owner_pin = os.getenv("SYSTEM_OWNER_PIN", "").strip()
+    if not owner_pin:
+        return None
+
+    if not hmac.compare_digest(
+        str(pin_value or "").strip(),
+        owner_pin,
+    ):
+        return None
+
+    owner_name = (
+        os.getenv("SYSTEM_OWNER_NAME", "صاحب النظام").strip()
+        or "صاحب النظام"
+    )
+    return {
+        "account_id": OWNER_ACCOUNT_ID,
+        "role": OWNER_ROLE,
+        "dept": "الكل",
+        "name": owner_name,
+        "is_owner": True,
+        "enabled": True,
+        "must_change_pin": False,
+    }
+
+def authenticate_login_pin(pin_value):
+    """
+    إرجاع: account_id, user_info, error_code
+    لا يعتمد على رموز AUTH_DB القديمة بعد إنشاء الملف المشفر.
+    """
+    pin_text = str(pin_value or "").strip()
+    if not pin_text:
+        return "", None, "invalid"
+
+    owner_record = _owner_login_record(pin_text)
+    if owner_record:
+        return OWNER_ACCOUNT_ID, owner_record, ""
+
+    payload = load_auth_accounts()
+    for account_id, record in payload.get("accounts", {}).items():
+        if not isinstance(record, dict):
+            continue
+        if not _verify_pin_hash(pin_text, record.get("pin_hash", "")):
+            continue
+
+        if not bool(record.get("enabled", True)):
+            return str(account_id), None, "disabled"
+
+        user_info = dict(record)
+        user_info["account_id"] = str(account_id)
+        user_info["is_owner"] = False
+        return str(account_id), user_info, ""
+
+    return "", None, "invalid"
+
+def _validate_new_pin(pin_value):
+    pin_text = str(pin_value or "")
+    if pin_text != pin_text.strip():
+        return False, "لا تسمح رموز الدخول بمسافات في البداية أو النهاية."
+    if len(pin_text) < 4:
+        return False, "يجب ألا يقل رمز الدخول عن 4 خانات."
+    if len(pin_text) > 20:
+        return False, "يجب ألا يزيد رمز الدخول عن 20 خانة."
+    if any(char.isspace() for char in pin_text):
+        return False, "لا يسمح بوجود مسافات داخل رمز الدخول."
+    return True, ""
+
+def _pin_is_used_by_another_account(pin_value, exclude_account_id=""):
+    pin_text = str(pin_value or "").strip()
+
+    owner_pin = os.getenv("SYSTEM_OWNER_PIN", "").strip()
+    if owner_pin and hmac.compare_digest(pin_text, owner_pin):
+        return True
+
+    payload = load_auth_accounts()
+    for account_id, record in payload.get("accounts", {}).items():
+        if str(account_id) == str(exclude_account_id):
+            continue
+        if _verify_pin_hash(pin_text, record.get("pin_hash", "")):
+            return True
+    return False
+
+def get_auth_account_choices():
+    payload = load_auth_accounts()
+    choices = []
+    for account_id, record in payload.get("accounts", {}).items():
+        status = "مفعل" if bool(record.get("enabled", True)) else "معطل"
+        label = (
+            f"{_account_display_name(record)} | "
+            f"{record.get('role', '—')} | {status}"
+        )
+        choices.append((label, str(account_id)))
+    choices.sort(key=lambda item: item[0])
+    return choices
+
+def render_auth_accounts_html(is_owner=False):
+    if not bool(is_owner):
+        return (
+            "<div style='color:#64748b;text-align:center;padding:12px;'>"
+            "تظهر الحسابات لمالك النظام بعد الدخول."
+            "</div>"
+        )
+
+    payload = load_auth_accounts()
+    rows = []
+
+    for account_id, record in sorted(
+        payload.get("accounts", {}).items(),
+        key=lambda item: _account_display_name(item[1]),
+    ):
+        enabled = bool(record.get("enabled", True))
+        status_text = "مفعل" if enabled else "معطل"
+        status_color = "#166534" if enabled else "#b91c1c"
+        temporary_text = (
+            "نعم"
+            if bool(record.get("must_change_pin", False))
+            else "لا"
+        )
+
+        rows.append(f"""
+        <tr>
+            <td>{html_lib.escape(_account_display_name(record))}</td>
+            <td>{html_lib.escape(str(record.get("role", "—")))}</td>
+            <td>{html_lib.escape(str(record.get("dept", "—")))}</td>
+            <td style='color:{status_color};font-weight:900;'>{status_text}</td>
+            <td>{temporary_text}</td>
+            <td>{html_lib.escape(str(record.get("updated_at", "—")))}</td>
+        </tr>
+        """)
+
+    if not rows:
+        return (
+            "<div style='background:#fff7ed;color:#9a3412;padding:12px;"
+            "border-radius:10px;font-weight:800;'>"
+            "لا توجد حسابات غير حساب المالك. تحقق من AUTH_DB_JSON ثم أعد التشغيل."
+            "</div>"
+        )
+
+    return f"""
+    <div style='overflow-x:auto;direction:rtl;border:1px solid #dbe3e8;
+                border-radius:12px;'>
+        <table style='width:100%;min-width:900px;border-collapse:collapse;
+                      text-align:center;font-size:13px;'>
+            <thead>
+                <tr style='background:#0f766e;color:#fff;'>
+                    <th>اسم الحساب</th>
+                    <th>الدور</th>
+                    <th>القسم</th>
+                    <th>الحالة</th>
+                    <th>رمز مؤقت</th>
+                    <th>آخر تحديث</th>
+                </tr>
+            </thead>
+            <tbody>{''.join(rows)}</tbody>
+        </table>
+    </div>
+    """
+
+def refresh_owner_accounts_panel(is_owner=False):
+    if not bool(is_owner):
+        return (
+            gr.update(),
+            gr.update(choices=[], value=None),
+            gr.update(value=""),
+            gr.update(
+                value=(
+                    "<div style='color:#b91c1c;font-weight:800;'>"
+                    "هذه اللوحة مخصصة لمالك النظام فقط."
+                    "</div>"
+                )
+            ),
+        )
+
+    choices = get_auth_account_choices()
+    return (
+        gr.update(value=render_auth_accounts_html(True)),
+        gr.update(choices=choices, value=None),
+        gr.update(value=""),
+        gr.update(value=""),
+    )
+
+@state_locked
+def change_own_account_pin(
+    account_id,
+    current_pin,
+    new_pin,
+    confirm_pin,
+    actor_name="",
+    actor_role="",
+    is_owner=False,
+):
+    if bool(is_owner) or str(account_id) == OWNER_ACCOUNT_ID:
+        return (
+            gr.update(value=""),
+            gr.update(value=""),
+            gr.update(value=""),
+            (
+                "<div style='color:#9a3412;background:#fff7ed;padding:10px;"
+                "border-radius:8px;font-weight:800;'>"
+                "رمز مالك النظام يُغيّر من Secret الاستضافة، وليس من داخل المنظومة."
+                "</div>"
+            ),
+        )
+
+    account_id = str(account_id or "").strip()
+    payload = load_auth_accounts()
+    account = payload.get("accounts", {}).get(account_id)
+
+    if not isinstance(account, dict):
+        return (
+            gr.update(value=""),
+            gr.update(value=""),
+            gr.update(value=""),
+            "<div style='color:#b91c1c;font-weight:800;'>تعذر تحديد حساب الجلسة الحالية.</div>",
+        )
+
+    if not bool(account.get("enabled", True)):
+        return (
+            gr.update(value=""),
+            gr.update(value=""),
+            gr.update(value=""),
+            "<div style='color:#b91c1c;font-weight:800;'>الحساب معطل.</div>",
+        )
+
+    if not _verify_pin_hash(current_pin, account.get("pin_hash", "")):
+        return (
+            gr.update(value=""),
+            gr.update(value=""),
+            gr.update(value=""),
+            "<div style='color:#b91c1c;font-weight:800;'>الرمز الحالي غير صحيح.</div>",
+        )
+
+    valid, validation_message = _validate_new_pin(new_pin)
+    if not valid:
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            f"<div style='color:#b91c1c;font-weight:800;'>{html_lib.escape(validation_message)}</div>",
+        )
+
+    if str(new_pin) != str(confirm_pin):
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            "<div style='color:#b91c1c;font-weight:800;'>تأكيد الرمز الجديد غير مطابق.</div>",
+        )
+
+    if _verify_pin_hash(new_pin, account.get("pin_hash", "")):
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            "<div style='color:#a16207;font-weight:800;'>الرمز الجديد مطابق للرمز الحالي.</div>",
+        )
+
+    if _pin_is_used_by_another_account(
+        new_pin,
+        exclude_account_id=account_id,
+    ):
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            "<div style='color:#b91c1c;font-weight:800;'>هذا الرمز مستخدم لحساب آخر.</div>",
+        )
+
+    account["pin_hash"] = _pin_hash(new_pin)
+    account["must_change_pin"] = False
+    account["updated_at"] = _auth_now_text()
+    account["pin_changed_at"] = account["updated_at"]
+
+    if not save_auth_accounts(payload):
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            "<div style='color:#b91c1c;font-weight:800;'>تعذر حفظ الرمز الجديد.</div>",
+        )
+
+    write_audit_log(
+        "تغيير رمز دخول",
+        target_teacher="",
+        old_value="رمز مشفر",
+        new_value="رمز مشفر",
+        details=f"غيّر المستخدم رمز حساب: {_account_display_name(account)}",
+        actor_name=actor_name,
+        actor_role=actor_role,
+    )
+
+    return (
+        gr.update(value=""),
+        gr.update(value=""),
+        gr.update(value=""),
+        (
+            "<div style='color:#166534;background:#dcfce7;padding:10px;"
+            "border-radius:8px;font-weight:800;'>"
+            "تم تغيير رمز الدخول بنجاح. استخدم الرمز الجديد في الدخول القادم."
+            "</div>"
+        ),
+    )
+
+@state_locked
+def owner_reset_account_pin(
+    account_id,
+    requested_pin,
+    is_owner=False,
+    actor_name="",
+    actor_role="",
+):
+    if not bool(is_owner):
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(value=""),
+            gr.update(value=""),
+            "<div style='color:#b91c1c;font-weight:800;'>هذه العملية للمالك فقط.</div>",
+        )
+
+    account_id = str(account_id or "").strip()
+    payload = load_auth_accounts()
+    account = payload.get("accounts", {}).get(account_id)
+
+    if not isinstance(account, dict):
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(value=""),
+            gr.update(value=""),
+            "<div style='color:#b91c1c;font-weight:800;'>اختر حسابًا صالحًا.</div>",
+        )
+
+    new_pin = str(requested_pin or "").strip()
+    if not new_pin:
+        new_pin = "".join(secrets.choice("0123456789") for _ in range(6))
+
+    valid, validation_message = _validate_new_pin(new_pin)
+    if not valid:
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(value=""),
+            gr.update(),
+            f"<div style='color:#b91c1c;font-weight:800;'>{html_lib.escape(validation_message)}</div>",
+        )
+
+    if _pin_is_used_by_another_account(
+        new_pin,
+        exclude_account_id=account_id,
+    ):
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(value=""),
+            gr.update(),
+            "<div style='color:#b91c1c;font-weight:800;'>هذا الرمز مستخدم لحساب آخر.</div>",
+        )
+
+    account["pin_hash"] = _pin_hash(new_pin)
+    account["must_change_pin"] = True
+    account["updated_at"] = _auth_now_text()
+    account["pin_reset_at"] = account["updated_at"]
+    account["pin_reset_by"] = str(actor_name or "مالك النظام")
+
+    if not save_auth_accounts(payload):
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(value=""),
+            gr.update(),
+            "<div style='color:#b91c1c;font-weight:800;'>تعذر حفظ إعادة التعيين.</div>",
+        )
+
+    write_audit_log(
+        "إعادة تعيين رمز دخول",
+        target_teacher="",
+        old_value="رمز مشفر",
+        new_value="رمز مؤقت مشفر",
+        details=f"إعادة تعيين حساب: {_account_display_name(account)}",
+        actor_name=actor_name,
+        actor_role=actor_role,
+    )
+
+    choices = get_auth_account_choices()
+    return (
+        gr.update(value=render_auth_accounts_html(True)),
+        gr.update(choices=choices, value=account_id),
+        gr.update(value=""),
+        gr.update(value=new_pin),
+        (
+            "<div style='color:#166534;background:#dcfce7;padding:10px;"
+            "border-radius:8px;font-weight:800;'>"
+            "تمت إعادة التعيين. يظهر الرمز الجديد في خانة «الرمز الجديد لمرة واحدة»."
+            "</div>"
+        ),
+    )
+
+@state_locked
+def owner_toggle_account_status(
+    account_id,
+    is_owner=False,
+    actor_name="",
+    actor_role="",
+):
+    if not bool(is_owner):
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(value=""),
+            "<div style='color:#b91c1c;font-weight:800;'>هذه العملية للمالك فقط.</div>",
+        )
+
+    account_id = str(account_id or "").strip()
+    payload = load_auth_accounts()
+    account = payload.get("accounts", {}).get(account_id)
+
+    if not isinstance(account, dict):
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(value=""),
+            "<div style='color:#b91c1c;font-weight:800;'>اختر حسابًا صالحًا.</div>",
+        )
+
+    new_enabled = not bool(account.get("enabled", True))
+    account["enabled"] = new_enabled
+    account["updated_at"] = _auth_now_text()
+
+    if not save_auth_accounts(payload):
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(value=""),
+            "<div style='color:#b91c1c;font-weight:800;'>تعذر تحديث حالة الحساب.</div>",
+        )
+
+    action_name = "تفعيل حساب دخول" if new_enabled else "تعطيل حساب دخول"
+    write_audit_log(
+        action_name,
+        target_teacher="",
+        old_value="معطل" if new_enabled else "مفعل",
+        new_value="مفعل" if new_enabled else "معطل",
+        details=f"{action_name}: {_account_display_name(account)}",
+        actor_name=actor_name,
+        actor_role=actor_role,
+    )
+
+    choices = get_auth_account_choices()
+    status_word = "تفعيل" if new_enabled else "تعطيل"
+    return (
+        gr.update(value=render_auth_accounts_html(True)),
+        gr.update(choices=choices, value=account_id),
+        gr.update(value=""),
+        (
+            "<div style='color:#166534;background:#dcfce7;padding:10px;"
+            "border-radius:8px;font-weight:800;'>"
+            f"تم {status_word} الحساب بنجاح."
+            "</div>"
+        ),
+    )
 
 
 WELCOME_MESSAGES = {
@@ -1765,6 +2397,7 @@ def get_monitored_backup_files():
         ("سجل الإعفاءات", EXEMPTIONS_LOG_FILE),
         ("سجل العمليات الحساسة", AUDIT_LOG_FILE),
         ("إعدادات المدرسة", SCHOOL_CONFIG_FILE),
+        ("حسابات الدخول المشفرة", AUTH_ACCOUNTS_FILE),
     ]
 
 
@@ -5633,14 +6266,19 @@ def attempt_login(pin, day_val):
     load_daily_db()
 
     pin = str(pin or "").strip()
-    if pin in AUTH_DB:
-        user_info = AUTH_DB[pin]
+    login_account_id, user_info, auth_error = authenticate_login_pin(pin)
+
+    if user_info:
         role = user_info.get("role", "")
         dept = user_info.get("dept", "الكل")
         if role == "مستخدم عام":
             dept = "المعلمون"
+
         name = user_info.get("name", "")
-        is_owner = bool(user_info.get("is_owner", False) or role == "صاحب النظام")
+        is_owner = bool(
+            user_info.get("is_owner", False)
+            or role == "صاحب النظام"
+        )
 
         ui_vis = get_ui_visibility_updates(pin, role, is_owner)
         is_shared_teacher = ui_vis["is_shared_teacher"]
@@ -5649,8 +6287,25 @@ def attempt_login(pin, day_val):
         dept_for_ui = effective_dept
         is_admin = bool(ui_vis["is_admin"])
 
-        raw_msg = WELCOME_MESSAGES.get(role, "مرحباً بك ({name}) في النظام.")
-        welcome_msg = f"<div style='background:#004d40; color:#ffca28; padding:15px; border-radius:10px; text-align:center; font-size:18px; font-weight:bold; margin-bottom:15px;'>{raw_msg.format(name=name)}</div>"
+        raw_msg = WELCOME_MESSAGES.get(
+            role,
+            "مرحباً بك ({name}) في النظام.",
+        )
+        temporary_note = ""
+        if bool(user_info.get("must_change_pin", False)):
+            temporary_note = (
+                "<div style='margin-top:8px;color:#fff;background:#b45309;"
+                "padding:7px;border-radius:7px;font-size:14px;'>"
+                "تنبيه: رمز الدخول مؤقت. غيّره من قسم «تغيير رمز دخولي»."
+                "</div>"
+            )
+
+        welcome_msg = (
+            "<div style='background:#004d40;color:#ffca28;padding:15px;"
+            "border-radius:10px;text-align:center;font-size:18px;"
+            "font-weight:bold;margin-bottom:15px;'>"
+            f"{raw_msg.format(name=name)}{temporary_note}</div>"
+        )
 
         if is_admin:
             up_dept_update = gr.update(interactive=True)
@@ -5659,13 +6314,21 @@ def attempt_login(pin, day_val):
             up_dept_update = gr.update(value=None, interactive=False)
             manual_entry_visibility = gr.update(visible=False)
 
-        updates = refresh_ui_on_change(dept_for_ui, day_val, is_admin)
+        updates = refresh_ui_on_change(
+            dept_for_ui,
+            day_val,
+            is_admin,
+        )
 
         return [
             gr.update(visible=False),
             gr.update(visible=True),
             welcome_msg,
-            gr.update(choices=["الكل"] + OFFICIAL_DEPTS, value=dept_for_ui, interactive=is_admin),
+            gr.update(
+                choices=["الكل"] + OFFICIAL_DEPTS,
+                value=dept_for_ui,
+                interactive=is_admin,
+            ),
             gr.update(value=""),
             up_dept_update,
             manual_entry_visibility,
@@ -5673,8 +6336,14 @@ def attempt_login(pin, day_val):
             is_owner,
             name,
             role,
+            login_account_id,
         ] + list(updates) + [
-            gr.update(visible=dept_for_ui in ["العلوم", "المهارات الفردية"] and not is_shared_teacher),
+            gr.update(
+                visible=(
+                    dept_for_ui in ["العلوم", "المهارات الفردية"]
+                    and not is_shared_teacher
+                )
+            ),
             gr.update(visible=ui_vis["can_clear_system"]),
             gr.update(visible=ui_vis["school_data_tab"]),
             gr.update(visible=ui_vis["controls_row"]),
@@ -5687,18 +6356,29 @@ def attempt_login(pin, day_val):
             gr.update(visible=ui_vis["swap_excel_btn"]),
         ]
 
-    gr.Warning("❌ رمز الدخول غير صحيح! الرجاء المحاولة مرة أخرى.")
+    if auth_error == "disabled":
+        error_text = "هذا الحساب معطل. راجع مالك النظام."
+    else:
+        error_text = "رمز الدخول غير صحيح! حاول مرة أخرى."
+
+    gr.Warning(f"❌ {error_text}")
     error_updates = [gr.update()] * 27
+
     return [
         gr.update(),
         gr.update(),
-        "<div style='color:red; text-align:center; font-weight:bold; margin-top:10px;'>❌ رمز الدخول غير صحيح! حاول مرة أخرى.</div>",
+        (
+            "<div style='color:red;text-align:center;font-weight:bold;"
+            "margin-top:10px;'>"
+            f"❌ {html_lib.escape(error_text)}</div>"
+        ),
         gr.update(),
         gr.update(),
         gr.update(),
         gr.update(),
         False,
         False,
+        "",
         "",
         "",
     ] + error_updates + [
@@ -5712,7 +6392,7 @@ def attempt_login(pin, day_val):
         gr.update(),
         gr.update(),
         gr.update(),
-        gr.update()
+        gr.update(),
     ]
 
 
@@ -5724,6 +6404,7 @@ def do_logout():
         gr.update(choices=["الكل"] + OFFICIAL_DEPTS, value="الكل"),
         False,
         False,
+        "",
         "",
         "",
         None,
@@ -7608,6 +8289,7 @@ with gr.Blocks() as app:
     current_user_is_owner = gr.State(value=False)
     current_user_name = gr.State(value="")
     current_user_role = gr.State(value="")
+    current_user_account_id = gr.State(value="")
     current_schedule_state = gr.State()
     reserve_generation_state = gr.State(value=get_empty_generation_state())
 
@@ -7628,6 +8310,33 @@ with gr.Blocks() as app:
             with gr.Column(scale=1, min_width=120, elem_classes="logout-col"):
                 logout_btn = gr.Button("🚪 خروج و إقفال", elem_classes=["reset-btn", "logout-btn"])
         
+        with gr.Accordion("🔑 تغيير رمز دخولي", open=False):
+            gr.HTML(
+                "<div style='background:#eef6f3;color:#004d40;padding:10px;"
+                "border-radius:8px;border-right:4px solid #0f766e;"
+                "font-weight:800;line-height:1.7;'>"
+                "اكتب رمزك الحالي ثم الرمز الجديد. رمز مالك النظام يُدار من Secret الاستضافة."
+                "</div>"
+            )
+            with gr.Row():
+                self_current_pin = gr.Textbox(
+                    type="password",
+                    label="الرمز الحالي",
+                )
+                self_new_pin = gr.Textbox(
+                    type="password",
+                    label="الرمز الجديد",
+                )
+                self_confirm_pin = gr.Textbox(
+                    type="password",
+                    label="تأكيد الرمز الجديد",
+                )
+            self_change_pin_btn = gr.Button(
+                "حفظ رمز الدخول الجديد",
+                elem_classes="admin-btn",
+            )
+            self_change_pin_status = gr.HTML()
+
         with gr.Column(visible=True, elem_id="masar_home_dashboard", elem_classes="masar-home-dashboard") as home_dashboard:
             home_hero_html = gr.HTML(value=build_home_hero_html())
 
@@ -7870,6 +8579,49 @@ with gr.Blocks() as app:
                     persistent_storage_status_html = gr.HTML(value=render_persistent_storage_status_html())
                     school_config_summary_html = gr.HTML(value=render_school_config_summary_html())
 
+                    with gr.Accordion("🔐 إدارة حسابات الدخول", open=False):
+                        gr.HTML(
+                            "<div style='background:#eef6f3;color:#004d40;padding:12px;"
+                            "border-radius:10px;border-right:5px solid #0f766e;"
+                            "margin-bottom:12px;font-weight:800;line-height:1.8;'>"
+                            "لوحة المالك لإعادة تعيين الرموز وتعطيل الحسابات. "
+                            "لا تعرض المنظومة أي رمز قديم. الرمز الجديد يظهر مرة واحدة فقط بعد إعادة التعيين."
+                            "</div>"
+                        )
+                        owner_accounts_html = gr.HTML(
+                            value=render_auth_accounts_html(False)
+                        )
+                        with gr.Row():
+                            owner_account_selector = gr.Dropdown(
+                                choices=[],
+                                value=None,
+                                label="اختر الحساب",
+                            )
+                            owner_requested_pin = gr.Textbox(
+                                type="password",
+                                label="رمز جديد اختياري",
+                                placeholder="اتركه فارغًا لتوليد رمز من 6 أرقام",
+                            )
+                        with gr.Row():
+                            owner_reset_pin_btn = gr.Button(
+                                "إعادة تعيين رمز الحساب",
+                                elem_classes="admin-btn",
+                            )
+                            owner_toggle_account_btn = gr.Button(
+                                "تفعيل / تعطيل الحساب",
+                                elem_classes="reset-btn",
+                            )
+                            owner_refresh_accounts_btn = gr.Button(
+                                "تحديث قائمة الحسابات",
+                                elem_classes="admin-btn",
+                            )
+                        owner_one_time_pin = gr.Textbox(
+                            label="الرمز الجديد لمرة واحدة",
+                            interactive=False,
+                            value="",
+                        )
+                        owner_accounts_status = gr.HTML()
+
                     with gr.Accordion("🎨 إعدادات هوية المدرسة", open=False):
                         gr.HTML("<div style='background:#eef6f3;color:#004d40;padding:12px;border-radius:10px;border-right:5px solid #0f766e;margin-bottom:12px;font-weight:800;line-height:1.8;'>هذه اللوحة مخصصة لمالك النظام. يمكن تعديل الهوية البصرية دون تعديل app.py. العناوين والشعار تتحدث فورًا، أما الألوان العامة فتُطبق بالكامل بعد إعادة تشغيل التطبيق.</div>")
 
@@ -8036,6 +8788,16 @@ with gr.Blocks() as app:
         ],
         queue=False,
     ).then(
+        refresh_owner_accounts_panel,
+        [current_user_is_owner],
+        [
+            owner_accounts_html,
+            owner_account_selector,
+            owner_one_time_pin,
+            owner_accounts_status,
+        ],
+        queue=False,
+    ).then(
         None, None, None,
         js=show_selected_tab_container_js(),
     )
@@ -8043,7 +8805,7 @@ with gr.Blocks() as app:
     login_btn.click(
         attempt_login,
         inputs=[pin_input, day_in],
-        outputs=[login_container, main_app_container, welcome_html, dept_in, login_msg, up_dept, manual_entry_container, current_user_is_admin, current_user_is_owner, current_user_name, current_user_role] + update_outputs + [t_specialty_edit, clear_btn, school_data_tab, controls_row, exemptions_tab, distribution_tab, balances_tab, swap_tab, day_tab, teacher_tab, swap_export_row]
+        outputs=[login_container, main_app_container, welcome_html, dept_in, login_msg, up_dept, manual_entry_container, current_user_is_admin, current_user_is_owner, current_user_name, current_user_role, current_user_account_id] + update_outputs + [t_specialty_edit, clear_btn, school_data_tab, controls_row, exemptions_tab, distribution_tab, balances_tab, swap_tab, day_tab, teacher_tab, swap_export_row]
     ).then(
         show_home_dashboard_after_login,
         [dept_in, current_user_is_admin, current_user_is_owner, current_user_role],
@@ -8074,7 +8836,7 @@ with gr.Blocks() as app:
     pin_input.submit(
         attempt_login,
         inputs=[pin_input, day_in],
-        outputs=[login_container, main_app_container, welcome_html, dept_in, login_msg, up_dept, manual_entry_container, current_user_is_admin, current_user_is_owner, current_user_name, current_user_role] + update_outputs + [t_specialty_edit, clear_btn, school_data_tab, controls_row, exemptions_tab, distribution_tab, balances_tab, swap_tab, day_tab, teacher_tab, swap_export_row]
+        outputs=[login_container, main_app_container, welcome_html, dept_in, login_msg, up_dept, manual_entry_container, current_user_is_admin, current_user_is_owner, current_user_name, current_user_role, current_user_account_id] + update_outputs + [t_specialty_edit, clear_btn, school_data_tab, controls_row, exemptions_tab, distribution_tab, balances_tab, swap_tab, day_tab, teacher_tab, swap_export_row]
     ).then(
         show_home_dashboard_after_login,
         [dept_in, current_user_is_admin, current_user_is_owner, current_user_role],
@@ -8102,7 +8864,7 @@ with gr.Blocks() as app:
         [reset_month_btn],
         queue=False
     )
-    logout_btn.click(do_logout, inputs=[], outputs=[login_container, main_app_container, welcome_html, dept_in, current_user_is_admin, current_user_is_owner, current_user_name, current_user_role, current_schedule_state, img_out, cb_cross_dept, school_data_tab, controls_row, exemptions_tab, distribution_tab, balances_tab, swap_tab, day_tab, teacher_tab, swap_export_row, reserve_generation_state, swap_confirmed_state]).then(
+    logout_btn.click(do_logout, inputs=[], outputs=[login_container, main_app_container, welcome_html, dept_in, current_user_is_admin, current_user_is_owner, current_user_name, current_user_role, current_user_account_id, current_schedule_state, img_out, cb_cross_dept, school_data_tab, controls_row, exemptions_tab, distribution_tab, balances_tab, swap_tab, day_tab, teacher_tab, swap_export_row, reserve_generation_state, swap_confirmed_state]).then(
         None, None, None,
         js="""() => {
             const style = document.createElement('style');
@@ -8188,6 +8950,74 @@ with gr.Blocks() as app:
         refresh_schedule_from_reference,
         [schedule_reference_dept, day_in, current_user_is_owner],
         [schedule_reference_status_html, abs_in, check_teacher_in, rule_teacher, tbl_bal, tbl_abs, tbl_day, school_data_schedules_html, schedule_reference_upload]
+    )
+
+    self_change_pin_btn.click(
+        change_own_account_pin,
+        [
+            current_user_account_id,
+            self_current_pin,
+            self_new_pin,
+            self_confirm_pin,
+            current_user_name,
+            current_user_role,
+            current_user_is_owner,
+        ],
+        [
+            self_current_pin,
+            self_new_pin,
+            self_confirm_pin,
+            self_change_pin_status,
+        ],
+        queue=False,
+    )
+
+    owner_refresh_accounts_btn.click(
+        refresh_owner_accounts_panel,
+        [current_user_is_owner],
+        [
+            owner_accounts_html,
+            owner_account_selector,
+            owner_one_time_pin,
+            owner_accounts_status,
+        ],
+        queue=False,
+    )
+
+    owner_reset_pin_btn.click(
+        owner_reset_account_pin,
+        [
+            owner_account_selector,
+            owner_requested_pin,
+            current_user_is_owner,
+            current_user_name,
+            current_user_role,
+        ],
+        [
+            owner_accounts_html,
+            owner_account_selector,
+            owner_requested_pin,
+            owner_one_time_pin,
+            owner_accounts_status,
+        ],
+        queue=False,
+    )
+
+    owner_toggle_account_btn.click(
+        owner_toggle_account_status,
+        [
+            owner_account_selector,
+            current_user_is_owner,
+            current_user_name,
+            current_user_role,
+        ],
+        [
+            owner_accounts_html,
+            owner_account_selector,
+            owner_one_time_pin,
+            owner_accounts_status,
+        ],
+        queue=False,
     )
 
     identity_preview_btn.click(
@@ -8281,6 +9111,17 @@ with gr.Blocks() as app:
             school_data_admin_html,
             school_data_phones_html,
             school_data_schedules_html,
+        ],
+        queue=False,
+    )
+    school_data_tab.select(
+        refresh_owner_accounts_panel,
+        [current_user_is_owner],
+        [
+            owner_accounts_html,
+            owner_account_selector,
+            owner_one_time_pin,
+            owner_accounts_status,
         ],
         queue=False,
     )
