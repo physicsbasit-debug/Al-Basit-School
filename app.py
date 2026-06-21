@@ -562,6 +562,9 @@ def get_reference_file_status(file_path, status_key="", data_loaded=False):
     }
 
 DEFAULT_SCHOOL_CONFIG = {
+    "ministry_name": "وزارة التعليم",
+    "directorate_region": "جنوب الباطنة",
+    "directorate_prefix": "المديرية العامة للتعليم بمحافظة",
     "system_name": "منظومة مسار",
     "system_subtitle": "للاحتياط والتبادل الودي",
     "school_name": "مدرسة الباسط للتعليم الأساسي (8-10)",
@@ -602,10 +605,14 @@ def load_school_config():
 
 SCHOOL_CONFIG = load_school_config()
 
-SYSTEM_NAME = str(SCHOOL_CONFIG.get("system_name", DEFAULT_SCHOOL_CONFIG["system_name"]))
-SYSTEM_SUBTITLE = str(SCHOOL_CONFIG.get("system_subtitle", DEFAULT_SCHOOL_CONFIG["system_subtitle"]))
+MINISTRY_NAME = str(DEFAULT_SCHOOL_CONFIG["ministry_name"])
+DIRECTORATE_PREFIX = str(DEFAULT_SCHOOL_CONFIG["directorate_prefix"])
+DIRECTORATE_REGION = str(SCHOOL_CONFIG.get("directorate_region", DEFAULT_SCHOOL_CONFIG["directorate_region"]))
+DIRECTORATE_FULL_NAME = f"{DIRECTORATE_PREFIX} {DIRECTORATE_REGION}".strip()
+SYSTEM_NAME = str(DEFAULT_SCHOOL_CONFIG["system_name"])
+SYSTEM_SUBTITLE = str(DEFAULT_SCHOOL_CONFIG["system_subtitle"])
 SCHOOL_NAME = str(SCHOOL_CONFIG.get("school_name", DEFAULT_SCHOOL_CONFIG["school_name"]))
-DEVELOPER_CREDIT = str(SCHOOL_CONFIG.get("developer_credit", DEFAULT_SCHOOL_CONFIG["developer_credit"]))
+DEVELOPER_CREDIT = str(DEFAULT_SCHOOL_CONFIG["developer_credit"])
 SCHOOL_LOGO_URL = str(SCHOOL_CONFIG.get("logo_url", DEFAULT_SCHOOL_CONFIG["logo_url"]))
 THEME_COLOR = str(SCHOOL_CONFIG.get("theme_color", DEFAULT_SCHOOL_CONFIG["theme_color"]))
 THEME_COLOR_2 = str(SCHOOL_CONFIG.get("theme_color_2", DEFAULT_SCHOOL_CONFIG["theme_color_2"]))
@@ -2919,14 +2926,20 @@ def refresh_school_data_center_cards(is_owner=False):
 # ─────────────────────────────────────────────────────────────────────────────
 
 IDENTITY_CONFIG_KEYS = (
-    "system_name",
-    "system_subtitle",
     "school_name",
-    "developer_credit",
+    "directorate_region",
     "logo_url",
     "theme_color",
     "theme_color_2",
     "accent_color",
+)
+
+FIXED_IDENTITY_KEYS = (
+    "ministry_name",
+    "directorate_prefix",
+    "system_name",
+    "system_subtitle",
+    "developer_credit",
 )
 
 def _normalize_identity_text(value, fallback="", max_length=220):
@@ -2997,31 +3010,39 @@ def _save_uploaded_identity_logo(uploaded_file):
     shutil.copy2(source_path, destination)
     return os.path.relpath(destination, os.getcwd())
 
+def _identity_directorate_full_name(region=None):
+    region_clean = _normalize_identity_text(
+        region,
+        DEFAULT_SCHOOL_CONFIG["directorate_region"],
+        80,
+    )
+    return f"{DEFAULT_SCHOOL_CONFIG['directorate_prefix']} {region_clean}".strip()
+
 def _apply_school_identity_globals(config):
     global SCHOOL_CONFIG
+    global MINISTRY_NAME, DIRECTORATE_PREFIX, DIRECTORATE_REGION, DIRECTORATE_FULL_NAME
     global SYSTEM_NAME, SYSTEM_SUBTITLE, SCHOOL_NAME, DEVELOPER_CREDIT
     global SCHOOL_LOGO_URL, THEME_COLOR, THEME_COLOR_2, ACCENT_COLOR
 
     SCHOOL_CONFIG = dict(config)
-    SYSTEM_NAME = _normalize_identity_text(
-        SCHOOL_CONFIG.get("system_name"),
-        DEFAULT_SCHOOL_CONFIG["system_name"],
-        100,
+
+    MINISTRY_NAME = str(DEFAULT_SCHOOL_CONFIG["ministry_name"])
+    DIRECTORATE_PREFIX = str(DEFAULT_SCHOOL_CONFIG["directorate_prefix"])
+    SYSTEM_NAME = str(DEFAULT_SCHOOL_CONFIG["system_name"])
+    SYSTEM_SUBTITLE = str(DEFAULT_SCHOOL_CONFIG["system_subtitle"])
+    DEVELOPER_CREDIT = str(DEFAULT_SCHOOL_CONFIG["developer_credit"])
+
+    DIRECTORATE_REGION = _normalize_identity_text(
+        SCHOOL_CONFIG.get("directorate_region"),
+        DEFAULT_SCHOOL_CONFIG["directorate_region"],
+        80,
     )
-    SYSTEM_SUBTITLE = _normalize_identity_text(
-        SCHOOL_CONFIG.get("system_subtitle"),
-        DEFAULT_SCHOOL_CONFIG["system_subtitle"],
-        120,
-    )
+    DIRECTORATE_FULL_NAME = _identity_directorate_full_name(DIRECTORATE_REGION)
+
     SCHOOL_NAME = _normalize_identity_text(
         SCHOOL_CONFIG.get("school_name"),
         DEFAULT_SCHOOL_CONFIG["school_name"],
         140,
-    )
-    DEVELOPER_CREDIT = _normalize_identity_text(
-        SCHOOL_CONFIG.get("developer_credit"),
-        DEFAULT_SCHOOL_CONFIG["developer_credit"],
-        220,
     )
     SCHOOL_LOGO_URL = str(
         SCHOOL_CONFIG.get("logo_url") or DEFAULT_SCHOOL_CONFIG["logo_url"]
@@ -3041,6 +3062,10 @@ def _apply_school_identity_globals(config):
 
 def _current_identity_config():
     return {
+        "ministry_name": MINISTRY_NAME,
+        "directorate_prefix": DIRECTORATE_PREFIX,
+        "directorate_region": DIRECTORATE_REGION,
+        "directorate_full_name": DIRECTORATE_FULL_NAME,
         "system_name": SYSTEM_NAME,
         "system_subtitle": SYSTEM_SUBTITLE,
         "school_name": SCHOOL_NAME,
@@ -3130,10 +3155,16 @@ def build_header_html(config=None):
     if isinstance(config, dict):
         cfg.update(config)
 
-    system_name = html_lib.escape(str(cfg.get("system_name", SYSTEM_NAME)))
-    subtitle = html_lib.escape(str(cfg.get("system_subtitle", SYSTEM_SUBTITLE)))
+    system_name = html_lib.escape(str(DEFAULT_SCHOOL_CONFIG["system_name"]))
+    subtitle = html_lib.escape(str(DEFAULT_SCHOOL_CONFIG["system_subtitle"]))
     school_name = html_lib.escape(str(cfg.get("school_name", SCHOOL_NAME)))
-    credit = html_lib.escape(str(cfg.get("developer_credit", DEVELOPER_CREDIT)))
+    credit = html_lib.escape(str(DEFAULT_SCHOOL_CONFIG["developer_credit"]))
+    ministry = html_lib.escape(str(DEFAULT_SCHOOL_CONFIG["ministry_name"]))
+    directorate = html_lib.escape(
+        _identity_directorate_full_name(
+            cfg.get("directorate_region", DIRECTORATE_REGION)
+        )
+    )
     logo_src = html_lib.escape(
         _resolve_identity_logo_source(cfg.get("logo_url")),
         quote=True,
@@ -3144,7 +3175,7 @@ def build_header_html(config=None):
 <div class='main-header'>
     <div class='header-grid'>
         <div class='h-logo'><img src='{logo_src}' alt='Logo'></div>
-        <div class='h-ministry'>وزارة التعليم<br>مديرية التعليم بالمحافظة</div>
+        <div class='h-ministry'>{ministry}<br>{directorate}</div>
         <div class='h-title'>
             <div class='h-title-main'>{system_name}</div>
             <div class='h-title-sub'>{subtitle}</div>
@@ -3155,29 +3186,139 @@ def build_header_html(config=None):
 </div>
 """
 
-def build_home_hero_html(config=None):
+def _home_hero_account_note(record):
+    context = _account_profile_context(record)
+    role = context.get("role", "")
+    official = context.get("official_title", "")
+    department_label = context.get("department_label", "")
+
+    if bool(record.get("is_owner", False)) or role == OWNER_ROLE:
+        return "لوحة التحكم العليا جاهزة لإدارة المنظومة."
+
+    if official and department_label:
+        return f"{official} — {department_label}"
+
+    if official:
+        return f"صلاحية الدخول: {official}"
+
+    if department_label:
+        return f"{department_label} جاهز لك."
+
+    return "تم تجهيز لوحة العمل حسب صلاحيتك."
+
+
+def _resolve_home_hero_account_record(
+    account_id="",
+    user_name="",
+    user_role="",
+    is_owner=False,
+):
+    account_id = str(account_id or "").strip()
+
+    if bool(is_owner) or account_id == OWNER_ACCOUNT_ID:
+        owner_name = (
+            str(user_name or "").strip()
+            or os.getenv("SYSTEM_OWNER_NAME", "صاحب النظام").strip()
+            or "صاحب النظام"
+        )
+        return {
+            "account_id": OWNER_ACCOUNT_ID,
+            "name": owner_name,
+            "display_name": owner_name,
+            "role": OWNER_ROLE,
+            "official_title": OWNER_ROLE,
+            "whatsapp_title": OWNER_ROLE,
+            "department_label": "غرفة القيادة",
+            "welcome_title": "صاحب النظام",
+            "welcome_phrase": "لوحة التحكم العليا جاهزة لإدارة المنظومة",
+            "welcome_template": "مرحبًا بك يا {welcome_title} ({display_name})",
+            "is_owner": True,
+        }
+
+    if account_id:
+        payload = load_auth_accounts()
+        record = payload.get("accounts", {}).get(account_id)
+        if isinstance(record, dict):
+            return dict(record)
+
+    fallback_name = str(user_name or "").strip()
+    fallback_role = str(user_role or "").strip()
+    if fallback_name or fallback_role:
+        return {
+            "account_id": account_id,
+            "name": fallback_name,
+            "display_name": fallback_name,
+            "role": fallback_role,
+            "official_title": fallback_role,
+            "whatsapp_title": fallback_role,
+            "department_label": "",
+            "welcome_title": "",
+            "welcome_phrase": "",
+            "welcome_template": "",
+            "is_owner": False,
+        }
+
+    return {}
+
+
+def build_home_hero_html(config=None, account_record=None):
     cfg = dict(_current_identity_config())
     if isinstance(config, dict):
         cfg.update(config)
+
     system_name = html_lib.escape(str(cfg.get("system_name", SYSTEM_NAME)))
     school_name = html_lib.escape(str(cfg.get("school_name", SCHOOL_NAME)))
+
+    if isinstance(account_record, dict) and account_record:
+        title_text = build_account_welcome_text(account_record)
+        note_text = _home_hero_account_note(account_record)
+    else:
+        title_text = f"مرحبًا بك في {system_name}"
+        note_text = "تم تجهيز لوحة العمل حسب صلاحيتك. اختر القسم المناسب للبدء."
+
+    title_html = html_lib.escape(str(title_text or f"مرحبًا بك في {system_name}"))
+    note_html = html_lib.escape(str(note_text or ""))
+
     return f"""
 <div class='masar-home-hero'>
-    <div class='masar-home-title'>مرحبًا بك في {system_name}</div>
+    <div class='masar-home-title'>{title_html}</div>
     <div class='masar-home-subtitle'>{school_name}</div>
-    <div class='masar-home-note'>تم تجهيز لوحة العمل حسب صلاحيتك. اختر القسم المناسب للبدء.</div>
+    <div class='masar-home-note'>{note_html}</div>
 </div>
 """
+
+
+def update_home_hero_after_login(
+    account_id,
+    user_name,
+    user_role,
+    is_owner=False,
+):
+    record = _resolve_home_hero_account_record(
+        account_id=account_id,
+        user_name=user_name,
+        user_role=user_role,
+        is_owner=is_owner,
+    )
+    return gr.update(value=build_home_hero_html(account_record=record))
+
 
 def render_school_config_summary_html(config=None):
     cfg = dict(_current_identity_config())
     if isinstance(config, dict):
         cfg.update(config)
+
+    directorate = _identity_directorate_full_name(
+        cfg.get("directorate_region", DIRECTORATE_REGION)
+    )
+
     return f"""
 <div style='background:#fffde7;color:#4d3b00;padding:12px;border-radius:10px;border-right:5px solid {html_lib.escape(str(cfg.get("accent_color", ACCENT_COLOR)))};margin-bottom:12px;font-weight:800;line-height:1.8;'>
     ملف إعدادات المدرسة: <b>{html_lib.escape(SCHOOL_CONFIG_FILE)}</b><br>
     المدرسة الحالية: <b>{html_lib.escape(str(cfg.get("school_name", SCHOOL_NAME)))}</b><br>
-    اسم النظام: <b>{html_lib.escape(str(cfg.get("system_name", SYSTEM_NAME)))} - {html_lib.escape(str(cfg.get("system_subtitle", SYSTEM_SUBTITLE)))}</b><br>
+    الوزارة: <b>{html_lib.escape(DEFAULT_SCHOOL_CONFIG["ministry_name"])}</b><br>
+    المديرية: <b>{html_lib.escape(directorate)}</b><br>
+    اسم النظام: <b>{html_lib.escape(DEFAULT_SCHOOL_CONFIG["system_name"])} - {html_lib.escape(DEFAULT_SCHOOL_CONFIG["system_subtitle"])}</b><br>
     عدد الحصص اليومية: <b>{MAX_PERIODS}</b>
 </div>
 """
@@ -3191,20 +3332,21 @@ def render_school_identity_preview_html(
     theme_color,
     theme_color_2,
     accent_color,
+    directorate_region=None,
 ):
     preview_cfg = {
-        "system_name": _normalize_identity_text(
-            system_name, DEFAULT_SCHOOL_CONFIG["system_name"], 100
-        ),
-        "system_subtitle": _normalize_identity_text(
-            system_subtitle, DEFAULT_SCHOOL_CONFIG["system_subtitle"], 120
+        "system_name": DEFAULT_SCHOOL_CONFIG["system_name"],
+        "system_subtitle": DEFAULT_SCHOOL_CONFIG["system_subtitle"],
+        "ministry_name": DEFAULT_SCHOOL_CONFIG["ministry_name"],
+        "directorate_region": _normalize_identity_text(
+            directorate_region if directorate_region is not None else DIRECTORATE_REGION,
+            DEFAULT_SCHOOL_CONFIG["directorate_region"],
+            80,
         ),
         "school_name": _normalize_identity_text(
             school_name, DEFAULT_SCHOOL_CONFIG["school_name"], 140
         ),
-        "developer_credit": _normalize_identity_text(
-            developer_credit, DEFAULT_SCHOOL_CONFIG["developer_credit"], 220
-        ),
+        "developer_credit": DEFAULT_SCHOOL_CONFIG["developer_credit"],
         "logo_url": str(logo_url or SCHOOL_LOGO_URL).strip(),
         "theme_color": _normalize_hex_color(
             theme_color, DEFAULT_SCHOOL_CONFIG["theme_color"]
@@ -3217,6 +3359,9 @@ def render_school_identity_preview_html(
         ),
     }
 
+    directorate_full = _identity_directorate_full_name(
+        preview_cfg["directorate_region"]
+    )
     logo_src = html_lib.escape(
         _resolve_identity_logo_source(preview_cfg["logo_url"]),
         quote=True,
@@ -3224,6 +3369,8 @@ def render_school_identity_preview_html(
     return f"""
 <div style='direction:rtl;border:1px solid #d1d5db;border-radius:16px;overflow:hidden;background:#ffffff;box-shadow:0 8px 22px rgba(0,0,0,0.08);'>
     <div style='background:linear-gradient(145deg,#003d33 0%,{preview_cfg["theme_color"]} 45%,{preview_cfg["theme_color_2"]} 100%);padding:22px;text-align:center;'>
+        <div style='font-size:13px;font-weight:800;color:rgba(255,255,255,0.92);margin-bottom:6px;'>{html_lib.escape(preview_cfg["ministry_name"])}</div>
+        <div style='font-size:12px;font-weight:700;color:rgba(255,255,255,0.86);margin-bottom:12px;'>{html_lib.escape(directorate_full)}</div>
         <img src='{logo_src}' style='width:92px;height:92px;object-fit:contain;border-radius:50%;background:#fff;padding:4px;border:3px solid {preview_cfg["accent_color"]};'>
         <div style='font-size:24px;font-weight:900;color:{preview_cfg["accent_color"]};margin-top:12px;'>{html_lib.escape(preview_cfg["system_name"])}</div>
         <div style='font-size:14px;font-weight:700;color:#fff;margin-top:4px;'>{html_lib.escape(preview_cfg["system_subtitle"])}</div>
@@ -3238,6 +3385,7 @@ def preview_school_identity_settings(
     system_subtitle,
     school_name,
     developer_credit,
+    directorate_region,
     logo_url,
     theme_color,
     theme_color_2,
@@ -3251,14 +3399,15 @@ def preview_school_identity_settings(
         )
 
     preview = render_school_identity_preview_html(
-        system_name,
-        system_subtitle,
+        DEFAULT_SCHOOL_CONFIG["system_name"],
+        DEFAULT_SCHOOL_CONFIG["system_subtitle"],
         school_name,
-        developer_credit,
+        DEFAULT_SCHOOL_CONFIG["developer_credit"],
         logo_url,
         theme_color,
         theme_color_2,
         accent_color,
+        directorate_region,
     )
     return (
         gr.update(value=preview),
@@ -3267,20 +3416,22 @@ def preview_school_identity_settings(
 
 def _identity_full_output(config, status_html):
     preview = render_school_identity_preview_html(
-        config["system_name"],
-        config["system_subtitle"],
+        DEFAULT_SCHOOL_CONFIG["system_name"],
+        DEFAULT_SCHOOL_CONFIG["system_subtitle"],
         config["school_name"],
-        config["developer_credit"],
+        DEFAULT_SCHOOL_CONFIG["developer_credit"],
         config["logo_url"],
         config["theme_color"],
         config["theme_color_2"],
         config["accent_color"],
+        config.get("directorate_region", DEFAULT_SCHOOL_CONFIG["directorate_region"]),
     )
     return (
-        gr.update(value=config["system_name"]),
-        gr.update(value=config["system_subtitle"]),
+        gr.update(value=DEFAULT_SCHOOL_CONFIG["system_name"]),
+        gr.update(value=DEFAULT_SCHOOL_CONFIG["system_subtitle"]),
         gr.update(value=config["school_name"]),
-        gr.update(value=config["developer_credit"]),
+        gr.update(value=config.get("directorate_region", DEFAULT_SCHOOL_CONFIG["directorate_region"])),
+        gr.update(value=DEFAULT_SCHOOL_CONFIG["developer_credit"]),
         gr.update(value=config["logo_url"]),
         gr.update(value=None),
         gr.update(value=config["theme_color"]),
@@ -3301,6 +3452,7 @@ def save_school_identity_settings(
     system_subtitle,
     school_name,
     developer_credit,
+    directorate_region,
     logo_url,
     logo_upload,
     theme_color,
@@ -3314,12 +3466,16 @@ def save_school_identity_settings(
             "<div style='color:#b91c1c;font-weight:800;'>رفض الحفظ: إعدادات الهوية مخصصة لمالك النظام فقط.</div>",
         )
 
-    system_name_clean = _normalize_identity_text(system_name, "", 100)
     school_name_clean = _normalize_identity_text(school_name, "", 140)
-    if not system_name_clean or not school_name_clean:
+    directorate_region_clean = _normalize_identity_text(
+        directorate_region,
+        DEFAULT_SCHOOL_CONFIG["directorate_region"],
+        80,
+    )
+    if not school_name_clean:
         return _identity_full_output(
             _current_identity_config(),
-            "<div style='color:#b91c1c;font-weight:800;'>اسم النظام واسم المدرسة حقول إلزامية.</div>",
+            "<div style='color:#b91c1c;font-weight:800;'>اسم المدرسة حقل إلزامي.</div>",
         )
 
     colors = {
@@ -3358,19 +3514,12 @@ def save_school_identity_settings(
         )
 
     new_config = load_school_config()
+    for fixed_key in FIXED_IDENTITY_KEYS:
+        new_config[fixed_key] = DEFAULT_SCHOOL_CONFIG[fixed_key]
+
     new_config.update({
-        "system_name": system_name_clean,
-        "system_subtitle": _normalize_identity_text(
-            system_subtitle,
-            DEFAULT_SCHOOL_CONFIG["system_subtitle"],
-            120,
-        ),
         "school_name": school_name_clean,
-        "developer_credit": _normalize_identity_text(
-            developer_credit,
-            DEFAULT_SCHOOL_CONFIG["developer_credit"],
-            220,
-        ),
+        "directorate_region": directorate_region_clean,
         "logo_url": saved_logo_value,
         "theme_color": colors["theme_color"].lower(),
         "theme_color_2": colors["theme_color_2"].lower(),
@@ -3386,7 +3535,7 @@ def save_school_identity_settings(
     _apply_school_identity_globals(new_config)
     return _identity_full_output(
         _current_identity_config(),
-        "<div style='color:#166534;background:#dcfce7;padding:10px;border-radius:8px;font-weight:800;'>تم حفظ هوية المدرسة بنجاح. العناوين والشعار تحدثت فورًا، وتُطبق الألوان العامة بالكامل بعد إعادة تشغيل التطبيق.</div>",
+        "<div style='color:#166534;background:#dcfce7;padding:10px;border-radius:8px;font-weight:800;'>تم حفظ هوية المدرسة بنجاح. العناصر الثابتة بقيت كما هي، وتغيرت المدرسة والمحافظة والشعار والألوان فقط.</div>",
     )
 
 @state_locked
@@ -3398,6 +3547,9 @@ def reset_school_identity_settings(is_owner=False):
         )
 
     config = load_school_config()
+
+    for key in FIXED_IDENTITY_KEYS:
+        config[key] = DEFAULT_SCHOOL_CONFIG[key]
     for key in IDENTITY_CONFIG_KEYS:
         config[key] = DEFAULT_SCHOOL_CONFIG[key]
 
@@ -3410,7 +3562,7 @@ def reset_school_identity_settings(is_owner=False):
     _apply_school_identity_globals(config)
     return _identity_full_output(
         _current_identity_config(),
-        "<div style='color:#166534;background:#dcfce7;padding:10px;border-radius:8px;font-weight:800;'>تمت استعادة هوية المدرسة الافتراضية. تُطبق الألوان العامة بالكامل بعد إعادة تشغيل التطبيق.</div>",
+        "<div style='color:#166534;background:#dcfce7;padding:10px;border-radius:8px;font-weight:800;'>تمت استعادة الهوية الافتراضية. تُطبق الألوان العامة بالكامل بعد إعادة تشغيل التطبيق.</div>",
     )
 
 
@@ -9031,12 +9183,21 @@ with gr.Blocks() as app:
                     with gr.Accordion("🎨 إعدادات هوية المدرسة", open=False):
                         gr.HTML("<div style='background:#eef6f3;color:#004d40;padding:12px;border-radius:10px;border-right:5px solid #0f766e;margin-bottom:12px;font-weight:800;line-height:1.8;'>هذه اللوحة مخصصة لمالك النظام. يمكن تعديل الهوية البصرية دون تعديل app.py. العناوين والشعار تتحدث فورًا، أما الألوان العامة فتُطبق بالكامل بعد إعادة تشغيل التطبيق.</div>")
 
-                        with gr.Row():
-                            identity_system_name = gr.Textbox(value=SYSTEM_NAME, label="اسم المنظومة")
-                            identity_system_subtitle = gr.Textbox(value=SYSTEM_SUBTITLE, label="العنوان الفرعي")
+                        gr.HTML(
+                            "<div style='background:#f8fafc;color:#334155;padding:12px;"
+                            "border-radius:10px;border-right:5px solid #64748b;"
+                            "margin-bottom:12px;font-weight:800;line-height:1.9;text-align:right;'>"
+                            "العناصر الثابتة في الهوية: <b>وزارة التعليم</b>، "
+                            "<b>منظومة مسار</b>، <b>للاحتياط والتبادل الودي</b>، "
+                            "وعبارة <b>فكرة وتطوير</b>. يمكن تعديل اسم المدرسة، المحافظة، الشعار، والألوان فقط."
+                            "</div>"
+                        )
+                        identity_system_name = gr.Textbox(value=SYSTEM_NAME, label="اسم المنظومة", visible=False)
+                        identity_system_subtitle = gr.Textbox(value=SYSTEM_SUBTITLE, label="العنوان الفرعي", visible=False)
+                        identity_developer_credit = gr.Textbox(value=DEVELOPER_CREDIT, label="عبارة الحقوق والتطوير", visible=False)
                         with gr.Row():
                             identity_school_name = gr.Textbox(value=SCHOOL_NAME, label="اسم المدرسة")
-                            identity_developer_credit = gr.Textbox(value=DEVELOPER_CREDIT, label="عبارة الحقوق والتطوير")
+                            identity_directorate_region = gr.Textbox(value=DIRECTORATE_REGION, label="المحافظة في سطر المديرية", placeholder="مثال: جنوب الباطنة")
                         with gr.Row():
                             identity_logo_url = gr.Textbox(value=SCHOOL_LOGO_URL, label="رابط الشعار أو مساره المحلي")
                             identity_logo_upload = gr.File(
@@ -9050,11 +9211,23 @@ with gr.Blocks() as app:
                             identity_accent_color = gr.Textbox(value=ACCENT_COLOR, label="اللون البارز HEX")
 
                         with gr.Row():
-                            identity_preview_btn = gr.Button("معاينة الهوية", elem_classes="admin-btn")
+                            identity_preview_btn = gr.Button("معاينة هوية المدرسة", elem_classes="admin-btn")
                             identity_save_btn = gr.Button("حفظ هوية المدرسة", elem_classes="admin-btn")
                             identity_reset_btn = gr.Button("استعادة الهوية الافتراضية", elem_classes="reset-btn")
 
                         identity_status_html = gr.HTML()
+                        gr.HTML(
+                            "<div style='background:#fff7ed;color:#9a3412;padding:10px;"
+                            "border-radius:10px;border-right:5px solid #f59e0b;"
+                            "margin:12px 0;font-weight:900;line-height:1.8;text-align:right;'>"
+                            "تنبيه: هذه معاينة هوية المدرسة داخل مركز البيانات، وليست الهيدر الفعلي بعد تسجيل الدخول."
+                            "</div>"
+                        )
+                        gr.HTML(
+                            "<div style='font-weight:900;color:#004d40;margin:8px 0 6px;text-align:right;'>"
+                            "🖼️ معاينة هوية المدرسة"
+                            "</div>"
+                        )
                         identity_preview_html = gr.HTML(
                             value=render_school_identity_preview_html(
                                 SYSTEM_NAME,
@@ -9065,6 +9238,7 @@ with gr.Blocks() as app:
                                 THEME_COLOR,
                                 THEME_COLOR_2,
                                 ACCENT_COLOR,
+                                DIRECTORATE_REGION,
                             )
                         )
 
@@ -9218,6 +9392,16 @@ with gr.Blocks() as app:
         [home_dashboard, tabs_container, card_distribution, card_balances, card_exemptions, card_swap, card_day, card_teacher, card_school_data],
         queue=False
     ).then(
+        update_home_hero_after_login,
+        [
+            current_user_account_id,
+            current_user_name,
+            current_user_role,
+            current_user_is_owner,
+        ],
+        [home_hero_html],
+        queue=False,
+    ).then(
         None, None, None,
         js=show_home_dashboard_js()
     ).then(
@@ -9248,6 +9432,16 @@ with gr.Blocks() as app:
         [dept_in, current_user_is_admin, current_user_is_owner, current_user_role],
         [home_dashboard, tabs_container, card_distribution, card_balances, card_exemptions, card_swap, card_day, card_teacher, card_school_data],
         queue=False
+    ).then(
+        update_home_hero_after_login,
+        [
+            current_user_account_id,
+            current_user_name,
+            current_user_role,
+            current_user_is_owner,
+        ],
+        [home_hero_html],
+        queue=False,
     ).then(
         None, None, None,
         js=show_home_dashboard_js()
@@ -9490,6 +9684,7 @@ with gr.Blocks() as app:
             identity_system_subtitle,
             identity_school_name,
             identity_developer_credit,
+            identity_directorate_region,
             identity_logo_url,
             identity_theme_color,
             identity_theme_color_2,
@@ -9507,6 +9702,7 @@ with gr.Blocks() as app:
             identity_system_subtitle,
             identity_school_name,
             identity_developer_credit,
+            identity_directorate_region,
             identity_logo_url,
             identity_logo_upload,
             identity_theme_color,
@@ -9518,6 +9714,7 @@ with gr.Blocks() as app:
             identity_system_name,
             identity_system_subtitle,
             identity_school_name,
+            identity_directorate_region,
             identity_developer_credit,
             identity_logo_url,
             identity_logo_upload,
@@ -9542,6 +9739,7 @@ with gr.Blocks() as app:
             identity_system_name,
             identity_system_subtitle,
             identity_school_name,
+            identity_directorate_region,
             identity_developer_credit,
             identity_logo_url,
             identity_logo_upload,
