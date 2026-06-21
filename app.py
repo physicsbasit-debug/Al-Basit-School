@@ -8188,6 +8188,99 @@ button.home-back-btn {
     box-shadow: none !important;
 }
 
+
+
+/* v1.8.3 Fix 4 — RTL polish and school data center icon organization */
+.gradio-container,
+.gradio-container label,
+.gradio-container textarea,
+.gradio-container input,
+.gradio-container table,
+.gradio-container th,
+.gradio-container td,
+.gradio-container .prose,
+.gradio-container .markdown,
+.gradio-container [data-testid="block-info"],
+.gradio-container [role="combobox"],
+.gradio-container [role="listbox"],
+.gradio-container [role="option"] {
+    direction: rtl !important;
+    text-align: right !important;
+}
+
+.gradio-container th,
+.gradio-container td {
+    text-align: center !important;
+}
+
+/* Dropdown popups can be rendered outside the local component tree, because apparently menus need independence. */
+div[data-testid="dropdown-options"],
+div[data-testid="dropdown-options"] *,
+.svelte-select-list,
+.svelte-select-list *,
+[role="listbox"],
+[role="option"] {
+    direction: rtl !important;
+    text-align: right !important;
+}
+
+.school-data-center-note {
+    background: #eef6f3;
+    color: #004d40;
+    border-right: 5px solid #0f766e;
+    border-radius: 12px;
+    padding: 12px;
+    margin: 10px 0 14px;
+    font-weight: 800;
+    line-height: 1.8;
+    text-align: right !important;
+    direction: rtl !important;
+}
+
+.school-data-icon-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin: 10px 0 18px;
+    direction: rtl !important;
+}
+
+.school-data-icon-card {
+    direction: rtl !important;
+    text-align: center !important;
+    background: #ffffff;
+    border: 1px solid #dbe3e8;
+    border-radius: 16px;
+    padding: 15px 12px;
+    box-shadow: 0 8px 20px rgba(15, 118, 110, 0.08);
+    min-height: 120px;
+}
+
+.school-data-icon-card * {
+    text-align: center !important;
+}
+
+.school-data-icon {
+    display: block;
+    font-size: 31px;
+    line-height: 1;
+    margin-bottom: 9px;
+}
+
+.school-data-card-title {
+    font-size: 17px;
+    font-weight: 900;
+    color: #004d40;
+    margin-bottom: 6px;
+}
+
+.school-data-card-desc {
+    font-size: 13px;
+    font-weight: 700;
+    color: #475569;
+    line-height: 1.7;
+}
+
 """
 
 
@@ -9079,8 +9172,34 @@ with gr.Blocks() as app:
                     check_tbl = gr.HTML("<div style='text-align:center; color:#64748b; padding:18px; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:12px; direction:rtl;'>اختر المعلم لعرض جدوله الأسبوعي.</div>")
                     check_teacher_in.change(get_teacher_weekly_schedule_html, check_teacher_in, check_tbl)
                 with gr.Tab("🗄️ مركز البيانات المدرسية", id="school_data") as school_data_tab:
-                    gr.Markdown("### 🗄️ مركز البيانات المدرسية")
-                    gr.HTML("<div style='background:#e8f5e9; color:#004d40; padding:14px; border-radius:10px; border-right:5px solid #2e7d32; margin-bottom:12px;'>هذه البوابة هي المرجع الرسمي لاعتماد ملفات الإداريين وأرقام المعلمين والجداول المرجعية للأقسام، بدلاً من الرفع التشغيلي المباشر.</div>")
+                    gr.HTML("""
+<div class="school-data-center-note">
+    <b>🗄️ مركز البيانات المدرسية</b><br>
+    غرفة التحكم الخلفية للمنظومة: الملفات المرجعية، الهوية، الحسابات، السجلات، والنسخ الاحتياطية.
+</div>
+<div class="school-data-icon-grid" dir="rtl">
+    <div class="school-data-icon-card">
+        <span class="school-data-icon">🗂️</span>
+        <div class="school-data-card-title">الملفات المرجعية</div>
+        <div class="school-data-card-desc">الجداول، أرقام المعلمين، والإداريون.</div>
+    </div>
+    <div class="school-data-icon-card">
+        <span class="school-data-icon">🎨</span>
+        <div class="school-data-card-title">هوية المدرسة</div>
+        <div class="school-data-card-desc">المدرسة، المحافظة، الشعار، والألوان.</div>
+    </div>
+    <div class="school-data-icon-card">
+        <span class="school-data-icon">🔐</span>
+        <div class="school-data-card-title">حسابات الدخول</div>
+        <div class="school-data-card-desc">الرموز، التفعيل، والترحيب المخصص.</div>
+    </div>
+    <div class="school-data-icon-card">
+        <span class="school-data-icon">🛡️</span>
+        <div class="school-data-card-title">السجل والنسخ</div>
+        <div class="school-data-card-desc">العمليات الحساسة والنسخ الاحتياطية.</div>
+    </div>
+</div>
+""")
 
                     persistent_storage_status_html = gr.HTML(value=render_persistent_storage_status_html())
                     school_config_summary_html = gr.HTML(value=render_school_config_summary_html())
