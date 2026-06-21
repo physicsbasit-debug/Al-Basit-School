@@ -5341,6 +5341,24 @@ def clear_generated_image():
     return gr.update(value=None)
 
 
+
+
+def show_school_data_panel(panel_name="overview"):
+    panel = str(panel_name or "overview").strip()
+    labels = {
+        "overview": "يعرض مركز البيانات الآن حالة التخزين الدائم وملف إعدادات المدرسة فقط. اختر بطاقة من الأعلى لفتح القسم المطلوب.",
+        "references": "🗂️ الملفات المرجعية: الجداول، أرقام المعلمين، الإداريون، والأدوات الإدارية الإضافية.",
+        "identity": "🎨 هوية المدرسة: اسم المدرسة، المحافظة، الشعار، والألوان.",
+        "accounts": "🔐 حسابات الدخول: الرموز، تفعيل الحسابات، وتخصيص الترحيب.",
+        "audit": "🛡️ السجل والنسخ: سجل العمليات الحساسة والنسخ الاحتياطية.",
+    }
+    return (
+        gr.update(value=f"<div class='school-data-panel-title'>{labels.get(panel, labels['overview'])}</div>"),
+        gr.update(visible=(panel == "references")),
+        gr.update(visible=(panel == "identity")),
+        gr.update(visible=(panel == "accounts")),
+        gr.update(visible=(panel == "audit")),
+    )
 def detect_absence_assignment_conflicts_for_context(day_name, dept_filter, current_abs=None):
     effective_dept = resolve_effective_dept(dept_filter)
     cleaned = normalize_absent_names(current_abs) if current_abs else []
@@ -8281,6 +8299,51 @@ div[data-testid="dropdown-options"] *,
     line-height: 1.7;
 }
 
+
+
+/* v1.8.3 Fix 5 — clickable school data center panels */
+.school-data-nav-row {
+    direction: rtl !important;
+    gap: 10px !important;
+    margin: 10px 0 14px !important;
+}
+.school-data-nav-btn {
+    min-height: 82px !important;
+    border-radius: 16px !important;
+    background: #ffffff !important;
+    border: 1px solid #dbe3e8 !important;
+    color: #004d40 !important;
+    font-weight: 900 !important;
+    box-shadow: 0 8px 20px rgba(15, 118, 110, 0.08) !important;
+    white-space: pre-line !important;
+    line-height: 1.55 !important;
+}
+.school-data-nav-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px rgba(15, 118, 110, 0.13) !important;
+}
+.school-data-panel-box {
+    direction: rtl !important;
+    text-align: right !important;
+    background: #ffffff;
+    border: 1px solid #dbe3e8;
+    border-radius: 16px;
+    padding: 12px;
+    margin-top: 10px;
+    box-shadow: 0 8px 20px rgba(15, 118, 110, 0.06);
+}
+.school-data-panel-title {
+    background: #eef6f3;
+    color: #004d40;
+    border-right: 5px solid #0f766e;
+    border-radius: 12px;
+    padding: 11px 12px;
+    margin: 4px 0 14px;
+    font-weight: 900;
+    line-height: 1.8;
+    text-align: right;
+}
+
 """
 
 
@@ -9175,285 +9238,285 @@ with gr.Blocks() as app:
                     gr.HTML("""
 <div class="school-data-center-note">
     <b>🗄️ مركز البيانات المدرسية</b><br>
-    غرفة التحكم الخلفية للمنظومة: الملفات المرجعية، الهوية، الحسابات، السجلات، والنسخ الاحتياطية.
-</div>
-<div class="school-data-icon-grid" dir="rtl">
-    <div class="school-data-icon-card">
-        <span class="school-data-icon">🗂️</span>
-        <div class="school-data-card-title">الملفات المرجعية</div>
-        <div class="school-data-card-desc">الجداول، أرقام المعلمين، والإداريون.</div>
-    </div>
-    <div class="school-data-icon-card">
-        <span class="school-data-icon">🎨</span>
-        <div class="school-data-card-title">هوية المدرسة</div>
-        <div class="school-data-card-desc">المدرسة، المحافظة، الشعار، والألوان.</div>
-    </div>
-    <div class="school-data-icon-card">
-        <span class="school-data-icon">🔐</span>
-        <div class="school-data-card-title">حسابات الدخول</div>
-        <div class="school-data-card-desc">الرموز، التفعيل، والترحيب المخصص.</div>
-    </div>
-    <div class="school-data-icon-card">
-        <span class="school-data-icon">🛡️</span>
-        <div class="school-data-card-title">السجل والنسخ</div>
-        <div class="school-data-card-desc">العمليات الحساسة والنسخ الاحتياطية.</div>
-    </div>
+    تظهر حالة التخزين وملف إعدادات المدرسة دائمًا. اضغط بطاقة من البطاقات التالية لفتح بياناتها وأدواتها.
 </div>
 """)
+                    with gr.Row(elem_classes="school-data-nav-row"):
+                        btn_school_data_references_panel = gr.Button("🗂️\nالملفات المرجعية", elem_classes=["school-data-nav-btn"])
+                        btn_school_data_identity_panel = gr.Button("🎨\nهوية المدرسة", elem_classes=["school-data-nav-btn"])
+                        btn_school_data_accounts_panel = gr.Button("🔐\nحسابات الدخول", elem_classes=["school-data-nav-btn"])
+                        btn_school_data_audit_panel = gr.Button("🛡️\nالسجل والنسخ", elem_classes=["school-data-nav-btn"])
 
                     persistent_storage_status_html = gr.HTML(value=render_persistent_storage_status_html())
                     school_config_summary_html = gr.HTML(value=render_school_config_summary_html())
 
-                    with gr.Accordion("🔐 إدارة حسابات الدخول", open=False):
-                        gr.HTML(
-                            "<div style='background:#eef6f3;color:#004d40;padding:12px;"
-                            "border-radius:10px;border-right:5px solid #0f766e;"
-                            "margin-bottom:12px;font-weight:800;line-height:1.8;'>"
-                            "لوحة المالك لإعادة تعيين الرموز وتعطيل الحسابات. "
-                            "لا تعرض المنظومة أي رمز قديم. الرمز الجديد يظهر مرة واحدة فقط بعد إعادة التعيين."
-                            "</div>"
-                        )
-                        owner_accounts_html = gr.HTML(
-                            value=render_auth_accounts_html(False)
-                        )
-                        with gr.Row():
-                            owner_account_selector = gr.Dropdown(
-                                choices=[],
-                                value=None,
-                                label="اختر الحساب",
-                            )
-                            owner_requested_pin = gr.Textbox(
-                                type="password",
-                                label="رمز جديد اختياري",
-                                placeholder="اتركه فارغًا لتوليد رمز من 6 أرقام",
-                            )
-                        with gr.Row():
-                            owner_reset_pin_btn = gr.Button(
-                                "إعادة تعيين رمز الحساب",
-                                elem_classes="admin-btn",
-                            )
-                            owner_toggle_account_btn = gr.Button(
-                                "تفعيل / تعطيل الحساب",
-                                elem_classes="reset-btn",
-                            )
-                            owner_refresh_accounts_btn = gr.Button(
-                                "تحديث قائمة الحسابات",
-                                elem_classes="admin-btn",
-                            )
-                        owner_one_time_pin = gr.Textbox(
-                            label="الرمز الجديد لمرة واحدة",
-                            interactive=False,
-                            value="",
-                        )
 
-                        with gr.Accordion("✨ تخصيص الترحيب والمسميات", open=False):
+                    school_data_section_status = gr.HTML(
+                        value="<div class='school-data-panel-title'>يعرض مركز البيانات الآن حالة التخزين الدائم وملف إعدادات المدرسة فقط. اختر بطاقة من الأعلى لفتح القسم المطلوب.</div>"
+                    )
+
+                    with gr.Column(visible=False, elem_classes="school-data-panel-box") as school_data_references_panel:
+                        gr.HTML("<div class='school-data-panel-title'>🗂️ الملفات المرجعية والأدوات الإدارية الإضافية</div>")
+                        with gr.Row(visible=False):
+                            clear_noop = gr.Textbox(label="noop", value="", visible=False)
+                            up_dept = gr.Dropdown([], label="noop", visible=False)
+
+                        school_data_admin_html = gr.HTML(value=render_admin_reference_card())
+                        with gr.Row():
+                            admin_reference_upload = gr.File(label="رفع ملف الإداريين المرجعي", file_types=[".xlsx", ".xls", ".csv"])
+                        with gr.Row():
+                            save_admin_reference_btn = gr.Button("💾 اعتماد ملف الإداريين المرجعي", elem_classes="admin-btn")
+                            refresh_admin_reference_btn = gr.Button("🔄 تحديث الإداريين من الملف المرجعي", elem_classes="admin-btn")
+                        admin_reference_status_html = gr.HTML()
+
+                        school_data_phones_html = gr.HTML(value=render_phones_reference_card())
+                        with gr.Row():
+                            phones_reference_upload = gr.File(label="رفع ملف أرقام المعلمين المرجعي", file_types=[".xlsx", ".xls", ".csv"])
+                        with gr.Row():
+                            save_phones_reference_btn = gr.Button("💾 اعتماد ملف أرقام المعلمين المرجعي", elem_classes="admin-btn")
+                            refresh_phones_reference_btn = gr.Button("🔄 تحديث أرقام المعلمين من الملف المرجعي", elem_classes="admin-btn")
+                        phones_reference_status_html = gr.HTML()
+
+                        school_data_schedules_html = gr.HTML(value=render_schedule_reference_cards())
+                        with gr.Row():
+                            schedule_reference_dept = gr.Dropdown(
+                                choices=list(SCHEDULE_FILES.keys()),
+                                label="اختر القسم لملفه المرجعي",
+                                value="التربية الإسلامية"
+                            )
+                        with gr.Row():
+                            schedule_reference_upload = gr.File(
+                                label="رفع ملف الجدول المرجعي للقسم المختار",
+                                file_types=[".xlsx", ".xls", ".csv"]
+                            )
+                        with gr.Row():
+                            save_schedule_reference_btn = gr.Button("💾 اعتماد الملف المرجعي للقسم", elem_classes="admin-btn")
+                            refresh_schedule_reference_btn = gr.Button("🔄 تحديث القسم من الملف المرجعي", elem_classes="admin-btn")
+                        schedule_reference_status_html = gr.HTML()
+
+
+                        with gr.Accordion("🧩 أدوات إدارية إضافية", open=False, visible=False) as manual_entry_container:
+                            gr.Markdown("### 👨‍💼 الإدخال اليدوي للطاقم الإداري")
+                            with gr.Row(elem_classes="yellow-box"):
+                                manual_name = gr.Textbox(label="الاسم الثلاثي")
+                                manual_dept = gr.Dropdown(["الهيئة الإدارية"], label="القسم", value="الهيئة الإدارية", interactive=False, elem_classes="fixed-dd")
+                                manual_role = gr.Dropdown(ADMIN_ROLES, label="المنصب", value="أخصائي اجتماعي", elem_classes="fixed-dd")
+                                manual_phone = gr.Textbox(label="رقم الواتساب")
+                            with gr.Row():
+                                manual_add_btn = gr.Button("➕ حفظ وإضافة", elem_classes="admin-btn")
+                        manual_status_html = gr.HTML()
+                        clear_status_html = gr.HTML()
+                        clear_btn = gr.Button("🧨 مسح وتصفير المنظومة", elem_classes="reset-btn", visible=False)
+
+
+                    with gr.Column(visible=False, elem_classes="school-data-panel-box") as school_data_identity_panel:
+                        gr.HTML("<div class='school-data-panel-title'>🎨 إعدادات هوية المدرسة</div>")
+                        with gr.Accordion("🎨 إعدادات هوية المدرسة", open=False):
+                            gr.HTML("<div style='background:#eef6f3;color:#004d40;padding:12px;border-radius:10px;border-right:5px solid #0f766e;margin-bottom:12px;font-weight:800;line-height:1.8;'>هذه اللوحة مخصصة لمالك النظام. يمكن تعديل الهوية البصرية دون تعديل app.py. العناوين والشعار تتحدث فورًا، أما الألوان العامة فتُطبق بالكامل بعد إعادة تشغيل التطبيق.</div>")
+
                             gr.HTML(
-                                "<div style='background:#fff7ed;color:#7c2d12;padding:10px;"
-                                "border-radius:8px;border-right:4px solid #f59e0b;"
-                                "font-weight:800;line-height:1.8;'>"
-                                "اختر حسابًا من الأعلى، ثم اضبط اسم العرض واللقب الجمالي وعبارة الهيدر. "
-                                "يمكن استخدام المتغيرات: {display_name}، {welcome_title}، {department_label}، {official_title}، {whatsapp_title}، {school_name}."
+                                "<div style='background:#f8fafc;color:#334155;padding:12px;"
+                                "border-radius:10px;border-right:5px solid #64748b;"
+                                "margin-bottom:12px;font-weight:800;line-height:1.9;text-align:right;'>"
+                                "العناصر الثابتة في الهوية: <b>وزارة التعليم</b>، "
+                                "<b>منظومة مسار</b>، <b>للاحتياط والتبادل الودي</b>، "
+                                "وعبارة <b>فكرة وتطوير</b>. يمكن تعديل اسم المدرسة، المحافظة، الشعار، والألوان فقط."
                                 "</div>"
                             )
+                            identity_system_name = gr.Textbox(value=SYSTEM_NAME, label="اسم المنظومة", visible=False)
+                            identity_system_subtitle = gr.Textbox(value=SYSTEM_SUBTITLE, label="العنوان الفرعي", visible=False)
+                            identity_developer_credit = gr.Textbox(value=DEVELOPER_CREDIT, label="عبارة الحقوق والتطوير", visible=False)
                             with gr.Row():
-                                owner_profile_display_name = gr.Textbox(
-                                    label="اسم العرض",
-                                    placeholder="مثال: أ. سعود المعولي",
-                                )
-                                owner_profile_official_title = gr.Textbox(
-                                    label="المسمى الرسمي",
-                                    placeholder="مثال: منسق مادة اللغة العربية",
-                                )
-                                owner_profile_whatsapp_title = gr.Textbox(
-                                    label="مسمى واتساب",
-                                    placeholder="مثال: منسق اللغة العربية",
+                                identity_school_name = gr.Textbox(value=SCHOOL_NAME, label="اسم المدرسة")
+                                identity_directorate_region = gr.Textbox(value=DIRECTORATE_REGION, label="المحافظة في سطر المديرية", placeholder="مثال: جنوب الباطنة")
+                            with gr.Row():
+                                identity_logo_url = gr.Textbox(value=SCHOOL_LOGO_URL, label="رابط الشعار أو مساره المحلي")
+                                identity_logo_upload = gr.File(
+                                    label="رفع شعار بديل اختياري",
+                                    file_types=[".png", ".jpg", ".jpeg", ".webp"],
+                                    type="filepath",
                                 )
                             with gr.Row():
-                                owner_profile_welcome_title = gr.Textbox(
-                                    label="اللقب الجمالي",
-                                    placeholder="مثال: مايسترو البيان",
-                                )
-                                owner_profile_department_label = gr.Textbox(
-                                    label="القسم الظاهر",
-                                    placeholder="مثال: قسم اللغة العربية",
-                                )
-                            owner_profile_welcome_phrase = gr.Textbox(
-                                label="عبارة الترحيب",
-                                placeholder="مثال: نورتنا، وقسم اللغة العربية جاهز لك",
+                                identity_theme_color = gr.Textbox(value=THEME_COLOR, label="اللون الأساسي HEX")
+                                identity_theme_color_2 = gr.Textbox(value=THEME_COLOR_2, label="اللون الثانوي HEX")
+                                identity_accent_color = gr.Textbox(value=ACCENT_COLOR, label="اللون البارز HEX")
+
+                            with gr.Row():
+                                identity_preview_btn = gr.Button("معاينة هوية المدرسة", elem_classes="admin-btn")
+                                identity_save_btn = gr.Button("حفظ هوية المدرسة", elem_classes="admin-btn")
+                                identity_reset_btn = gr.Button("استعادة الهوية الافتراضية", elem_classes="reset-btn")
+
+                            identity_status_html = gr.HTML()
+                            gr.HTML(
+                                "<div style='background:#fff7ed;color:#9a3412;padding:10px;"
+                                "border-radius:10px;border-right:5px solid #f59e0b;"
+                                "margin:12px 0;font-weight:900;line-height:1.8;text-align:right;'>"
+                                "تنبيه: هذه معاينة هوية المدرسة داخل مركز البيانات، وليست الهيدر الفعلي بعد تسجيل الدخول."
+                                "</div>"
                             )
-                            owner_profile_welcome_template = gr.Textbox(
-                                label="قالب الهيدر",
-                                value=ACCOUNT_WELCOME_DEFAULT_TEMPLATE,
-                                placeholder="مثال: {welcome_title} ({display_name}) {welcome_phrase}",
+                            gr.HTML(
+                                "<div style='font-weight:900;color:#004d40;margin:8px 0 6px;text-align:right;'>"
+                                "🖼️ معاينة هوية المدرسة"
+                                "</div>"
+                            )
+                            identity_preview_html = gr.HTML(
+                                value=render_school_identity_preview_html(
+                                    SYSTEM_NAME,
+                                    SYSTEM_SUBTITLE,
+                                    SCHOOL_NAME,
+                                    DEVELOPER_CREDIT,
+                                    SCHOOL_LOGO_URL,
+                                    THEME_COLOR,
+                                    THEME_COLOR_2,
+                                    ACCENT_COLOR,
+                                    DIRECTORATE_REGION,
+                                )
+                            )
+
+
+
+                    with gr.Column(visible=False, elem_classes="school-data-panel-box") as school_data_accounts_panel:
+                        gr.HTML("<div class='school-data-panel-title'>🔐 إدارة حسابات الدخول والترحيب</div>")
+                        with gr.Accordion("🔐 إدارة حسابات الدخول", open=False):
+                            gr.HTML(
+                                "<div style='background:#eef6f3;color:#004d40;padding:12px;"
+                                "border-radius:10px;border-right:5px solid #0f766e;"
+                                "margin-bottom:12px;font-weight:800;line-height:1.8;'>"
+                                "لوحة المالك لإعادة تعيين الرموز وتعطيل الحسابات. "
+                                "لا تعرض المنظومة أي رمز قديم. الرمز الجديد يظهر مرة واحدة فقط بعد إعادة التعيين."
+                                "</div>"
+                            )
+                            owner_accounts_html = gr.HTML(
+                                value=render_auth_accounts_html(False)
                             )
                             with gr.Row():
-                                owner_profile_preview_btn = gr.Button(
-                                    "معاينة الترحيب",
+                                owner_account_selector = gr.Dropdown(
+                                    choices=[],
+                                    value=None,
+                                    label="اختر الحساب",
+                                )
+                                owner_requested_pin = gr.Textbox(
+                                    type="password",
+                                    label="رمز جديد اختياري",
+                                    placeholder="اتركه فارغًا لتوليد رمز من 6 أرقام",
+                                )
+                            with gr.Row():
+                                owner_reset_pin_btn = gr.Button(
+                                    "إعادة تعيين رمز الحساب",
                                     elem_classes="admin-btn",
                                 )
-                                owner_profile_save_btn = gr.Button(
-                                    "حفظ تخصيص الحساب",
+                                owner_toggle_account_btn = gr.Button(
+                                    "تفعيل / تعطيل الحساب",
+                                    elem_classes="reset-btn",
+                                )
+                                owner_refresh_accounts_btn = gr.Button(
+                                    "تحديث قائمة الحسابات",
                                     elem_classes="admin-btn",
                                 )
-                            owner_profile_preview_html = gr.HTML()
-
-                        owner_accounts_status = gr.HTML()
-
-                    with gr.Accordion("🎨 إعدادات هوية المدرسة", open=False):
-                        gr.HTML("<div style='background:#eef6f3;color:#004d40;padding:12px;border-radius:10px;border-right:5px solid #0f766e;margin-bottom:12px;font-weight:800;line-height:1.8;'>هذه اللوحة مخصصة لمالك النظام. يمكن تعديل الهوية البصرية دون تعديل app.py. العناوين والشعار تتحدث فورًا، أما الألوان العامة فتُطبق بالكامل بعد إعادة تشغيل التطبيق.</div>")
-
-                        gr.HTML(
-                            "<div style='background:#f8fafc;color:#334155;padding:12px;"
-                            "border-radius:10px;border-right:5px solid #64748b;"
-                            "margin-bottom:12px;font-weight:800;line-height:1.9;text-align:right;'>"
-                            "العناصر الثابتة في الهوية: <b>وزارة التعليم</b>، "
-                            "<b>منظومة مسار</b>، <b>للاحتياط والتبادل الودي</b>، "
-                            "وعبارة <b>فكرة وتطوير</b>. يمكن تعديل اسم المدرسة، المحافظة، الشعار، والألوان فقط."
-                            "</div>"
-                        )
-                        identity_system_name = gr.Textbox(value=SYSTEM_NAME, label="اسم المنظومة", visible=False)
-                        identity_system_subtitle = gr.Textbox(value=SYSTEM_SUBTITLE, label="العنوان الفرعي", visible=False)
-                        identity_developer_credit = gr.Textbox(value=DEVELOPER_CREDIT, label="عبارة الحقوق والتطوير", visible=False)
-                        with gr.Row():
-                            identity_school_name = gr.Textbox(value=SCHOOL_NAME, label="اسم المدرسة")
-                            identity_directorate_region = gr.Textbox(value=DIRECTORATE_REGION, label="المحافظة في سطر المديرية", placeholder="مثال: جنوب الباطنة")
-                        with gr.Row():
-                            identity_logo_url = gr.Textbox(value=SCHOOL_LOGO_URL, label="رابط الشعار أو مساره المحلي")
-                            identity_logo_upload = gr.File(
-                                label="رفع شعار بديل اختياري",
-                                file_types=[".png", ".jpg", ".jpeg", ".webp"],
-                                type="filepath",
+                            owner_one_time_pin = gr.Textbox(
+                                label="الرمز الجديد لمرة واحدة",
+                                interactive=False,
+                                value="",
                             )
-                        with gr.Row():
-                            identity_theme_color = gr.Textbox(value=THEME_COLOR, label="اللون الأساسي HEX")
-                            identity_theme_color_2 = gr.Textbox(value=THEME_COLOR_2, label="اللون الثانوي HEX")
-                            identity_accent_color = gr.Textbox(value=ACCENT_COLOR, label="اللون البارز HEX")
 
-                        with gr.Row():
-                            identity_preview_btn = gr.Button("معاينة هوية المدرسة", elem_classes="admin-btn")
-                            identity_save_btn = gr.Button("حفظ هوية المدرسة", elem_classes="admin-btn")
-                            identity_reset_btn = gr.Button("استعادة الهوية الافتراضية", elem_classes="reset-btn")
-
-                        identity_status_html = gr.HTML()
-                        gr.HTML(
-                            "<div style='background:#fff7ed;color:#9a3412;padding:10px;"
-                            "border-radius:10px;border-right:5px solid #f59e0b;"
-                            "margin:12px 0;font-weight:900;line-height:1.8;text-align:right;'>"
-                            "تنبيه: هذه معاينة هوية المدرسة داخل مركز البيانات، وليست الهيدر الفعلي بعد تسجيل الدخول."
-                            "</div>"
-                        )
-                        gr.HTML(
-                            "<div style='font-weight:900;color:#004d40;margin:8px 0 6px;text-align:right;'>"
-                            "🖼️ معاينة هوية المدرسة"
-                            "</div>"
-                        )
-                        identity_preview_html = gr.HTML(
-                            value=render_school_identity_preview_html(
-                                SYSTEM_NAME,
-                                SYSTEM_SUBTITLE,
-                                SCHOOL_NAME,
-                                DEVELOPER_CREDIT,
-                                SCHOOL_LOGO_URL,
-                                THEME_COLOR,
-                                THEME_COLOR_2,
-                                ACCENT_COLOR,
-                                DIRECTORATE_REGION,
-                            )
-                        )
-
-
-                    with gr.Row(visible=False):
-                        clear_noop = gr.Textbox(label="noop", value="", visible=False)
-                        up_dept = gr.Dropdown([], label="noop", visible=False)
-
-                    school_data_admin_html = gr.HTML(value=render_admin_reference_card())
-                    with gr.Row():
-                        admin_reference_upload = gr.File(label="رفع ملف الإداريين المرجعي", file_types=[".xlsx", ".xls", ".csv"])
-                    with gr.Row():
-                        save_admin_reference_btn = gr.Button("💾 اعتماد ملف الإداريين المرجعي", elem_classes="admin-btn")
-                        refresh_admin_reference_btn = gr.Button("🔄 تحديث الإداريين من الملف المرجعي", elem_classes="admin-btn")
-                    admin_reference_status_html = gr.HTML()
-
-                    school_data_phones_html = gr.HTML(value=render_phones_reference_card())
-                    with gr.Row():
-                        phones_reference_upload = gr.File(label="رفع ملف أرقام المعلمين المرجعي", file_types=[".xlsx", ".xls", ".csv"])
-                    with gr.Row():
-                        save_phones_reference_btn = gr.Button("💾 اعتماد ملف أرقام المعلمين المرجعي", elem_classes="admin-btn")
-                        refresh_phones_reference_btn = gr.Button("🔄 تحديث أرقام المعلمين من الملف المرجعي", elem_classes="admin-btn")
-                    phones_reference_status_html = gr.HTML()
-
-                    school_data_schedules_html = gr.HTML(value=render_schedule_reference_cards())
-                    with gr.Row():
-                        schedule_reference_dept = gr.Dropdown(
-                            choices=list(SCHEDULE_FILES.keys()),
-                            label="اختر القسم لملفه المرجعي",
-                            value="التربية الإسلامية"
-                        )
-                    with gr.Row():
-                        schedule_reference_upload = gr.File(
-                            label="رفع ملف الجدول المرجعي للقسم المختار",
-                            file_types=[".xlsx", ".xls", ".csv"]
-                        )
-                    with gr.Row():
-                        save_schedule_reference_btn = gr.Button("💾 اعتماد الملف المرجعي للقسم", elem_classes="admin-btn")
-                        refresh_schedule_reference_btn = gr.Button("🔄 تحديث القسم من الملف المرجعي", elem_classes="admin-btn")
-                    schedule_reference_status_html = gr.HTML()
-
-                    with gr.Accordion("🛡️ سجل العمليات والنسخ الاحتياطية", open=False):
-                        gr.HTML("<div style='background:#eef6f3;color:#004d40;padding:12px;border-radius:10px;border-right:5px solid #0f766e;margin-bottom:12px;font-weight:800;line-height:1.8;'>هذه أدوات رقابية لمالك النظام فقط. سجل العمليات لا ينفذ أي تعديل؛ بل يوضح من غيّر ماذا، وعلى أي معلم، وما القيمة القديمة والجديدة، ومتى حدث ذلك. اختر الفلاتر للعرض، ثم صدّر النتائج المطابقة إلى Excel عند الحاجة.</div>")
-
-                        with gr.Accordion("📑 سجل العمليات الحساسة", open=True):
-                            with gr.Row():
-                                audit_action_filter = gr.Dropdown(["الكل"], value="الكل", label="نوع العملية")
-                                audit_actor_filter = gr.Dropdown(["الكل"], value="الكل", label="اسم المنفذ")
-                                audit_teacher_filter = gr.Dropdown(["الكل"], value="الكل", label="المعلم المتأثر")
-                            with gr.Row():
-                                audit_date_from = gr.DateTime(
-                                    label="من تاريخ",
-                                    include_time=False,
-                                    type="string",
-                                    timezone="Asia/Muscat",
-                                    info="اختر تاريخ البداية من التقويم",
+                            with gr.Accordion("✨ تخصيص الترحيب والمسميات", open=False):
+                                gr.HTML(
+                                    "<div style='background:#fff7ed;color:#7c2d12;padding:10px;"
+                                    "border-radius:8px;border-right:4px solid #f59e0b;"
+                                    "font-weight:800;line-height:1.8;'>"
+                                    "اختر حسابًا من الأعلى، ثم اضبط اسم العرض واللقب الجمالي وعبارة الهيدر. "
+                                    "يمكن استخدام المتغيرات: {display_name}، {welcome_title}، {department_label}، {official_title}، {whatsapp_title}، {school_name}."
+                                    "</div>"
                                 )
-                                audit_date_to = gr.DateTime(
-                                    label="إلى تاريخ",
-                                    include_time=False,
-                                    type="string",
-                                    timezone="Asia/Muscat",
-                                    info="اختر تاريخ النهاية من التقويم",
+                                with gr.Row():
+                                    owner_profile_display_name = gr.Textbox(
+                                        label="اسم العرض",
+                                        placeholder="مثال: أ. سعود المعولي",
+                                    )
+                                    owner_profile_official_title = gr.Textbox(
+                                        label="المسمى الرسمي",
+                                        placeholder="مثال: منسق مادة اللغة العربية",
+                                    )
+                                    owner_profile_whatsapp_title = gr.Textbox(
+                                        label="مسمى واتساب",
+                                        placeholder="مثال: منسق اللغة العربية",
+                                    )
+                                with gr.Row():
+                                    owner_profile_welcome_title = gr.Textbox(
+                                        label="اللقب الجمالي",
+                                        placeholder="مثال: مايسترو البيان",
+                                    )
+                                    owner_profile_department_label = gr.Textbox(
+                                        label="القسم الظاهر",
+                                        placeholder="مثال: قسم اللغة العربية",
+                                    )
+                                owner_profile_welcome_phrase = gr.Textbox(
+                                    label="عبارة الترحيب",
+                                    placeholder="مثال: نورتنا، وقسم اللغة العربية جاهز لك",
                                 )
-                            with gr.Row():
-                                audit_today_btn = gr.Button("اليوم", elem_classes="admin-btn")
-                                audit_last_7_days_btn = gr.Button("آخر 7 أيام", elem_classes="admin-btn")
-                                audit_this_month_btn = gr.Button("هذا الشهر", elem_classes="admin-btn")
-                                audit_clear_dates_btn = gr.Button("مسح التاريخ", elem_classes="reset-btn")
-                            with gr.Row():
-                                audit_refresh_btn = gr.Button("عرض النتائج حسب الفلاتر", elem_classes="admin-btn")
-                                audit_export_btn = gr.Button("تصدير السجل إلى Excel", elem_classes="export-btn")
-                            audit_action_status_html = gr.HTML()
-                            audit_table_html = gr.HTML("<div style='text-align:center;color:#64748b;padding:16px;'>افتح القسم أو اضغط تحديث لعرض سجل العمليات.</div>")
-                            audit_export_file = gr.File(label="ملف سجل العمليات", interactive=False)
+                                owner_profile_welcome_template = gr.Textbox(
+                                    label="قالب الهيدر",
+                                    value=ACCOUNT_WELCOME_DEFAULT_TEMPLATE,
+                                    placeholder="مثال: {welcome_title} ({display_name}) {welcome_phrase}",
+                                )
+                                with gr.Row():
+                                    owner_profile_preview_btn = gr.Button(
+                                        "معاينة الترحيب",
+                                        elem_classes="admin-btn",
+                                    )
+                                    owner_profile_save_btn = gr.Button(
+                                        "حفظ تخصيص الحساب",
+                                        elem_classes="admin-btn",
+                                    )
+                                owner_profile_preview_html = gr.HTML()
 
-                        with gr.Accordion("💾 حالة النسخ الاحتياطية", open=True):
-                            backup_status_html = gr.HTML("<div style='text-align:center;color:#64748b;padding:16px;'>اضغط تحديث لعرض حالة النسخ الاحتياطية.</div>")
-                            with gr.Row():
-                                backup_refresh_btn = gr.Button("تحديث حالة النسخ الاحتياطية", elem_classes="admin-btn")
-                                backup_zip_btn = gr.Button("تحميل نسخة احتياطية كاملة ZIP", elem_classes="export-btn")
-                            backup_action_status_html = gr.HTML()
-                            backup_zip_file = gr.File(label="الحزمة الاحتياطية", interactive=False)
+                            owner_accounts_status = gr.HTML()
 
-                    with gr.Accordion("🧩 أدوات إدارية إضافية", open=False, visible=False) as manual_entry_container:
-                        gr.Markdown("### 👨‍💼 الإدخال اليدوي للطاقم الإداري")
-                        with gr.Row(elem_classes="yellow-box"):
-                            manual_name = gr.Textbox(label="الاسم الثلاثي")
-                            manual_dept = gr.Dropdown(["الهيئة الإدارية"], label="القسم", value="الهيئة الإدارية", interactive=False, elem_classes="fixed-dd")
-                            manual_role = gr.Dropdown(ADMIN_ROLES, label="المنصب", value="أخصائي اجتماعي", elem_classes="fixed-dd")
-                            manual_phone = gr.Textbox(label="رقم الواتساب")
-                        with gr.Row():
-                            manual_add_btn = gr.Button("➕ حفظ وإضافة", elem_classes="admin-btn")
-                    manual_status_html = gr.HTML()
-                    clear_status_html = gr.HTML()
-                    clear_btn = gr.Button("🧨 مسح وتصفير المنظومة", elem_classes="reset-btn", visible=False)
+
+                    with gr.Column(visible=False, elem_classes="school-data-panel-box") as school_data_audit_panel:
+                        gr.HTML("<div class='school-data-panel-title'>🛡️ سجل العمليات والنسخ الاحتياطية</div>")
+                        with gr.Accordion("🛡️ سجل العمليات والنسخ الاحتياطية", open=False):
+                            gr.HTML("<div style='background:#eef6f3;color:#004d40;padding:12px;border-radius:10px;border-right:5px solid #0f766e;margin-bottom:12px;font-weight:800;line-height:1.8;'>هذه أدوات رقابية لمالك النظام فقط. سجل العمليات لا ينفذ أي تعديل؛ بل يوضح من غيّر ماذا، وعلى أي معلم، وما القيمة القديمة والجديدة، ومتى حدث ذلك. اختر الفلاتر للعرض، ثم صدّر النتائج المطابقة إلى Excel عند الحاجة.</div>")
+
+                            with gr.Accordion("📑 سجل العمليات الحساسة", open=True):
+                                with gr.Row():
+                                    audit_action_filter = gr.Dropdown(["الكل"], value="الكل", label="نوع العملية")
+                                    audit_actor_filter = gr.Dropdown(["الكل"], value="الكل", label="اسم المنفذ")
+                                    audit_teacher_filter = gr.Dropdown(["الكل"], value="الكل", label="المعلم المتأثر")
+                                with gr.Row():
+                                    audit_date_from = gr.DateTime(
+                                        label="من تاريخ",
+                                        include_time=False,
+                                        type="string",
+                                        timezone="Asia/Muscat",
+                                        info="اختر تاريخ البداية من التقويم",
+                                    )
+                                    audit_date_to = gr.DateTime(
+                                        label="إلى تاريخ",
+                                        include_time=False,
+                                        type="string",
+                                        timezone="Asia/Muscat",
+                                        info="اختر تاريخ النهاية من التقويم",
+                                    )
+                                with gr.Row():
+                                    audit_today_btn = gr.Button("اليوم", elem_classes="admin-btn")
+                                    audit_last_7_days_btn = gr.Button("آخر 7 أيام", elem_classes="admin-btn")
+                                    audit_this_month_btn = gr.Button("هذا الشهر", elem_classes="admin-btn")
+                                    audit_clear_dates_btn = gr.Button("مسح التاريخ", elem_classes="reset-btn")
+                                with gr.Row():
+                                    audit_refresh_btn = gr.Button("عرض النتائج حسب الفلاتر", elem_classes="admin-btn")
+                                    audit_export_btn = gr.Button("تصدير السجل إلى Excel", elem_classes="export-btn")
+                                audit_action_status_html = gr.HTML()
+                                audit_table_html = gr.HTML("<div style='text-align:center;color:#64748b;padding:16px;'>افتح القسم أو اضغط تحديث لعرض سجل العمليات.</div>")
+                                audit_export_file = gr.File(label="ملف سجل العمليات", interactive=False)
+
+                            with gr.Accordion("💾 حالة النسخ الاحتياطية", open=True):
+                                backup_status_html = gr.HTML("<div style='text-align:center;color:#64748b;padding:16px;'>اضغط تحديث لعرض حالة النسخ الاحتياطية.</div>")
+                                with gr.Row():
+                                    backup_refresh_btn = gr.Button("تحديث حالة النسخ الاحتياطية", elem_classes="admin-btn")
+                                    backup_zip_btn = gr.Button("تحميل نسخة احتياطية كاملة ZIP", elem_classes="export-btn")
+                                backup_action_status_html = gr.HTML()
+                                backup_zip_file = gr.File(label="الحزمة الاحتياطية", interactive=False)
 
     # ── ربط الأحداث ──────────────────────────────────────────────
     update_outputs = [
@@ -9463,6 +9526,31 @@ with gr.Blocks() as app:
         admin_zone_help, edit_period, cb_cross_dept, btn_alt, btn_img
     ]
     app.load(sync_current_school_days, None, [day_in, swap_day])
+
+    btn_school_data_references_panel.click(
+        lambda: show_school_data_panel("references"),
+        [],
+        [school_data_section_status, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
+        queue=False,
+    )
+    btn_school_data_identity_panel.click(
+        lambda: show_school_data_panel("identity"),
+        [],
+        [school_data_section_status, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
+        queue=False,
+    )
+    btn_school_data_accounts_panel.click(
+        lambda: show_school_data_panel("accounts"),
+        [],
+        [school_data_section_status, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
+        queue=False,
+    )
+    btn_school_data_audit_panel.click(
+        lambda: show_school_data_panel("audit"),
+        [],
+        [school_data_section_status, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
+        queue=False,
+    )
 
     btn_open_distribution.click(lambda: open_home_section("distribution"), [], [home_dashboard, tabs_container, main_tabs], queue=False).then(None, None, None, js=show_selected_tab_container_js())
     btn_open_balances.click(lambda: open_home_section("balances"), [], [home_dashboard, tabs_container, main_tabs], queue=False).then(None, None, None, js=show_selected_tab_container_js())
@@ -9474,6 +9562,11 @@ with gr.Blocks() as app:
         lambda: open_home_section("school_data"),
         [],
         [home_dashboard, tabs_container, main_tabs],
+        queue=False,
+    ).then(
+        lambda: show_school_data_panel("overview"),
+        [],
+        [school_data_section_status, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
         queue=False,
     ).then(
         refresh_school_data_center_cards,
@@ -9876,6 +9969,12 @@ with gr.Blocks() as app:
         queue=False,
     )
 
+    school_data_tab.select(
+        lambda: show_school_data_panel("overview"),
+        [],
+        [school_data_section_status, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
+        queue=False,
+    )
     school_data_tab.select(
         refresh_owner_tools_dashboard,
         [audit_action_filter, audit_actor_filter, audit_teacher_filter, audit_date_from, audit_date_to, current_user_is_owner],
