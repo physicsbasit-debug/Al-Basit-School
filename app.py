@@ -800,6 +800,13 @@ def initialize_auth_accounts():
             "role": role,
             "dept": str(legacy_info.get("dept", "الكل")).strip() or "الكل",
             "name": str(legacy_info.get("name", "")).strip(),
+            "display_name": str(legacy_info.get("display_name", legacy_info.get("name", ""))).strip(),
+            "official_title": str(legacy_info.get("official_title", role)).strip(),
+            "welcome_title": str(legacy_info.get("welcome_title", "")).strip(),
+            "department_label": str(legacy_info.get("department_label", "")).strip(),
+            "welcome_phrase": str(legacy_info.get("welcome_phrase", "")).strip(),
+            "welcome_template": str(legacy_info.get("welcome_template", "")).strip(),
+            "whatsapp_title": str(legacy_info.get("whatsapp_title", role)).strip(),
             "is_owner": False,
             "enabled": True,
             "pin_hash": _pin_hash(pin_text),
@@ -928,6 +935,353 @@ def get_auth_account_choices():
     choices.sort(key=lambda item: item[0])
     return choices
 
+
+ACCOUNT_WELCOME_DEFAULT_TEMPLATE = "{welcome_title} ({display_name}) {welcome_phrase}"
+ACCOUNT_WELCOME_PLACEHOLDERS = [
+    "{name}",
+    "{display_name}",
+    "{welcome_title}",
+    "{official_title}",
+    "{whatsapp_title}",
+    "{department}",
+    "{department_label}",
+    "{school_name}",
+    "{role}",
+]
+
+
+def _clean_account_profile_value(value):
+    return str(value or "").strip()
+
+
+def _default_department_label(record):
+    dept = _clean_account_profile_value(record.get("dept", ""))
+    if dept and dept not in {"الكل", "المعلمون", "الهيئة الإدارية"}:
+        return f"قسم {dept}"
+    return dept
+
+
+def _account_profile_context(record):
+    safe_record = record if isinstance(record, dict) else {}
+    name = _clean_account_profile_value(safe_record.get("name", ""))
+    role = _clean_account_profile_value(safe_record.get("role", ""))
+    dept = _clean_account_profile_value(safe_record.get("dept", ""))
+    display_name = _clean_account_profile_value(
+        safe_record.get("display_name") or name
+    )
+    official_title = _clean_account_profile_value(
+        safe_record.get("official_title") or role
+    )
+    whatsapp_title = _clean_account_profile_value(
+        safe_record.get("whatsapp_title") or official_title or role
+    )
+    welcome_title = _clean_account_profile_value(
+        safe_record.get("welcome_title", "")
+    )
+    department_label = _clean_account_profile_value(
+        safe_record.get("department_label") or _default_department_label(safe_record)
+    )
+    welcome_phrase = _clean_account_profile_value(
+        safe_record.get("welcome_phrase", "")
+    )
+    return {
+        "name": name,
+        "display_name": display_name,
+        "official_title": official_title,
+        "whatsapp_title": whatsapp_title,
+        "welcome_title": welcome_title,
+        "department": dept,
+        "department_label": department_label,
+        "school_name": SCHOOL_NAME,
+        "role": role,
+        "welcome_phrase": welcome_phrase,
+    }
+
+
+def _safe_format_account_template(template, context):
+    template_text = _clean_account_profile_value(template)
+    if not template_text:
+        return ""
+    try:
+        return template_text.format(**context)
+    except Exception:
+        # لا نكسر الدخول بسبب قوس ناقص في عبارة ترحيب. الواجهة ليست مكانًا لتأملات الترايسباك.
+        return template_text
+
+
+def build_account_welcome_text(record):
+    context = _account_profile_context(record)
+    template = _clean_account_profile_value(record.get("welcome_template", "")) if isinstance(record, dict) else ""
+
+    has_custom_profile = any([
+        context.get("welcome_title"),
+        context.get("welcome_phrase"),
+        template,
+        _clean_account_profile_value(record.get("display_name", "")) if isinstance(record, dict) else "",
+    ])
+
+    if has_custom_profile:
+        if not template:
+            template = ACCOUNT_WELCOME_DEFAULT_TEMPLATE
+        text_value = _safe_format_account_template(template, context)
+        text_value = re.sub(r"\s+", " ", str(text_value or "")).strip()
+        # تنظيف الأقواس الفارغة إذا لم يضبط المستخدم بعض الحقول.
+        text_value = text_value.replace("()", "").replace("( )", "").strip()
+        if text_value:
+            return text_value
+
+    role = context.get("role", "")
+    dept = context.get("department", "")
+    raw_msg = WELCOME_MESSAGES.get(
+        role,
+        WELCOME_MESSAGES.get(dept, "مرحباً بك ({name}) في النظام."),
+    )
+    try:
+        return raw_msg.format(name=context.get("display_name") or context.get("name"))
+    except Exception:
+        return raw_msg
+
+
+def render_account_welcome_html(record, temporary_note=""):
+    welcome_text = html_lib.escape(build_account_welcome_text(record))
+    return (
+        "<div style='background:#004d40;color:#ffca28;padding:15px;"
+        "border-radius:10px;text-align:center;font-size:18px;"
+        "font-weight:bold;margin-bottom:15px;line-height:1.8;'>"
+        f"{welcome_text}{temporary_note}</div>"
+    )
+
+
+def get_account_session_display_name(record):
+    context = _account_profile_context(record)
+    return context.get("display_name") or context.get("name") or context.get("official_title") or ""
+
+
+def render_account_profile_preview_html(
+    display_name,
+    official_title,
+    welcome_title,
+    department_label,
+    welcome_phrase,
+    welcome_template,
+    whatsapp_title,
+):
+    fake_record = {
+        "name": _clean_account_profile_value(display_name).replace("أ. ", ""),
+        "display_name": display_name,
+        "official_title": official_title,
+        "welcome_title": welcome_title,
+        "department_label": department_label,
+        "welcome_phrase": welcome_phrase,
+        "welcome_template": welcome_template,
+        "whatsapp_title": whatsapp_title,
+        "dept": department_label,
+        "role": official_title,
+    }
+    welcome_text = html_lib.escape(build_account_welcome_text(fake_record))
+    whatsapp = html_lib.escape(_clean_account_profile_value(whatsapp_title) or "غير محدد")
+    official = html_lib.escape(_clean_account_profile_value(official_title) or "غير محدد")
+    return f"""
+    <div style='background:linear-gradient(135deg,#004d40,#0f766e);color:#ffca28;
+                padding:16px;border-radius:14px;text-align:center;font-size:18px;
+                font-weight:900;line-height:1.9;margin-top:8px;'>
+        {welcome_text}
+    </div>
+    <div style='background:#f8fafc;border:1px solid #dbe3e8;border-radius:12px;
+                padding:12px;margin-top:10px;line-height:1.8;color:#334155;'>
+        <b>المسمى الرسمي:</b> {official}<br>
+        <b>مسمى واتساب:</b> {whatsapp}
+    </div>
+    """
+
+
+def preview_account_profile_settings(
+    display_name,
+    official_title,
+    welcome_title,
+    department_label,
+    welcome_phrase,
+    welcome_template,
+    whatsapp_title,
+    is_owner=False,
+):
+    if not bool(is_owner):
+        return (
+            gr.update(),
+            "<div style='color:#b91c1c;font-weight:800;'>هذه المعاينة مخصصة لمالك النظام فقط.</div>",
+        )
+    return (
+        gr.update(
+            value=render_account_profile_preview_html(
+                display_name,
+                official_title,
+                welcome_title,
+                department_label,
+                welcome_phrase,
+                welcome_template,
+                whatsapp_title,
+            )
+        ),
+        gr.update(value=""),
+    )
+
+
+def load_auth_account_profile_for_editor(account_id, is_owner=False):
+    if not bool(is_owner):
+        return (
+            gr.update(value=""),
+            gr.update(value=""),
+            gr.update(value=""),
+            gr.update(value=""),
+            gr.update(value=""),
+            gr.update(value=""),
+            gr.update(value=""),
+            gr.update(value=""),
+            "<div style='color:#b91c1c;font-weight:800;'>هذه اللوحة مخصصة لمالك النظام فقط.</div>",
+        )
+
+    payload = load_auth_accounts()
+    record = payload.get("accounts", {}).get(str(account_id or "").strip())
+    if not isinstance(record, dict):
+        return (
+            gr.update(value=""),
+            gr.update(value=""),
+            gr.update(value=""),
+            gr.update(value=""),
+            gr.update(value=""),
+            gr.update(value=""),
+            gr.update(value=""),
+            gr.update(value=""),
+            "<div style='color:#a16207;font-weight:800;'>اختر حسابًا لعرض تخصيص الترحيب.</div>",
+        )
+
+    context = _account_profile_context(record)
+    template = _clean_account_profile_value(record.get("welcome_template", "")) or ACCOUNT_WELCOME_DEFAULT_TEMPLATE
+    preview = render_account_profile_preview_html(
+        context["display_name"],
+        context["official_title"],
+        context["welcome_title"],
+        context["department_label"],
+        context["welcome_phrase"],
+        template,
+        context["whatsapp_title"],
+    )
+    return (
+        gr.update(value=context["display_name"]),
+        gr.update(value=context["official_title"]),
+        gr.update(value=context["welcome_title"]),
+        gr.update(value=context["department_label"]),
+        gr.update(value=context["welcome_phrase"]),
+        gr.update(value=template),
+        gr.update(value=context["whatsapp_title"]),
+        gr.update(value=preview),
+        gr.update(value=""),
+    )
+
+
+@state_locked
+def save_auth_account_profile(
+    account_id,
+    display_name,
+    official_title,
+    welcome_title,
+    department_label,
+    welcome_phrase,
+    welcome_template,
+    whatsapp_title,
+    is_owner=False,
+    actor_name="",
+    actor_role="",
+):
+    if not bool(is_owner):
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            "<div style='color:#b91c1c;font-weight:800;'>هذه العملية مخصصة لمالك النظام فقط.</div>",
+        )
+
+    account_id = str(account_id or "").strip()
+    payload = load_auth_accounts()
+    account = payload.get("accounts", {}).get(account_id)
+    if not isinstance(account, dict):
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            "<div style='color:#b91c1c;font-weight:800;'>اختر حسابًا صالحًا.</div>",
+        )
+
+    old_profile = {
+        "display_name": account.get("display_name", ""),
+        "official_title": account.get("official_title", ""),
+        "welcome_title": account.get("welcome_title", ""),
+        "department_label": account.get("department_label", ""),
+        "welcome_phrase": account.get("welcome_phrase", ""),
+        "welcome_template": account.get("welcome_template", ""),
+        "whatsapp_title": account.get("whatsapp_title", ""),
+    }
+
+    account["display_name"] = _clean_account_profile_value(display_name)
+    account["official_title"] = _clean_account_profile_value(official_title)
+    account["welcome_title"] = _clean_account_profile_value(welcome_title)
+    account["department_label"] = _clean_account_profile_value(department_label)
+    account["welcome_phrase"] = _clean_account_profile_value(welcome_phrase)
+    account["welcome_template"] = _clean_account_profile_value(welcome_template)
+    account["whatsapp_title"] = _clean_account_profile_value(whatsapp_title)
+    account["updated_at"] = _auth_now_text()
+    account["profile_updated_at"] = account["updated_at"]
+
+    if not save_auth_accounts(payload):
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            "<div style='color:#b91c1c;font-weight:800;'>تعذر حفظ تخصيص الحساب.</div>",
+        )
+
+    new_profile = {
+        "display_name": account.get("display_name", ""),
+        "official_title": account.get("official_title", ""),
+        "welcome_title": account.get("welcome_title", ""),
+        "department_label": account.get("department_label", ""),
+        "welcome_phrase": account.get("welcome_phrase", ""),
+        "welcome_template": account.get("welcome_template", ""),
+        "whatsapp_title": account.get("whatsapp_title", ""),
+    }
+
+    write_audit_log(
+        "تعديل تخصيص حساب دخول",
+        target_teacher="",
+        old_value=old_profile,
+        new_value=new_profile,
+        details=f"تعديل هيدر ومسمى حساب: {_account_display_name(account)}",
+        actor_name=actor_name,
+        actor_role=actor_role,
+    )
+
+    choices = get_auth_account_choices()
+    preview = render_account_profile_preview_html(
+        account.get("display_name", ""),
+        account.get("official_title", ""),
+        account.get("welcome_title", ""),
+        account.get("department_label", ""),
+        account.get("welcome_phrase", ""),
+        account.get("welcome_template", "") or ACCOUNT_WELCOME_DEFAULT_TEMPLATE,
+        account.get("whatsapp_title", ""),
+    )
+    return (
+        gr.update(value=render_auth_accounts_html(True)),
+        gr.update(choices=choices, value=account_id),
+        gr.update(value=preview),
+        (
+            "<div style='color:#166534;background:#dcfce7;padding:10px;"
+            "border-radius:8px;font-weight:800;'>"
+            "تم حفظ تخصيص الترحيب والمسميات بنجاح. سيظهر الهيدر الجديد في تسجيل الدخول القادم."
+            "</div>"
+        ),
+    )
+
 def render_auth_accounts_html(is_owner=False):
     if not bool(is_owner):
         return (
@@ -951,10 +1305,14 @@ def render_auth_accounts_html(is_owner=False):
             if bool(record.get("must_change_pin", False))
             else "لا"
         )
+        context = _account_profile_context(record)
 
         rows.append(f"""
         <tr>
             <td>{html_lib.escape(_account_display_name(record))}</td>
+            <td>{html_lib.escape(context.get("display_name", "—"))}</td>
+            <td>{html_lib.escape(context.get("official_title", "—"))}</td>
+            <td>{html_lib.escape(context.get("whatsapp_title", "—"))}</td>
             <td>{html_lib.escape(str(record.get("role", "—")))}</td>
             <td>{html_lib.escape(str(record.get("dept", "—")))}</td>
             <td style='color:{status_color};font-weight:900;'>{status_text}</td>
@@ -974,12 +1332,15 @@ def render_auth_accounts_html(is_owner=False):
     return f"""
     <div style='overflow-x:auto;direction:rtl;border:1px solid #dbe3e8;
                 border-radius:12px;'>
-        <table style='width:100%;min-width:900px;border-collapse:collapse;
+        <table style='width:100%;min-width:1150px;border-collapse:collapse;
                       text-align:center;font-size:13px;'>
             <thead>
                 <tr style='background:#0f766e;color:#fff;'>
                     <th>اسم الحساب</th>
-                    <th>الدور</th>
+                    <th>اسم العرض</th>
+                    <th>المسمى الرسمي</th>
+                    <th>مسمى واتساب</th>
+                    <th>الدور الداخلي</th>
                     <th>القسم</th>
                     <th>الحالة</th>
                     <th>رمز مؤقت</th>
@@ -990,6 +1351,7 @@ def render_auth_accounts_html(is_owner=False):
         </table>
     </div>
     """
+
 
 def refresh_owner_accounts_panel(is_owner=False):
     if not bool(is_owner):
@@ -6275,6 +6637,7 @@ def attempt_login(pin, day_val):
             dept = "المعلمون"
 
         name = user_info.get("name", "")
+        session_display_name = get_account_session_display_name(user_info)
         is_owner = bool(
             user_info.get("is_owner", False)
             or role == "صاحب النظام"
@@ -6287,10 +6650,6 @@ def attempt_login(pin, day_val):
         dept_for_ui = effective_dept
         is_admin = bool(ui_vis["is_admin"])
 
-        raw_msg = WELCOME_MESSAGES.get(
-            role,
-            "مرحباً بك ({name}) في النظام.",
-        )
         temporary_note = ""
         if bool(user_info.get("must_change_pin", False)):
             temporary_note = (
@@ -6300,12 +6659,7 @@ def attempt_login(pin, day_val):
                 "</div>"
             )
 
-        welcome_msg = (
-            "<div style='background:#004d40;color:#ffca28;padding:15px;"
-            "border-radius:10px;text-align:center;font-size:18px;"
-            "font-weight:bold;margin-bottom:15px;'>"
-            f"{raw_msg.format(name=name)}{temporary_note}</div>"
-        )
+        welcome_msg = render_account_welcome_html(user_info, temporary_note)
 
         if is_admin:
             up_dept_update = gr.update(interactive=True)
@@ -6334,7 +6688,7 @@ def attempt_login(pin, day_val):
             manual_entry_visibility,
             is_admin,
             is_owner,
-            name,
+            session_display_name,
             role,
             login_account_id,
         ] + list(updates) + [
@@ -8620,6 +8974,58 @@ with gr.Blocks() as app:
                             interactive=False,
                             value="",
                         )
+
+                        with gr.Accordion("✨ تخصيص الترحيب والمسميات", open=False):
+                            gr.HTML(
+                                "<div style='background:#fff7ed;color:#7c2d12;padding:10px;"
+                                "border-radius:8px;border-right:4px solid #f59e0b;"
+                                "font-weight:800;line-height:1.8;'>"
+                                "اختر حسابًا من الأعلى، ثم اضبط اسم العرض واللقب الجمالي وعبارة الهيدر. "
+                                "يمكن استخدام المتغيرات: {display_name}، {welcome_title}، {department_label}، {official_title}، {whatsapp_title}، {school_name}."
+                                "</div>"
+                            )
+                            with gr.Row():
+                                owner_profile_display_name = gr.Textbox(
+                                    label="اسم العرض",
+                                    placeholder="مثال: أ. سعود المعولي",
+                                )
+                                owner_profile_official_title = gr.Textbox(
+                                    label="المسمى الرسمي",
+                                    placeholder="مثال: منسق مادة اللغة العربية",
+                                )
+                                owner_profile_whatsapp_title = gr.Textbox(
+                                    label="مسمى واتساب",
+                                    placeholder="مثال: منسق اللغة العربية",
+                                )
+                            with gr.Row():
+                                owner_profile_welcome_title = gr.Textbox(
+                                    label="اللقب الجمالي",
+                                    placeholder="مثال: مايسترو البيان",
+                                )
+                                owner_profile_department_label = gr.Textbox(
+                                    label="القسم الظاهر",
+                                    placeholder="مثال: قسم اللغة العربية",
+                                )
+                            owner_profile_welcome_phrase = gr.Textbox(
+                                label="عبارة الترحيب",
+                                placeholder="مثال: نورتنا، وقسم اللغة العربية جاهز لك",
+                            )
+                            owner_profile_welcome_template = gr.Textbox(
+                                label="قالب الهيدر",
+                                value=ACCOUNT_WELCOME_DEFAULT_TEMPLATE,
+                                placeholder="مثال: {welcome_title} ({display_name}) {welcome_phrase}",
+                            )
+                            with gr.Row():
+                                owner_profile_preview_btn = gr.Button(
+                                    "معاينة الترحيب",
+                                    elem_classes="admin-btn",
+                                )
+                                owner_profile_save_btn = gr.Button(
+                                    "حفظ تخصيص الحساب",
+                                    elem_classes="admin-btn",
+                                )
+                            owner_profile_preview_html = gr.HTML()
+
                         owner_accounts_status = gr.HTML()
 
                     with gr.Accordion("🎨 إعدادات هوية المدرسة", open=False):
@@ -9015,6 +9421,63 @@ with gr.Blocks() as app:
             owner_accounts_html,
             owner_account_selector,
             owner_one_time_pin,
+            owner_accounts_status,
+        ],
+        queue=False,
+    )
+
+    owner_account_selector.change(
+        load_auth_account_profile_for_editor,
+        [owner_account_selector, current_user_is_owner],
+        [
+            owner_profile_display_name,
+            owner_profile_official_title,
+            owner_profile_welcome_title,
+            owner_profile_department_label,
+            owner_profile_welcome_phrase,
+            owner_profile_welcome_template,
+            owner_profile_whatsapp_title,
+            owner_profile_preview_html,
+            owner_accounts_status,
+        ],
+        queue=False,
+    )
+
+    owner_profile_preview_btn.click(
+        preview_account_profile_settings,
+        [
+            owner_profile_display_name,
+            owner_profile_official_title,
+            owner_profile_welcome_title,
+            owner_profile_department_label,
+            owner_profile_welcome_phrase,
+            owner_profile_welcome_template,
+            owner_profile_whatsapp_title,
+            current_user_is_owner,
+        ],
+        [owner_profile_preview_html, owner_accounts_status],
+        queue=False,
+    )
+
+    owner_profile_save_btn.click(
+        save_auth_account_profile,
+        [
+            owner_account_selector,
+            owner_profile_display_name,
+            owner_profile_official_title,
+            owner_profile_welcome_title,
+            owner_profile_department_label,
+            owner_profile_welcome_phrase,
+            owner_profile_welcome_template,
+            owner_profile_whatsapp_title,
+            current_user_is_owner,
+            current_user_name,
+            current_user_role,
+        ],
+        [
+            owner_accounts_html,
+            owner_account_selector,
+            owner_profile_preview_html,
             owner_accounts_status,
         ],
         queue=False,
