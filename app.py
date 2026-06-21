@@ -3131,10 +3131,15 @@ def build_login_branding_html(config=None):
         {system_name}
     </div>
 
-    <div style="margin-bottom:-4px;line-height:0;overflow:hidden;margin-left:-28px;margin-right:-28px;">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2880 60" preserveAspectRatio="none" style="display:block;width:200%;height:15px;animation:waveMove 4s linear infinite;">
-            <path fill="{accent}" fill-opacity="1" d="M-10,35 C180,5 360,55 540,25 C720,0 900,50 1080,20 C1260,-5 1400,45 1450,30 C1620,5 1800,55 1980,25 C2160,0 2340,50 2520,20 C2700,-5 2840,45 2890,30 L2890,65 L-10,65 Z"/>
-        </svg>
+    <div class="masar-login-wave-wrap">
+        <div class="masar-login-wave-track">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 60" preserveAspectRatio="none" aria-hidden="true">
+                <path fill="{accent}" fill-opacity="1" d="M0,35 C120,5 240,55 360,25 C480,0 600,50 720,20 C840,-5 960,45 1080,22 C1200,0 1320,50 1440,25 L1440,65 L0,65 Z"/>
+            </svg>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 60" preserveAspectRatio="none" aria-hidden="true">
+                <path fill="{accent}" fill-opacity="1" d="M0,35 C120,5 240,55 360,25 C480,0 600,50 720,20 C840,-5 960,45 1080,22 C1200,0 1320,50 1440,25 L1440,65 L0,65 Z"/>
+            </svg>
+        </div>
     </div>
 </div>
 """
@@ -5347,10 +5352,10 @@ def show_school_data_panel(panel_name="overview"):
     panel = str(panel_name or "overview").strip()
     labels = {
         "overview": "يعرض مركز البيانات الآن حالة التخزين الدائم وملف إعدادات المدرسة فقط. اختر بطاقة من الأعلى لفتح القسم المطلوب.",
-        "references": "🗂️ الملفات المرجعية: الجداول، أرقام المعلمين، الإداريون، والأدوات الإدارية الإضافية.",
-        "identity": "🎨 هوية المدرسة: اسم المدرسة، المحافظة، الشعار، والألوان.",
-        "accounts": "🔐 حسابات الدخول: الرموز، تفعيل الحسابات، وتخصيص الترحيب.",
-        "audit": "🛡️ السجل والنسخ: سجل العمليات الحساسة والنسخ الاحتياطية.",
+        "references": "🗂️ الملفات المرجعية: الجداول، أرقام المعلمين، الإداريون، والأدوات الإدارية الإضافية. يظهر القسم مباشرة بعد الضغط.",
+        "identity": "🎨 هوية المدرسة: اسم المدرسة، المحافظة، الشعار، والألوان. لا توجد قائمة منسدلة إضافية.",
+        "accounts": "🔐 حسابات الدخول: الرموز، تفعيل الحسابات، وتخصيص الترحيب في صفحة واحدة.",
+        "audit": "🛡️ السجل والنسخ: سجل العمليات الحساسة والنسخ الاحتياطية دون ضغط إضافي.",
     }
     return (
         gr.update(value=f"<div class='school-data-panel-title'>{labels.get(panel, labels['overview'])}</div>"),
@@ -8344,6 +8349,167 @@ div[data-testid="dropdown-options"] *,
     text-align: right;
 }
 
+
+
+/* v1.8.3 Fix 6 — restore official header alignment and continuous login wave */
+.main-header,
+.main-header * {
+    box-sizing: border-box !important;
+}
+
+.main-header {
+    direction: ltr !important;
+}
+
+.main-header .header-grid {
+    direction: ltr !important;
+    display: grid !important;
+    grid-template-columns: 115px minmax(320px, 1fr) 300px !important;
+    grid-template-areas:
+        "logo title ministry"
+        "logo school ministry"
+        "logo credits ministry" !important;
+    align-items: center !important;
+    gap: 5px 20px !important;
+    max-width: 1200px !important;
+    margin: 0 auto !important;
+}
+
+.main-header .h-logo {
+    grid-area: logo !important;
+    justify-self: start !important;
+    text-align: left !important;
+    direction: ltr !important;
+}
+
+.main-header .h-logo img {
+    display: inline-block !important;
+}
+
+.main-header .h-ministry {
+    grid-area: ministry !important;
+    justify-self: end !important;
+    text-align: right !important;
+    direction: rtl !important;
+    min-width: 240px !important;
+}
+
+.main-header .h-title,
+.main-header .h-school,
+.main-header .h-credits {
+    direction: rtl !important;
+    text-align: center !important;
+}
+
+.main-header .h-title {
+    grid-area: title !important;
+}
+
+.main-header .h-school {
+    grid-area: school !important;
+}
+
+.main-header .h-credits {
+    grid-area: credits !important;
+}
+
+.masar-login-wave-wrap {
+    margin-bottom: -4px !important;
+    line-height: 0 !important;
+    overflow: hidden !important;
+    margin-left: -30px !important;
+    margin-right: -30px !important;
+    height: 18px !important;
+    direction: ltr !important;
+}
+
+.masar-login-wave-track {
+    direction: ltr !important;
+    display: flex !important;
+    width: 200% !important;
+    height: 18px !important;
+    animation: waveMoveContinuous 4.5s linear infinite !important;
+    will-change: transform !important;
+}
+
+.masar-login-wave-track svg {
+    display: block !important;
+    width: 50% !important;
+    min-width: 50% !important;
+    flex: 0 0 50% !important;
+    height: 18px !important;
+}
+
+@keyframes waveMoveContinuous {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+}
+
+.login-box,
+.login-box * {
+    text-align: center;
+}
+
+.login-box input {
+    text-align: center !important;
+    direction: rtl !important;
+}
+
+@media (max-width: 768px) {
+    .main-header .header-grid {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        text-align: center !important;
+        gap: 10px !important;
+    }
+
+    .main-header .h-logo,
+    .main-header .h-ministry,
+    .main-header .h-title,
+    .main-header .h-school,
+    .main-header .h-credits {
+        justify-self: center !important;
+        text-align: center !important;
+    }
+}
+
+
+
+/* v1.8.3 Fix 7 — remove double-click feeling in school data center panels */
+.direct-panel-accordion {
+    border: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    margin-top: 0 !important;
+}
+
+.direct-panel-accordion > details,
+.direct-panel-accordion details {
+    border: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+}
+
+.direct-panel-accordion summary,
+.direct-panel-accordion > details > summary {
+    display: none !important;
+}
+
+.direct-panel-accordion .wrap,
+.direct-panel-accordion .form,
+.direct-panel-accordion .block {
+    border-top: 0 !important;
+}
+
+.school-data-panel-box {
+    scroll-margin-top: 20px;
+}
+
+.school-data-panel-box .school-data-panel-title {
+    margin-bottom: 14px !important;
+}
+
 """
 
 
@@ -9295,7 +9461,7 @@ with gr.Blocks() as app:
                         schedule_reference_status_html = gr.HTML()
 
 
-                        with gr.Accordion("🧩 أدوات إدارية إضافية", open=False, visible=False) as manual_entry_container:
+                        with gr.Accordion("🧩 أدوات إدارية إضافية", open=True, visible=False, elem_classes=["direct-panel-accordion", "manual-tools-direct-panel"]) as manual_entry_container:
                             gr.Markdown("### 👨‍💼 الإدخال اليدوي للطاقم الإداري")
                             with gr.Row(elem_classes="yellow-box"):
                                 manual_name = gr.Textbox(label="الاسم الثلاثي")
@@ -9310,8 +9476,8 @@ with gr.Blocks() as app:
 
 
                     with gr.Column(visible=False, elem_classes="school-data-panel-box") as school_data_identity_panel:
-                        gr.HTML("<div class='school-data-panel-title'>🎨 إعدادات هوية المدرسة</div>")
-                        with gr.Accordion("🎨 إعدادات هوية المدرسة", open=False):
+                        gr.HTML("<div class='school-data-panel-title'>🎨 هوية المدرسة — تظهر مباشرة بعد الضغط على البطاقة</div>")
+                        with gr.Accordion("🎨 إعدادات هوية المدرسة", open=True, elem_classes=["direct-panel-accordion", "identity-direct-panel"]):
                             gr.HTML("<div style='background:#eef6f3;color:#004d40;padding:12px;border-radius:10px;border-right:5px solid #0f766e;margin-bottom:12px;font-weight:800;line-height:1.8;'>هذه اللوحة مخصصة لمالك النظام. يمكن تعديل الهوية البصرية دون تعديل app.py. العناوين والشعار تتحدث فورًا، أما الألوان العامة فتُطبق بالكامل بعد إعادة تشغيل التطبيق.</div>")
 
                             gr.HTML(
@@ -9376,8 +9542,8 @@ with gr.Blocks() as app:
 
 
                     with gr.Column(visible=False, elem_classes="school-data-panel-box") as school_data_accounts_panel:
-                        gr.HTML("<div class='school-data-panel-title'>🔐 إدارة حسابات الدخول والترحيب</div>")
-                        with gr.Accordion("🔐 إدارة حسابات الدخول", open=False):
+                        gr.HTML("<div class='school-data-panel-title'>🔐 حسابات الدخول والترحيب — أدوات الرمز والتخصيص في صفحة واحدة</div>")
+                        with gr.Accordion("🔐 إدارة حسابات الدخول", open=True, elem_classes=["direct-panel-accordion", "accounts-direct-panel"]):
                             gr.HTML(
                                 "<div style='background:#eef6f3;color:#004d40;padding:12px;"
                                 "border-radius:10px;border-right:5px solid #0f766e;"
@@ -9419,7 +9585,7 @@ with gr.Blocks() as app:
                                 value="",
                             )
 
-                            with gr.Accordion("✨ تخصيص الترحيب والمسميات", open=False):
+                            with gr.Accordion("✨ تخصيص الترحيب والمسميات", open=True, elem_classes=["direct-panel-accordion", "account-profile-direct-panel"]):
                                 gr.HTML(
                                     "<div style='background:#fff7ed;color:#7c2d12;padding:10px;"
                                     "border-radius:8px;border-right:4px solid #f59e0b;"
@@ -9474,8 +9640,8 @@ with gr.Blocks() as app:
 
 
                     with gr.Column(visible=False, elem_classes="school-data-panel-box") as school_data_audit_panel:
-                        gr.HTML("<div class='school-data-panel-title'>🛡️ سجل العمليات والنسخ الاحتياطية</div>")
-                        with gr.Accordion("🛡️ سجل العمليات والنسخ الاحتياطية", open=False):
+                        gr.HTML("<div class='school-data-panel-title'>🛡️ السجل والنسخ — عرض مباشر دون ضغط إضافي</div>")
+                        with gr.Accordion("🛡️ سجل العمليات والنسخ الاحتياطية", open=True, elem_classes=["direct-panel-accordion", "audit-direct-panel"]):
                             gr.HTML("<div style='background:#eef6f3;color:#004d40;padding:12px;border-radius:10px;border-right:5px solid #0f766e;margin-bottom:12px;font-weight:800;line-height:1.8;'>هذه أدوات رقابية لمالك النظام فقط. سجل العمليات لا ينفذ أي تعديل؛ بل يوضح من غيّر ماذا، وعلى أي معلم، وما القيمة القديمة والجديدة، ومتى حدث ذلك. اختر الفلاتر للعرض، ثم صدّر النتائج المطابقة إلى Excel عند الحاجة.</div>")
 
                             with gr.Accordion("📑 سجل العمليات الحساسة", open=True):
