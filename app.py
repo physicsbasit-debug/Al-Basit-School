@@ -9947,16 +9947,18 @@ with gr.Blocks() as app:
     btn_open_swap.click(lambda: open_home_section("swap"), [], [home_dashboard, tabs_container, main_tabs], queue=False).then(None, None, None, js=show_selected_tab_container_js())
     btn_open_day.click(lambda: open_home_section("day_table"), [], [home_dashboard, tabs_container, main_tabs], queue=False).then(None, None, None, js=show_selected_tab_container_js())
     btn_open_teacher.click(lambda: open_home_section("teacher_table"), [], [home_dashboard, tabs_container, main_tabs], queue=False).then(None, None, None, js=show_selected_tab_container_js())
+    # v1.8.3 Fix 11 — school data opens tab before refreshing cards
+    # v1.8.3 Fix 12 — remove duplicate overview refresh from school data button chain
     btn_open_school_data.click(
         lambda: open_home_section("school_data"),
         [],
         [home_dashboard, tabs_container, main_tabs],
         queue=False,
     ).then(
-        lambda: show_school_data_panel("overview"),
-        [],
-        [school_data_section_status, persistent_storage_status_html, school_config_summary_html, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
-        queue=False,
+        None,
+        None,
+        None,
+        js=select_tab_js("مركز البيانات", 6),
     ).then(
         None,
         None,
@@ -9983,9 +9985,6 @@ with gr.Blocks() as app:
             owner_accounts_status,
         ],
         queue=False,
-    ).then(
-        None, None, None,
-        js=show_selected_tab_container_js(),
     )
     btn_back_home.click(return_to_home_dashboard, [], [home_dashboard, tabs_container], queue=False).then(None, None, None, js=return_home_dashboard_js())
     login_btn.click(
