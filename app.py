@@ -7030,6 +7030,15 @@ def do_logout():
     )
     
 css = """
+
+/* Fix: only top control dropdowns keep Arabic text on the right and move arrow to the left */
+.masar-arrow-fix .secondary-wrap {
+    flex-direction: row-reverse !important;
+}
+.masar-arrow-fix input {
+    text-align: right !important;
+    padding-right: 8px !important;
+}
 /* فرض وضع النهار بالقوة على مستوى المتصفح */
 :root, body, .dark, * { color-scheme: light !important; }
 :root, body, .dark { --background-fill-primary: #ffffff !important; --background-fill-secondary: #ffffff !important; --block-background-fill: #ffffff !important; --body-background-fill: #ffffff !important; --color-text-primary: #000000 !important; --body-text-color: #000000 !important; --table-even-background-fill: #ffffff !important; --table-odd-background-fill: #ffffff !important; --table-row-focus: #f1f8e9 !important; --border-color-primary: #e5e7eb !important; --checkbox-background-color: #ffffff !important; --checkbox-background-color-selected: #004d40 !important; --checkbox-border-color: #e5e7eb !important; --input-background-fill: #ffffff !important; --input-background-fill-focus: #ffffff !important; --neutral-100: #ffffff !important; --neutral-200: #f4f6f8 !important; --neutral-800: #000000 !important; --neutral-900: #000000 !important; }
@@ -9521,8 +9530,8 @@ with gr.Blocks() as app:
         with gr.Column(visible=True, elem_id="masar_tabs_container", elem_classes="masar-tabs-container") as tabs_container:
             btn_back_home = gr.Button("🏠 العودة للوحة الرئيسية", elem_classes="home-back-btn")
             with gr.Row(elem_classes="yellow-box") as controls_row:
-                dept_in = gr.Dropdown(["الكل"] + OFFICIAL_DEPTS, label="📂 مركز التحكم", value="الكل", scale=2)
-                day_in = gr.Dropdown(SCHOOL_WEEK_DAYS, label="📅 اختر اليوم الدراسي", value=get_current_day_oman(), scale=2)
+                dept_in = gr.Dropdown(["الكل"] + OFFICIAL_DEPTS, label="📂 مركز التحكم", value="الكل", scale=2, elem_classes="masar-arrow-fix")
+                day_in = gr.Dropdown(SCHOOL_WEEK_DAYS, label="📅 اختر اليوم الدراسي", value=get_current_day_oman(), scale=2, elem_classes="masar-arrow-fix")
                 refresh_btn = gr.Button("🔄 تحديث الشاشة والبيانات", elem_classes="refresh-btn", scale=1)
 
             with gr.Tabs(selected="distribution") as main_tabs:
