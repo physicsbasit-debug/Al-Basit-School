@@ -7031,13 +7031,16 @@ def do_logout():
     
 css = """
 
-/* Fix: only top control dropdowns keep Arabic text on the right and move arrow to the left */
+/* Fix 5: only top control dropdowns. Keep Arabic text right, force real spacing, move arrow visually left. */
 .masar-arrow-fix .secondary-wrap {
     flex-direction: row-reverse !important;
+    justify-content: space-between !important;
+    width: 100% !important;
 }
 .masar-arrow-fix input {
+    flex: 1 1 auto !important;
+    width: 100% !important;
     text-align: right !important;
-    padding-right: 8px !important;
 }
 /* فرض وضع النهار بالقوة على مستوى المتصفح */
 :root, body, .dark, * { color-scheme: light !important; }
