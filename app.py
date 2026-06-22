@@ -1097,7 +1097,7 @@ def render_account_profile_preview_html(
     <div style='background:#f8fafc;border:1px solid #dbe3e8;border-radius:12px;
                 padding:12px;margin-top:10px;line-height:1.8;color:#334155;'>
         <b>المسمى الرسمي:</b> {official}<br>
-        <b>مسمى واتساب:</b> {whatsapp}
+        <b>المسمى المختصر:</b> {whatsapp}
     </div>
     """
 
@@ -1346,7 +1346,7 @@ def render_auth_accounts_html(is_owner=False):
                     <th>اسم الحساب</th>
                     <th>اسم العرض</th>
                     <th>المسمى الرسمي</th>
-                    <th>مسمى واتساب</th>
+                    <th>المسمى المختصر</th>
                     <th>الدور الداخلي</th>
                     <th>القسم</th>
                     <th>الحالة</th>
@@ -5422,11 +5422,11 @@ def school_data_panel_js(panel_name):
 def show_school_data_panel(panel_name="overview"):
     panel = str(panel_name or "overview").strip()
     labels = {
-        "overview": "يعرض مركز البيانات الآن حالة التخزين الدائم وملف إعدادات المدرسة فقط. اختر بطاقة من الأعلى لفتح القسم المطلوب.",
-        "references": "🗂️ الملفات المرجعية: الجداول، أرقام المعلمين، الإداريون، والأدوات الإدارية الإضافية.",
-        "identity": "🎨 هوية المدرسة: اسم المدرسة، المحافظة، الشعار، والألوان.",
-        "accounts": "🔐 حسابات الدخول: الرموز، تفعيل الحسابات، وتخصيص الترحيب في صفحة واحدة.",
-        "audit": "🛡️ السجل والنسخ: سجل العمليات الحساسة والنسخ الاحتياطية.",
+        "overview": "اختر بطاقة من الأعلى لعرض أدواتها. حالة التخزين وإعدادات المدرسة تظهر هنا دائمًا.",
+        "references": "رفع وتحديث الجداول المرجعية، أرقام المعلمين، وملف الإداريين.",
+        "identity": "تعديل اسم المدرسة، المحافظة، الشعار، والألوان العامة.",
+        "accounts": "إدارة الحسابات والرموز، ثم ضبط الترحيب والمسميات من صفحة واحدة.",
+        "audit": "متابعة سجل العمليات والنسخ الاحتياطية في أقسام واضحة.",
     }
 
     show_overview = panel == "overview"
@@ -8760,6 +8760,99 @@ body.masar-sd-panel-audit #school_data_btn_audit {
     margin-top: 12px !important;
 }
 
+/* v1.8.4c — school data UI polish: keep dropdown arrows away from Arabic text */
+.gradio-container [data-testid="dropdown"],
+.gradio-container .svelte-select,
+.gradio-container [role="combobox"] {
+    direction: ltr !important;
+    text-align: right !important;
+}
+
+.gradio-container [data-testid="dropdown"] input,
+.gradio-container [data-testid="dropdown"] span,
+.gradio-container .svelte-select input,
+.gradio-container .svelte-select span,
+.gradio-container .svelte-select .item,
+.gradio-container .svelte-select .value-container {
+    direction: rtl !important;
+    text-align: right !important;
+}
+
+.gradio-container div[data-testid="dropdown-options"],
+.gradio-container div[data-testid="dropdown-options"] *,
+.gradio-container .svelte-select-list,
+.gradio-container .svelte-select-list *,
+.gradio-container [role="listbox"],
+.gradio-container [role="option"] {
+    direction: ltr !important;
+    text-align: right !important;
+}
+
+.school-data-panel-title {
+    background: #eef6f3;
+    color: #004d40;
+    border-right: 5px solid #0f766e;
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin: 10px 0 14px;
+    font-weight: 900;
+    line-height: 1.8;
+    text-align: right !important;
+    direction: rtl !important;
+}
+
+.school-data-panel-lead {
+    background: #f8fafc;
+    color: #334155;
+    border: 1px solid #e2e8f0;
+    border-right: 5px solid #64748b;
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin: 8px 0 14px;
+    font-weight: 800;
+    line-height: 1.8;
+    text-align: right !important;
+    direction: rtl !important;
+}
+
+.school-data-inner-card,
+.school-data-subsection-card {
+    background: #ffffff !important;
+    border: 1px solid #dbe3e8 !important;
+    border-radius: 16px !important;
+    padding: 14px !important;
+    margin: 10px 0 14px !important;
+    box-shadow: 0 8px 18px rgba(15, 118, 110, 0.06) !important;
+}
+
+.school-data-subsection-title {
+    color: #004d40;
+    font-weight: 900;
+    font-size: 16px;
+    margin: 4px 0 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e2e8f0;
+    text-align: right !important;
+    direction: rtl !important;
+}
+
+.school-data-muted-note {
+    color: #64748b;
+    font-weight: 800;
+    line-height: 1.8;
+    margin: 6px 0 12px;
+    text-align: right !important;
+    direction: rtl !important;
+}
+
+.school-data-nav-row button {
+    min-height: 96px !important;
+    border-radius: 18px !important;
+    font-weight: 900 !important;
+    font-size: 18px !important;
+}
+
+
 """
 
 
@@ -9659,7 +9752,7 @@ with gr.Blocks() as app:
                     gr.HTML("""
 <div class="school-data-center-note">
     <b>🗄️ مركز البيانات المدرسية</b><br>
-    تظهر حالة التخزين وملف إعدادات المدرسة دائمًا. اضغط بطاقة من البطاقات التالية لفتح بياناتها وأدواتها.
+    اختر بطاقة من الأعلى. كل بطاقة تفتح أدواتها مباشرة دون قوائم داخلية زائدة.
 </div>
 """)
                     with gr.Row(elem_classes="school-data-nav-row"):
@@ -9674,11 +9767,12 @@ with gr.Blocks() as app:
 
                     school_data_section_status = gr.HTML(
                         elem_id="school_data_section_status",
-                        value="<div class='school-data-panel-title'>يعرض مركز البيانات الآن حالة التخزين الدائم وملف إعدادات المدرسة فقط. اختر بطاقة من الأعلى لفتح القسم المطلوب.</div>"
+                        value="<div class='school-data-panel-title'>اختر بطاقة من الأعلى لعرض أدواتها. حالة التخزين وإعدادات المدرسة تظهر هنا دائمًا.</div>"
                     )
 
                     with gr.Column(visible=False, elem_id="school_data_panel_references", elem_classes="school-data-panel-box") as school_data_references_panel:
-                        gr.HTML("<div class='school-data-panel-title'>🗂️ الملفات المرجعية والأدوات الإدارية الإضافية</div>")
+                        gr.HTML("<div class='school-data-panel-title'>🗂️ الملفات المرجعية</div>")
+                        gr.HTML("<div class='school-data-panel-lead'>رفع وتحديث جداول الأقسام، أرقام المعلمين، وملف الإداريين المرجعي.</div>")
                         with gr.Row(visible=False):
                             clear_noop = gr.Textbox(label="noop", value="", visible=False)
                             up_dept = gr.Dropdown([], label="noop", visible=False)
@@ -9732,8 +9826,9 @@ with gr.Blocks() as app:
 
 
                     with gr.Column(visible=False, elem_id="school_data_panel_identity", elem_classes="school-data-panel-box") as school_data_identity_panel:
-                        gr.HTML("<div class='school-data-panel-title'>🎨 هوية المدرسة — تظهر مباشرة بعد الضغط على البطاقة</div>")
-                        with gr.Accordion("🎨 إعدادات هوية المدرسة", open=True, elem_classes=["direct-panel-accordion", "identity-direct-panel"]):
+                        gr.HTML("<div class='school-data-panel-title'>🎨 هوية المدرسة</div>")
+                        with gr.Column(elem_classes=["school-data-inner-card", "identity-direct-panel"]):
+                            gr.HTML("<div class='school-data-subsection-title'>🎨 إعدادات الهوية</div>")
                             gr.HTML("<div style='background:#eef6f3;color:#004d40;padding:12px;border-radius:10px;border-right:5px solid #0f766e;margin-bottom:12px;font-weight:800;line-height:1.8;'>هذه اللوحة مخصصة لمالك النظام. يمكن تعديل الهوية البصرية دون تعديل app.py. العناوين والشعار تتحدث فورًا، أما الألوان العامة فتُطبق بالكامل بعد إعادة تشغيل التطبيق.</div>")
 
                             gr.HTML(
@@ -9798,8 +9893,9 @@ with gr.Blocks() as app:
 
 
                     with gr.Column(visible=False, elem_id="school_data_panel_accounts", elem_classes="school-data-panel-box") as school_data_accounts_panel:
-                        gr.HTML("<div class='school-data-panel-title'>🔐 حسابات الدخول والترحيب — أدوات الرمز والتخصيص في صفحة واحدة</div>")
-                        with gr.Accordion("🔐 إدارة حسابات الدخول", open=True, elem_classes=["direct-panel-accordion", "accounts-direct-panel"]):
+                        gr.HTML("<div class='school-data-panel-title'>🔐 حسابات الدخول</div>")
+                        with gr.Column(elem_classes=["school-data-inner-card", "accounts-direct-panel"]):
+                            gr.HTML("<div class='school-data-subsection-title'>🔐 إدارة الحسابات والرموز</div>")
                             gr.HTML(
                                 "<div style='background:#eef6f3;color:#004d40;padding:12px;"
                                 "border-radius:10px;border-right:5px solid #0f766e;"
@@ -9841,12 +9937,14 @@ with gr.Blocks() as app:
                                 value="",
                             )
 
-                            with gr.Accordion("✨ تخصيص الترحيب والمسميات", open=True, elem_classes=["direct-panel-accordion", "account-profile-direct-panel"]):
+                            with gr.Column(elem_classes=["school-data-subsection-card", "account-profile-direct-panel"]):
+                                gr.HTML("<div class='school-data-subsection-title'>✨ الترحيب والمسميات</div>")
                                 gr.HTML(
                                     "<div style='background:#fff7ed;color:#7c2d12;padding:10px;"
                                     "border-radius:8px;border-right:4px solid #f59e0b;"
                                     "font-weight:800;line-height:1.8;'>"
-                                    "اختر حسابًا من الأعلى، ثم اضبط اسم العرض واللقب الجمالي وعبارة الهيدر. "
+                                    "اختر حسابًا من الأعلى، ثم اضبط اسم العرض والمسمى المختصر وعبارة الهيدر. "
+                                    "هذه الحقول تخص عرض الحساب والترحيب، ولا تغيّر رسائل الاحتياط أو مادة الحصة. "
                                     "يمكن استخدام المتغيرات: {display_name}، {welcome_title}، {department_label}، {official_title}، {whatsapp_title}، {school_name}."
                                     "</div>"
                                 )
@@ -9860,7 +9958,7 @@ with gr.Blocks() as app:
                                         placeholder="مثال: منسق مادة اللغة العربية",
                                     )
                                     owner_profile_whatsapp_title = gr.Textbox(
-                                        label="مسمى واتساب",
+                                        label="المسمى المختصر للحساب",
                                         placeholder="مثال: منسق اللغة العربية",
                                     )
                                 with gr.Row():
@@ -9896,11 +9994,12 @@ with gr.Blocks() as app:
 
 
                     with gr.Column(visible=False, elem_id="school_data_panel_audit", elem_classes="school-data-panel-box") as school_data_audit_panel:
-                        gr.HTML("<div class='school-data-panel-title'>🛡️ السجل والنسخ — عرض مباشر دون ضغط إضافي</div>")
-                        with gr.Accordion("🛡️ سجل العمليات والنسخ الاحتياطية", open=True, elem_classes=["direct-panel-accordion", "audit-direct-panel"]):
+                        gr.HTML("<div class='school-data-panel-title'>🛡️ السجل والنسخ</div>")
+                        with gr.Column(elem_classes=["school-data-inner-card", "audit-direct-panel"]):
                             gr.HTML("<div style='background:#eef6f3;color:#004d40;padding:12px;border-radius:10px;border-right:5px solid #0f766e;margin-bottom:12px;font-weight:800;line-height:1.8;'>هذه أدوات رقابية لمالك النظام فقط. سجل العمليات لا ينفذ أي تعديل؛ بل يوضح من غيّر ماذا، وعلى أي معلم، وما القيمة القديمة والجديدة، ومتى حدث ذلك. اختر الفلاتر للعرض، ثم صدّر النتائج المطابقة إلى Excel عند الحاجة.</div>")
 
-                            with gr.Accordion("📑 سجل العمليات الحساسة", open=True):
+                            with gr.Column(elem_classes="school-data-subsection-card"):
+                                gr.HTML("<div class='school-data-subsection-title'>📑 سجل العمليات الحساسة</div>")
                                 with gr.Row():
                                     audit_action_filter = gr.Dropdown(["الكل"], value="الكل", label="نوع العملية")
                                     audit_actor_filter = gr.Dropdown(["الكل"], value="الكل", label="اسم المنفذ")
@@ -9932,7 +10031,8 @@ with gr.Blocks() as app:
                                 audit_table_html = gr.HTML("<div style='text-align:center;color:#64748b;padding:16px;'>افتح القسم أو اضغط تحديث لعرض سجل العمليات.</div>")
                                 audit_export_file = gr.File(label="ملف سجل العمليات", interactive=False)
 
-                            with gr.Accordion("💾 حالة النسخ الاحتياطية", open=True):
+                            with gr.Column(elem_classes="school-data-subsection-card"):
+                                gr.HTML("<div class='school-data-subsection-title'>💾 حالة النسخ الاحتياطية</div>")
                                 backup_status_html = gr.HTML("<div style='text-align:center;color:#64748b;padding:16px;'>اضغط تحديث لعرض حالة النسخ الاحتياطية.</div>")
                                 with gr.Row():
                                     backup_refresh_btn = gr.Button("تحديث حالة النسخ الاحتياطية", elem_classes="admin-btn")
@@ -9981,6 +10081,11 @@ with gr.Blocks() as app:
         None,
         None,
         js=school_data_panel_js("accounts"),
+    ).then(
+        refresh_owner_accounts_panel,
+        [current_user_is_owner],
+        [owner_accounts_html, owner_account_selector, owner_one_time_pin, owner_accounts_status],
+        queue=False,
     )
     btn_school_data_audit_panel.click(
         lambda: show_school_data_panel("audit"),
