@@ -8760,34 +8760,6 @@ body.masar-sd-panel-audit #school_data_btn_audit {
     margin-top: 12px !important;
 }
 
-/* v1.8.4c — school data UI polish: keep dropdown arrows away from Arabic text */
-.gradio-container [data-testid="dropdown"],
-.gradio-container .svelte-select,
-.gradio-container [role="combobox"] {
-    direction: ltr !important;
-    text-align: right !important;
-}
-
-.gradio-container [data-testid="dropdown"] input,
-.gradio-container [data-testid="dropdown"] span,
-.gradio-container .svelte-select input,
-.gradio-container .svelte-select span,
-.gradio-container .svelte-select .item,
-.gradio-container .svelte-select .value-container {
-    direction: rtl !important;
-    text-align: right !important;
-}
-
-.gradio-container div[data-testid="dropdown-options"],
-.gradio-container div[data-testid="dropdown-options"] *,
-.gradio-container .svelte-select-list,
-.gradio-container .svelte-select-list *,
-.gradio-container [role="listbox"],
-.gradio-container [role="option"] {
-    direction: ltr !important;
-    text-align: right !important;
-}
-
 .school-data-panel-title {
     background: #eef6f3;
     color: #004d40;
