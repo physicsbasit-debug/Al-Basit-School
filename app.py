@@ -8324,6 +8324,28 @@ div[data-testid="dropdown-options"] *,
     text-align: right !important;
 }
 
+/* v1.8.4c Fix 2: restore native/default layout only for the two top control dropdowns.
+   Do not touch school-data panels, elem_id, or panel JS. */
+.gradio-container .masar-native-top-dropdown [role="combobox"],
+.gradio-container .masar-native-top-dropdown [data-testid="dropdown"],
+.gradio-container .masar-native-top-dropdown .wrap {
+    direction: ltr !important;
+    text-align: left !important;
+}
+
+.gradio-container .masar-native-top-dropdown [role="combobox"] *,
+.gradio-container .masar-native-top-dropdown input {
+    direction: ltr !important;
+    text-align: left !important;
+}
+
+.gradio-container .masar-native-top-dropdown label,
+.gradio-container .masar-native-top-dropdown [data-testid="block-label"],
+.gradio-container .masar-native-top-dropdown .block-info {
+    direction: rtl !important;
+    text-align: right !important;
+}
+
 .school-data-center-note {
     background: #eef6f3;
     color: #004d40;
@@ -9520,8 +9542,8 @@ with gr.Blocks() as app:
         with gr.Column(visible=True, elem_id="masar_tabs_container", elem_classes="masar-tabs-container") as tabs_container:
             btn_back_home = gr.Button("🏠 العودة للوحة الرئيسية", elem_classes="home-back-btn")
             with gr.Row(elem_classes="yellow-box") as controls_row:
-                dept_in = gr.Dropdown(["الكل"] + OFFICIAL_DEPTS, label="📂 مركز التحكم", value="الكل", scale=2)
-                day_in = gr.Dropdown(SCHOOL_WEEK_DAYS, label="📅 اختر اليوم الدراسي", value=get_current_day_oman(), scale=2)
+                dept_in = gr.Dropdown(["الكل"] + OFFICIAL_DEPTS, label="📂 مركز التحكم", value="الكل", scale=2, elem_classes="masar-native-top-dropdown")
+                day_in = gr.Dropdown(SCHOOL_WEEK_DAYS, label="📅 اختر اليوم الدراسي", value=get_current_day_oman(), scale=2, elem_classes="masar-native-top-dropdown")
                 refresh_btn = gr.Button("🔄 تحديث الشاشة والبيانات", elem_classes="refresh-btn", scale=1)
 
             with gr.Tabs(selected="distribution") as main_tabs:
