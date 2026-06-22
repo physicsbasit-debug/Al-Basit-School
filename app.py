@@ -2112,7 +2112,7 @@ def refresh_schedule_from_reference(dept_name, current_day, is_owner=False):
                 break
 
             for base_col in [0, 9]:
-                if base_col + 7 >= len(df.columns):
+                if base_col + MAX_PERIODS >= len(df.columns):
                     continue
 
                 t_name_raw = str(df.iloc[r, base_col]).strip()
@@ -2154,7 +2154,7 @@ def refresh_schedule_from_reference(dept_name, current_day, is_owner=False):
 
                 col_to_p = {}
                 day_col = -1
-                for c in range(base_col, min(base_col + 8, len(df.columns))):
+                for c in range(base_col, min(base_col + MAX_PERIODS + 1, len(df.columns))):
                     val = str(df.iloc[r+2, c]).strip().replace("أ", "ا").replace("إ", "ا")
                     if "اليوم" in val:
                         day_col = c
@@ -2172,9 +2172,11 @@ def refresh_schedule_from_reference(dept_name, current_day, is_owner=False):
                         col_to_p[c] = 6
                     elif "السابعة" in val:
                         col_to_p[c] = 7
+                    elif "الثامنة" in val:
+                        col_to_p[c] = 8
 
                 if day_col == -1:
-                    day_col = base_col + 7
+                    day_col = base_col + MAX_PERIODS
                 if day_col >= len(df.columns):
                     continue
 
@@ -4597,7 +4599,7 @@ def process_uploaded_excel(file, selected_dept, current_day):
         for r in range(start_row, len(df), 10):
             if r + 2 >= len(df): break 
             for base_col in [0, 9]:
-                if base_col + 7 >= len(df.columns): continue 
+                if base_col + MAX_PERIODS >= len(df.columns): continue 
                 t_name_raw = str(df.iloc[r, base_col]).strip()
                 if not t_name_raw or "ALBATINAH" in t_name_raw.upper() or "اليوم" in t_name_raw: continue
                 t_name = clean_teacher_name(t_name_raw)
@@ -4610,7 +4612,7 @@ def process_uploaded_excel(file, selected_dept, current_day):
 
                 col_to_p = {}
                 day_col = -1
-                for c in range(base_col, min(base_col + 8, len(df.columns))):
+                for c in range(base_col, min(base_col + MAX_PERIODS + 1, len(df.columns))):
                     val = str(df.iloc[r+2, c]).strip().replace("أ", "ا").replace("إ", "ا")
                     if "اليوم" in val: day_col = c
                     elif "الاولى" in val: col_to_p[c] = 1
@@ -4620,8 +4622,9 @@ def process_uploaded_excel(file, selected_dept, current_day):
                     elif "الخامسة" in val: col_to_p[c] = 5
                     elif "السادسة" in val: col_to_p[c] = 6
                     elif "السابعة" in val: col_to_p[c] = 7
+                    elif "الثامنة" in val: col_to_p[c] = 8
                     
-                if day_col == -1: day_col = base_col + 7
+                if day_col == -1: day_col = base_col + MAX_PERIODS
                 if day_col >= len(df.columns): continue
 
                 for dr in range(r+3, min(r+8, len(df))):
@@ -4836,7 +4839,7 @@ def get_teacher_weekly_schedule(teacher_name):
         or teachers_db[teacher_name].get("dept") == "الهيئة الإدارية"
         or teachers_db[teacher_name].get("role", "معلم") in ADMIN_ROLES
     ):
-        return pd.DataFrame(columns=["اليوم", "ح 1", "ح 2", "ح 3", "ح 4", "ح 5", "ح 6", "ح 7"])
+        return pd.DataFrame(columns=["اليوم"] + [f"ح {p}" for p in range(1, MAX_PERIODS + 1)])
 
     rows = [
         {
