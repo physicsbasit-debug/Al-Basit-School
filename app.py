@@ -5349,7 +5349,16 @@ def clear_generated_image():
 
 
 def school_data_panel_js(panel_name):
+    """
+    v1.8.3 Fix 13b — direct DOM visibility for school data panels.
+    لا يكتفي بتلوين البطاقة؛ يفتح اللوحة بصريًا من النقرة الأولى،
+    ثم تُثبت دالة show_school_data_panel الحالة من جهة Gradio.
+    """
     panel = str(panel_name or "overview").strip()
+    allowed = {"overview", "references", "identity", "accounts", "audit"}
+    if panel not in allowed:
+        panel = "overview"
+
     classes = [
         "masar-sd-panel-references",
         "masar-sd-panel-identity",
@@ -5358,10 +5367,51 @@ def school_data_panel_js(panel_name):
     ]
     class_to_add = "" if panel == "overview" else f"masar-sd-panel-{panel}"
     class_args = ", ".join(repr(c) for c in classes)
+
+    panel_map = {
+        "references": "school_data_panel_references",
+        "identity": "school_data_panel_identity",
+        "accounts": "school_data_panel_accounts",
+        "audit": "school_data_panel_audit",
+    }
+    panel_map_js = json.dumps(panel_map, ensure_ascii=False)
+
     return f"""() => {{
+        const selectedPanel = {panel!r};
+        const panelMap = {panel_map_js};
+
         document.body.classList.remove({class_args});
         if ({class_to_add!r}) {{
             document.body.classList.add({class_to_add!r});
+        }}
+
+        const setVisible = (id, visible) => {{
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (visible) {{
+                el.style.setProperty('display', 'block', 'important');
+                el.style.setProperty('visibility', 'visible', 'important');
+                el.removeAttribute('hidden');
+                el.setAttribute('aria-hidden', 'false');
+            }} else {{
+                el.style.setProperty('display', 'none', 'important');
+                el.style.setProperty('visibility', 'hidden', 'important');
+                el.setAttribute('aria-hidden', 'true');
+            }}
+        }};
+
+        const showOverview = selectedPanel === 'overview';
+        setVisible('school_data_overview_storage', showOverview);
+        setVisible('school_data_overview_config', showOverview);
+
+        Object.entries(panelMap).forEach(([key, id]) => {{
+            setVisible(id, key === selectedPanel);
+        }});
+
+        const status = document.getElementById('school_data_section_status');
+        if (status) {{
+            status.style.setProperty('display', 'block', 'important');
+            status.style.setProperty('visibility', 'visible', 'important');
         }}
     }}"""
 
@@ -9947,7 +9997,7 @@ with gr.Blocks() as app:
     btn_open_swap.click(lambda: open_home_section("swap"), [], [home_dashboard, tabs_container, main_tabs], queue=False).then(None, None, None, js=show_selected_tab_container_js())
     btn_open_day.click(lambda: open_home_section("day_table"), [], [home_dashboard, tabs_container, main_tabs], queue=False).then(None, None, None, js=show_selected_tab_container_js())
     btn_open_teacher.click(lambda: open_home_section("teacher_table"), [], [home_dashboard, tabs_container, main_tabs], queue=False).then(None, None, None, js=show_selected_tab_container_js())
-    # v1.8.3 Fix 13 — unified school data opening and no double-click race
+    # v1.8.3 Fix 13b — direct school data panels and no select races
     btn_open_school_data.click(
         lambda: open_home_section("school_data"),
         [],
@@ -9995,6 +10045,24 @@ with gr.Blocks() as app:
             owner_account_selector,
             owner_one_time_pin,
             owner_accounts_status,
+        ],
+        queue=False,
+    ).then(
+        refresh_owner_tools_dashboard,
+        [
+            audit_action_filter,
+            audit_actor_filter,
+            audit_teacher_filter,
+            audit_date_from,
+            audit_date_to,
+            current_user_is_owner,
+        ],
+        [
+            audit_action_filter,
+            audit_actor_filter,
+            audit_teacher_filter,
+            audit_table_html,
+            backup_status_html,
         ],
         queue=False,
     )
@@ -10375,35 +10443,6 @@ with gr.Blocks() as app:
     )
 
 
-    school_data_tab.select(
-        refresh_owner_tools_dashboard,
-        [audit_action_filter, audit_actor_filter, audit_teacher_filter, audit_date_from, audit_date_to, current_user_is_owner],
-        [audit_action_filter, audit_actor_filter, audit_teacher_filter, audit_table_html, backup_status_html],
-        queue=False
-    )
-    school_data_tab.select(
-        refresh_school_data_center_cards,
-        [current_user_is_owner],
-        [
-            persistent_storage_status_html,
-            school_config_summary_html,
-            school_data_admin_html,
-            school_data_phones_html,
-            school_data_schedules_html,
-        ],
-        queue=False,
-    )
-    school_data_tab.select(
-        refresh_owner_accounts_panel,
-        [current_user_is_owner],
-        [
-            owner_accounts_html,
-            owner_account_selector,
-            owner_one_time_pin,
-            owner_accounts_status,
-        ],
-        queue=False,
-    )
     audit_today_btn.click(
         lambda: get_audit_date_range("today"),
         [],
