@@ -7239,6 +7239,69 @@ css = """
 .leader-row-rtl > * {
     direction: rtl !important;
 }
+
+
+/* v1.8.4d Fix 3: تجميل الغلاف الخارجي لقائمة حدد المعلمين الغائبين وضبط سهمها */
+.absent-box {
+    background: linear-gradient(135deg, #ffffff, #f8fffb) !important;
+    border: 1.5px solid #b2dfdb !important;
+    border-radius: 18px !important;
+    padding: 12px 14px !important;
+    box-shadow: 0 8px 18px rgba(0, 77, 64, 0.08) !important;
+    margin: 10px 0 14px 0 !important;
+}
+.absent-box [data-testid="block-label"],
+.absent-box label {
+    position: static !important;
+    width: 100% !important;
+    text-align: right !important;
+}
+.absent-box [data-testid="block-label"] span,
+.absent-box label span,
+.absent-box span.svelte-jdcl7l {
+    display: block !important;
+    width: 100% !important;
+    text-align: right !important;
+}
+.absent-box svg.dropdown-arrow {
+    margin-left: 0 !important;
+    margin-right: auto !important;
+}
+.absent-box .wrap-inner {
+    flex-wrap: wrap !important;
+    justify-content: flex-end !important;
+}
+.leader-outer-card > .label-wrap,
+.leader-outer-card summary,
+.leader-outer-card [role="button"] {
+    direction: rtl !important;
+    display: flex !important;
+    flex-direction: row-reverse !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    width: 100% !important;
+    background: linear-gradient(135deg, #004d40, #0f766e) !important;
+    border: 1px solid rgba(255, 202, 40, 0.45) !important;
+    border-radius: 16px !important;
+    padding: 12px 18px !important;
+    min-height: 48px !important;
+    box-shadow: 0 6px 14px rgba(0, 77, 64, 0.20) !important;
+}
+.leader-outer-card > .label-wrap span,
+.leader-outer-card summary span,
+.leader-outer-card [role="button"] span {
+    color: #ffca28 !important;
+    -webkit-text-fill-color: #ffca28 !important;
+    font-weight: 900 !important;
+    font-size: 16px !important;
+    text-align: right !important;
+}
+.leader-outer-card svg,
+.leader-outer-card .icon-wrap {
+    color: #ffca28 !important;
+    fill: #ffca28 !important;
+}
+
 .masar-field-label-right [data-testid="block-label"] {
     position: static !important;
 }
