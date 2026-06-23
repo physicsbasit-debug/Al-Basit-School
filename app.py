@@ -7071,10 +7071,11 @@ css = """
     text-align: right !important;
 }
 
-/* Fix 9: محاذاة عناوين رفع الملفات إلى اليمين مع إلغاء تموضع Gradio المطلق */
-.masar-file-upload-right label,
+/* Fix 10: محاذاة نص عنوان رفع الملفات فقط دون تضخيم أيقونة الرفع */
 .masar-file-upload-right [data-testid="block-label"] {
     position: static !important;
+}
+.masar-file-upload-right [data-testid="block-label"] span {
     text-align: right !important;
     width: 100% !important;
     display: block !important;
