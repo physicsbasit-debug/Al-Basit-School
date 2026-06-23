@@ -7081,13 +7081,10 @@ css = """
     display: block !important;
 }
 
-/* Fix 13: محاذاة عنواني تاريخ البداية وتاريخ النهاية إلى اليمين فقط */
-.masar-date-label-right label,
+/* Fix 14: محاذاة عناوين حقول التاريخ عبر إلغاء absolute للحاوية وتنسيق النص الداخلي فقط */
 .masar-date-label-right [data-testid="block-label"] {
-    text-align: right !important;
-    width: 100% !important;
+    position: static !important;
 }
-.masar-date-label-right label span,
 .masar-date-label-right [data-testid="block-label"] span {
     text-align: right !important;
     width: 100% !important;
