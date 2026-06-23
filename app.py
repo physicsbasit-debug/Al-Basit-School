@@ -7031,13 +7031,13 @@ def do_logout():
     
 css = """
 
-/* Fix 5: only top control dropdowns. Keep Arabic text right, force real spacing, move arrow visually left. */
-.masar-arrow-fix .secondary-wrap {
+/* Fix 6: top control dropdowns only. Higher specificity using Gradio/Svelte classes confirmed in DevTools. */
+.masar-arrow-fix .wrap-inner.svelte-1xfsv4t .secondary-wrap.svelte-1xfsv4t {
     flex-direction: row-reverse !important;
     justify-content: space-between !important;
     width: 100% !important;
 }
-.masar-arrow-fix input {
+.masar-arrow-fix .secondary-wrap.svelte-1xfsv4t input.svelte-1xfsv4t {
     flex: 1 1 auto !important;
     width: 100% !important;
     text-align: right !important;
