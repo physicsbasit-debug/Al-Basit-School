@@ -7396,11 +7396,11 @@ td, .dark td { font-weight: bold !important; text-align: center !important; whit
 .exemption-rtl-group .wrap,
 .exemption-rtl-group .form {
   display: flex !important;
-  flex-direction: row-reverse !important;
+  flex-direction: row !important;
   flex-wrap: wrap !important;
-  justify-content: flex-end !important;
+  justify-content: flex-start !important;
   gap: 8px !important;
-  direction: ltr !important;
+  direction: rtl !important;
 }
 
 .exemption-rtl-group label {
@@ -9900,7 +9900,7 @@ with gr.Blocks() as app:
                 with gr.Tab("🛡️ حالات الإعفاء", id="exemptions") as exemptions_tab:
                     gr.Markdown("### 🚫 تثبيت الإعفاءات الدائمة")
                     with gr.Column(elem_classes="shield-box"):
-                        rule_teacher = gr.Dropdown(get_teacher_choices("الكل"), label="👨‍🏫 اختر المعلم المراد إعفاؤه")
+                        rule_teacher = gr.Dropdown(get_teacher_choices("الكل"), label="👨‍🏫 اختر المعلم المراد إعفاؤه", elem_classes="masar-arrow-fix")
                         with gr.Row():
                             rule_days = gr.CheckboxGroup(SCHOOL_WEEK_DAYS, label="📅 أيام معفى منها", elem_classes="exemption-rtl-group")
                             rule_periods = gr.CheckboxGroup(list(range(1, MAX_PERIODS + 1)), label="⏱️ حصص معفى منها", elem_classes="exemption-rtl-group exemption-periods-order")
@@ -9927,20 +9927,23 @@ with gr.Blocks() as app:
                         swap_day = gr.Dropdown(
                             SCHOOL_WEEK_DAYS,
                             label="1️⃣ اليوم",
-                            value=get_current_day_oman()
+                            value=get_current_day_oman(),
+                            elem_classes="masar-arrow-fix"
                         )
                         swap_dept = gr.Dropdown(
                             ["الكل"] + [d for d in OFFICIAL_DEPTS if d != "الهيئة الإدارية"],
                             label="2️⃣ القسم",
-                            value="الكل"
+                            value="الكل",
+                            elem_classes="masar-arrow-fix"
                         )
                         swap_t1 = gr.Dropdown(
                             get_teacher_choices("الكل"),
                             label="3️⃣ المعلم الطالب للتبادل",
                             value=None,
-                            allow_custom_value=False
+                            allow_custom_value=False,
+                            elem_classes="masar-arrow-fix"
                         )
-                        swap_p1 = gr.Dropdown([], label="4️⃣ الحصة المراد مبادلتها", allow_custom_value=False)
+                        swap_p1 = gr.Dropdown([], label="4️⃣ الحصة المراد مبادلتها", allow_custom_value=False, elem_classes="masar-arrow-fix")
 
                     btn_run_radar = gr.Button("🚀 تشغيل الرادار والبحث عن بدائل الآن", variant="primary", visible=False)
 
