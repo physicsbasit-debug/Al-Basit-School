@@ -7272,6 +7272,10 @@ css = """
     justify-content: space-between !important;
     width: 100% !important;
 }
+
+.absent-box .wrap-inner.svelte-1dv2vbb {
+    flex-direction: row-reverse !important;
+}
 .leader-outer-card > .label-wrap,
 .leader-outer-card summary,
 .leader-outer-card [role="button"] {
