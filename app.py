@@ -7050,6 +7050,64 @@ css = """
 }
 
 
+/* Fix 16: بطاقة أنيقة لتغيير رمز الدخول دون لمس المنطق */
+.self-pin-card {
+    direction: rtl !important;
+    background: linear-gradient(135deg, #ffffff 0%, #f4fbf8 100%) !important;
+    border: 1px solid #cfe7df !important;
+    border-radius: 18px !important;
+    padding: 16px !important;
+    margin-top: 8px !important;
+    box-shadow: 0 10px 24px rgba(0, 77, 64, 0.10) !important;
+}
+.self-pin-card-head {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 12px !important;
+    text-align: right !important;
+    margin-bottom: 10px !important;
+}
+.self-pin-card-icon {
+    width: 44px !important;
+    height: 44px !important;
+    border-radius: 14px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: #e0f2f1 !important;
+    border: 1px solid #b2dfdb !important;
+    font-size: 22px !important;
+}
+.self-pin-card-title {
+    color: #004d40 !important;
+    font-weight: 900 !important;
+    font-size: 18px !important;
+    line-height: 1.4 !important;
+}
+.self-pin-card-desc {
+    color: #375f57 !important;
+    font-weight: 700 !important;
+    font-size: 13px !important;
+    line-height: 1.6 !important;
+}
+.self-pin-card-note {
+    background: #eef6f3 !important;
+    color: #004d40 !important;
+    padding: 9px 12px !important;
+    border-radius: 12px !important;
+    border-right: 4px solid #0f766e !important;
+    font-weight: 800 !important;
+    line-height: 1.7 !important;
+    margin-bottom: 12px !important;
+}
+.self-pin-card input {
+    border-radius: 12px !important;
+}
+.self-pin-card button {
+    margin-top: 6px !important;
+}
+
 /* Fix 8: ترتيب صف تغيير الرمز بصريًا من اليسار إلى اليمين مع إبقاء النص العربي يمينًا */
 .self-pin-row-ltr {
     direction: ltr !important;
@@ -9517,31 +9575,35 @@ with gr.Blocks() as app:
                 logout_btn = gr.Button("🚪 خروج و إقفال", elem_classes=["reset-btn", "logout-btn"])
         
         with gr.Accordion("🔑 تغيير رمز دخولي", open=False, elem_classes="masar-accordion-arrow-fix"):
-            gr.HTML(
-                "<div style='background:#eef6f3;color:#004d40;padding:10px;"
-                "border-radius:8px;border-right:4px solid #0f766e;"
-                "font-weight:800;line-height:1.7;'>"
-                "اكتب رمزك الحالي ثم الرمز الجديد. رمز مالك النظام يُدار من Secret الاستضافة."
-                "</div>"
-            )
-            with gr.Row(elem_classes="self-pin-row-ltr"):
-                self_current_pin = gr.Textbox(
-                    type="password",
-                    label="الرمز الحالي",
+            with gr.Column(elem_classes="self-pin-card"):
+                gr.HTML(
+                    "<div class='self-pin-card-head'>"
+                    "<div class='self-pin-card-icon'>🔐</div>"
+                    "<div>"
+                    "<div class='self-pin-card-title'>تحديث رمز الدخول</div>"
+                    "<div class='self-pin-card-desc'>اكتب رمزك الحالي ثم الرمز الجديد، ثم اضغط حفظ الرمز الجديد.</div>"
+                    "</div>"
+                    "</div>"
+                    "<div class='self-pin-card-note'>رمز مالك النظام يُدار من Secret الاستضافة.</div>"
                 )
-                self_new_pin = gr.Textbox(
-                    type="password",
-                    label="الرمز الجديد",
+                with gr.Row(elem_classes="self-pin-row-ltr"):
+                    self_current_pin = gr.Textbox(
+                        type="password",
+                        label="الرمز الحالي",
+                    )
+                    self_new_pin = gr.Textbox(
+                        type="password",
+                        label="الرمز الجديد",
+                    )
+                    self_confirm_pin = gr.Textbox(
+                        type="password",
+                        label="تأكيد الرمز الجديد",
+                    )
+                self_change_pin_btn = gr.Button(
+                    "حفظ الرمز الجديد",
+                    elem_classes="admin-btn",
                 )
-                self_confirm_pin = gr.Textbox(
-                    type="password",
-                    label="تأكيد الرمز الجديد",
-                )
-            self_change_pin_btn = gr.Button(
-                "حفظ رمز الدخول الجديد",
-                elem_classes="admin-btn",
-            )
-            self_change_pin_status = gr.HTML()
+                self_change_pin_status = gr.HTML()
 
         with gr.Column(visible=True, elem_id="masar_home_dashboard", elem_classes="masar-home-dashboard") as home_dashboard:
             home_hero_html = gr.HTML(value=build_home_hero_html())
