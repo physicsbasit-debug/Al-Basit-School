@@ -7048,6 +7048,27 @@ css = """
     right: auto !important;
     left: 8px !important;
 }
+
+
+/* Fix 8: ترتيب صف تغيير الرمز بصريًا من اليسار إلى اليمين مع إبقاء النص العربي يمينًا */
+.self-pin-row-ltr {
+    direction: ltr !important;
+}
+.self-pin-row-ltr > * {
+    direction: rtl !important;
+}
+.self-pin-row-ltr input {
+    text-align: right !important;
+}
+
+/* Fix 8: محاذاة عناوين رفع الملفات إلى اليمين */
+.masar-file-upload-right label,
+.masar-file-upload-right .label-wrap,
+.masar-file-upload-right .label-wrap span {
+    text-align: right !important;
+    direction: rtl !important;
+    justify-content: flex-end !important;
+}
 /* فرض وضع النهار بالقوة على مستوى المتصفح */
 :root, body, .dark, * { color-scheme: light !important; }
 :root, body, .dark { --background-fill-primary: #ffffff !important; --background-fill-secondary: #ffffff !important; --block-background-fill: #ffffff !important; --body-background-fill: #ffffff !important; --color-text-primary: #000000 !important; --body-text-color: #000000 !important; --table-even-background-fill: #ffffff !important; --table-odd-background-fill: #ffffff !important; --table-row-focus: #f1f8e9 !important; --border-color-primary: #e5e7eb !important; --checkbox-background-color: #ffffff !important; --checkbox-background-color-selected: #004d40 !important; --checkbox-border-color: #e5e7eb !important; --input-background-fill: #ffffff !important; --input-background-fill-focus: #ffffff !important; --neutral-100: #ffffff !important; --neutral-200: #f4f6f8 !important; --neutral-800: #000000 !important; --neutral-900: #000000 !important; }
@@ -9485,7 +9506,7 @@ with gr.Blocks() as app:
                 "اكتب رمزك الحالي ثم الرمز الجديد. رمز مالك النظام يُدار من Secret الاستضافة."
                 "</div>"
             )
-            with gr.Row():
+            with gr.Row(elem_classes="self-pin-row-ltr"):
                 self_current_pin = gr.Textbox(
                     type="password",
                     label="الرمز الحالي",
@@ -9770,7 +9791,7 @@ with gr.Blocks() as app:
 
                         school_data_admin_html = gr.HTML(value=render_admin_reference_card())
                         with gr.Row():
-                            admin_reference_upload = gr.File(label="رفع ملف الإداريين المرجعي", file_types=[".xlsx", ".xls", ".csv"])
+                            admin_reference_upload = gr.File(label="رفع ملف الإداريين المرجعي", file_types=[".xlsx", ".xls", ".csv"], elem_classes="masar-file-upload-right")
                         with gr.Row():
                             save_admin_reference_btn = gr.Button("💾 اعتماد ملف الإداريين المرجعي", elem_classes="admin-btn")
                             refresh_admin_reference_btn = gr.Button("🔄 تحديث الإداريين من الملف المرجعي", elem_classes="admin-btn")
@@ -9778,7 +9799,7 @@ with gr.Blocks() as app:
 
                         school_data_phones_html = gr.HTML(value=render_phones_reference_card())
                         with gr.Row():
-                            phones_reference_upload = gr.File(label="رفع ملف أرقام المعلمين المرجعي", file_types=[".xlsx", ".xls", ".csv"])
+                            phones_reference_upload = gr.File(label="رفع ملف أرقام المعلمين المرجعي", file_types=[".xlsx", ".xls", ".csv"], elem_classes="masar-file-upload-right")
                         with gr.Row():
                             save_phones_reference_btn = gr.Button("💾 اعتماد ملف أرقام المعلمين المرجعي", elem_classes="admin-btn")
                             refresh_phones_reference_btn = gr.Button("🔄 تحديث أرقام المعلمين من الملف المرجعي", elem_classes="admin-btn")
@@ -9789,12 +9810,14 @@ with gr.Blocks() as app:
                             schedule_reference_dept = gr.Dropdown(
                                 choices=list(SCHEDULE_FILES.keys()),
                                 label="اختر القسم لملفه المرجعي",
-                                value="التربية الإسلامية"
+                                value="التربية الإسلامية",
+                                elem_classes="masar-arrow-fix"
                             )
                         with gr.Row():
                             schedule_reference_upload = gr.File(
                                 label="رفع ملف الجدول المرجعي للقسم المختار",
-                                file_types=[".xlsx", ".xls", ".csv"]
+                                file_types=[".xlsx", ".xls", ".csv"],
+                                elem_classes="masar-file-upload-right"
                             )
                         with gr.Row():
                             save_schedule_reference_btn = gr.Button("💾 اعتماد الملف المرجعي للقسم", elem_classes="admin-btn")
@@ -9802,12 +9825,12 @@ with gr.Blocks() as app:
                         schedule_reference_status_html = gr.HTML()
 
 
-                        with gr.Accordion("🧩 أدوات إدارية إضافية", open=True, visible=False, elem_classes=["direct-panel-accordion", "manual-tools-direct-panel"]) as manual_entry_container:
-                            gr.Markdown("### 👨‍💼 الإدخال اليدوي للطاقم الإداري")
+                        with gr.Column(visible=False, elem_classes=["school-data-inner-card", "manual-tools-direct-panel"]) as manual_entry_container:
+                            gr.HTML("<div class='school-data-subsection-title'>👨‍💼 الإدخال اليدوي للطاقم الإداري</div>")
                             with gr.Row(elem_classes="yellow-box"):
                                 manual_name = gr.Textbox(label="الاسم الثلاثي")
                                 manual_dept = gr.Dropdown(["الهيئة الإدارية"], label="القسم", value="الهيئة الإدارية", interactive=False, elem_classes="fixed-dd")
-                                manual_role = gr.Dropdown(ADMIN_ROLES, label="المنصب", value="أخصائي اجتماعي", elem_classes="fixed-dd")
+                                manual_role = gr.Dropdown(ADMIN_ROLES, label="المنصب", value="أخصائي اجتماعي", elem_classes=["fixed-dd", "masar-arrow-fix"])
                                 manual_phone = gr.Textbox(label="رقم الواتساب")
                             with gr.Row():
                                 manual_add_btn = gr.Button("➕ حفظ وإضافة", elem_classes="admin-btn")
