@@ -7081,14 +7081,11 @@ css = """
     display: block !important;
 }
 
-/* Fix 14: محاذاة عناوين حقول التاريخ عبر إلغاء absolute للحاوية وتنسيق النص الداخلي فقط */
-.masar-date-label-right [data-testid="block-label"] {
-    position: static !important;
-}
-.masar-date-label-right [data-testid="block-label"] span {
-    text-align: right !important;
-    width: 100% !important;
+/* Fix 15: محاذاة عناوين حقول التاريخ باستهداف span الحقيقي في DateTime */
+.masar-date-label-right span.svelte-jdcl7l {
     display: block !important;
+    width: 100% !important;
+    text-align: right !important;
 }
 /* فرض وضع النهار بالقوة على مستوى المتصفح */
 :root, body, .dark, * { color-scheme: light !important; }
