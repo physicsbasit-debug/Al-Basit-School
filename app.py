@@ -7080,6 +7080,19 @@ css = """
     width: 100% !important;
     display: block !important;
 }
+
+/* Fix 13: محاذاة عنواني تاريخ البداية وتاريخ النهاية إلى اليمين فقط */
+.masar-date-label-right label,
+.masar-date-label-right [data-testid="block-label"] {
+    text-align: right !important;
+    width: 100% !important;
+}
+.masar-date-label-right label span,
+.masar-date-label-right [data-testid="block-label"] span {
+    text-align: right !important;
+    width: 100% !important;
+    display: block !important;
+}
 /* فرض وضع النهار بالقوة على مستوى المتصفح */
 :root, body, .dark, * { color-scheme: light !important; }
 :root, body, .dark { --background-fill-primary: #ffffff !important; --background-fill-secondary: #ffffff !important; --block-background-fill: #ffffff !important; --body-background-fill: #ffffff !important; --color-text-primary: #000000 !important; --body-text-color: #000000 !important; --table-even-background-fill: #ffffff !important; --table-odd-background-fill: #ffffff !important; --table-row-focus: #f1f8e9 !important; --border-color-primary: #e5e7eb !important; --checkbox-background-color: #ffffff !important; --checkbox-background-color-selected: #004d40 !important; --checkbox-border-color: #e5e7eb !important; --input-background-fill: #ffffff !important; --input-background-fill-focus: #ffffff !important; --neutral-100: #ffffff !important; --neutral-200: #f4f6f8 !important; --neutral-800: #000000 !important; --neutral-900: #000000 !important; }
@@ -10037,12 +10050,14 @@ with gr.Blocks() as app:
                                         include_time=False,
                                         type="string",
                                         timezone="Asia/Muscat",
+                                        elem_classes="masar-date-label-right",
                                     )
                                     audit_date_to = gr.DateTime(
                                         label="تاريخ النهاية",
                                         include_time=False,
                                         type="string",
                                         timezone="Asia/Muscat",
+                                        elem_classes="masar-date-label-right",
                                     )
                                 with gr.Row():
                                     audit_today_btn = gr.Button("اليوم", elem_classes="admin-btn")
