@@ -9877,6 +9877,7 @@ with gr.Blocks() as app:
                                     label="رفع شعار بديل اختياري",
                                     file_types=[".png", ".jpg", ".jpeg", ".webp"],
                                     type="filepath",
+                                    elem_classes="masar-file-upload-right",
                                 )
                             with gr.Row():
                                 identity_theme_color = gr.Textbox(value=THEME_COLOR, label="اللون الأساسي HEX")
@@ -9937,6 +9938,7 @@ with gr.Blocks() as app:
                                     choices=[],
                                     value=None,
                                     label="اختر الحساب",
+                                    elem_classes="masar-arrow-fix",
                                 )
                                 owner_requested_pin = gr.Textbox(
                                     type="password",
@@ -10026,19 +10028,19 @@ with gr.Blocks() as app:
                             with gr.Column(elem_classes="school-data-subsection-card"):
                                 gr.HTML("<div class='school-data-subsection-title'>📑 سجل العمليات الحساسة</div>")
                                 with gr.Row():
-                                    audit_action_filter = gr.Dropdown(["الكل"], value="الكل", label="نوع العملية")
-                                    audit_actor_filter = gr.Dropdown(["الكل"], value="الكل", label="اسم المنفذ")
-                                    audit_teacher_filter = gr.Dropdown(["الكل"], value="الكل", label="المعلم المتأثر")
+                                    audit_action_filter = gr.Dropdown(["الكل"], value="الكل", label="نوع العملية", elem_classes="masar-arrow-fix")
+                                    audit_actor_filter = gr.Dropdown(["الكل"], value="الكل", label="اسم المنفذ", elem_classes="masar-arrow-fix")
+                                    audit_teacher_filter = gr.Dropdown(["الكل"], value="الكل", label="المعلم المتأثر", elem_classes="masar-arrow-fix")
                                 with gr.Row():
                                     audit_date_from = gr.DateTime(
-                                        label="من تاريخ",
+                                        label="اختر تاريخ البداية",
                                         include_time=False,
                                         type="string",
                                         timezone="Asia/Muscat",
                                         info="اختر تاريخ البداية من التقويم",
                                     )
                                     audit_date_to = gr.DateTime(
-                                        label="إلى تاريخ",
+                                        label="اختر تاريخ النهاية",
                                         include_time=False,
                                         type="string",
                                         timezone="Asia/Muscat",
