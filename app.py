@@ -7267,9 +7267,10 @@ css = """
     margin-left: 0 !important;
     margin-right: auto !important;
 }
-.absent-box .wrap-inner {
-    flex-wrap: wrap !important;
-    justify-content: flex-end !important;
+.absent-box .secondary-wrap.svelte-1dv2vbb {
+    flex-direction: row-reverse !important;
+    justify-content: space-between !important;
+    width: 100% !important;
 }
 .leader-outer-card > .label-wrap,
 .leader-outer-card summary,
