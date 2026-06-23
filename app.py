@@ -9983,7 +9983,7 @@ with gr.Blocks() as app:
                         btn_next_page = gr.Button("التالي ▶", elem_classes="admin-btn", scale=1, min_width=110)
                 with gr.Tab("🔍 جدول المعلم", id="teacher_table") as teacher_tab:
                     gr.Markdown("### 🧐 شاشة التدقيق")
-                    check_teacher_in = gr.Dropdown(get_teacher_schedule_choices("الكل"), label="👨‍🏫 اختر المعلم")
+                    check_teacher_in = gr.Dropdown(get_teacher_schedule_choices("الكل"), label="👨‍🏫 اختر المعلم", elem_classes="masar-arrow-fix")
                     check_tbl = gr.HTML("<div style='text-align:center; color:#64748b; padding:18px; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:12px; direction:rtl;'>اختر المعلم لعرض جدوله الأسبوعي.</div>")
                     check_teacher_in.change(get_teacher_weekly_schedule_html, check_teacher_in, check_tbl)
                 with gr.Tab("🗄️ مركز البيانات المدرسية", id="school_data") as school_data_tab:
