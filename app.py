@@ -7178,6 +7178,78 @@ css = """
     width: 100% !important;
     text-align: right !important;
 }
+
+/* v1.8.4d Fix 1: تجميل تبويب التوزيع والاحتياط فقط */
+.distribution-controls-card {
+    background: linear-gradient(135deg, #fffde7, #fff8c6) !important;
+    border: 2px solid #ffca28 !important;
+    border-radius: 18px !important;
+    padding: 16px !important;
+    margin: 10px 0 14px 0 !important;
+    box-shadow: 0 8px 18px rgba(202, 138, 4, 0.12) !important;
+    direction: rtl !important;
+}
+.distribution-controls-title {
+    text-align: right !important;
+    color: #004d40 !important;
+    font-weight: 900 !important;
+    font-size: 18px !important;
+    margin-bottom: 10px !important;
+}
+.masar-image-label-right [data-testid="block-label"] {
+    position: static !important;
+}
+.masar-image-label-right [data-testid="block-label"] span,
+.masar-image-label-right label span,
+.masar-image-label-right span.svelte-jdcl7l {
+    display: block !important;
+    width: 100% !important;
+    text-align: right !important;
+}
+.leader-outer-card {
+    background: linear-gradient(135deg, #f8fffb, #eef8f3) !important;
+    border: 1.5px solid #b2dfdb !important;
+    border-radius: 20px !important;
+    padding: 12px 14px !important;
+    margin: 14px 0 18px 0 !important;
+    box-shadow: 0 8px 20px rgba(0, 77, 64, 0.10) !important;
+}
+.leader-outer-card > .label-wrap {
+    background: linear-gradient(135deg, #004d40, #0f766e) !important;
+    border: 1px solid rgba(255, 202, 40, 0.45) !important;
+    border-radius: 16px !important;
+    padding: 12px 18px !important;
+    min-height: 48px !important;
+    box-shadow: 0 6px 14px rgba(0, 77, 64, 0.20) !important;
+}
+.leader-outer-card > .label-wrap span {
+    color: #ffca28 !important;
+    -webkit-text-fill-color: #ffca28 !important;
+    font-weight: 900 !important;
+    font-size: 16px !important;
+}
+.leader-outer-card > .label-wrap svg,
+.leader-outer-card > .label-wrap .icon-wrap {
+    color: #ffca28 !important;
+    fill: #ffca28 !important;
+}
+.leader-row-rtl {
+    direction: rtl !important;
+}
+.leader-row-rtl > * {
+    direction: rtl !important;
+}
+.masar-field-label-right [data-testid="block-label"] {
+    position: static !important;
+}
+.masar-field-label-right [data-testid="block-label"] span,
+.masar-field-label-right label span,
+.masar-field-label-right span.svelte-jdcl7l {
+    display: block !important;
+    width: 100% !important;
+    text-align: right !important;
+}
+
 /* فرض وضع النهار بالقوة على مستوى المتصفح */
 :root, body, .dark, * { color-scheme: light !important; }
 :root, body, .dark { --background-fill-primary: #ffffff !important; --background-fill-secondary: #ffffff !important; --block-background-fill: #ffffff !important; --body-background-fill: #ffffff !important; --color-text-primary: #000000 !important; --body-text-color: #000000 !important; --table-even-background-fill: #ffffff !important; --table-odd-background-fill: #ffffff !important; --table-row-focus: #f1f8e9 !important; --border-color-primary: #e5e7eb !important; --checkbox-background-color: #ffffff !important; --checkbox-background-color-selected: #004d40 !important; --checkbox-border-color: #e5e7eb !important; --input-background-fill: #ffffff !important; --input-background-fill-focus: #ffffff !important; --neutral-100: #ffffff !important; --neutral-200: #f4f6f8 !important; --neutral-800: #000000 !important; --neutral-900: #000000 !important; }
@@ -9680,7 +9752,8 @@ with gr.Blocks() as app:
             with gr.Tabs(selected="distribution") as main_tabs:
                 with gr.Tab("📋 التوزيع والاحتياط", id="distribution") as distribution_tab:
                     with gr.Column():
-                        with gr.Accordion("⚙️ ضوابط التوزيع اليومية", open=True, elem_classes="yellow-box"):
+                        with gr.Column(elem_classes=["yellow-box", "distribution-controls-card"]):
+                            gr.HTML("<div class='distribution-controls-title'>⚙️ ضوابط التوزيع اليومية</div>")
                             max_reserves_input = gr.Number(value=1, label="🛑 الحد الأقصى للاحتياط لكل معلم في اليوم", precision=0)
                     
                         radar_warning_html = gr.HTML()
@@ -9692,7 +9765,7 @@ with gr.Blocks() as app:
                             ⚫️ استخدم <b>مقترح آخر</b> لعرض توزيع آلي بديل للغيابات الحالية.
                         </div>
                         """)
-                        abs_in = gr.Dropdown([], label="👨‍🏫 حدد المعلمين الغائبين", multiselect=True, elem_classes="absent-box")
+                        abs_in = gr.Dropdown([], label="👨‍🏫 حدد المعلمين الغائبين", multiselect=True, elem_classes=["absent-box", "masar-arrow-fix", "masar-field-label-right"])
 
                         with gr.Row():
                             btn = gr.Button("🚀 توليد وتوزيع الاحتياط", variant="primary", interactive=False, elem_classes="action-btn")
@@ -9701,7 +9774,7 @@ with gr.Blocks() as app:
                             btn_img = gr.Button("🖼️ تحميل الجدول كصورة", interactive=False, elem_classes="export-btn")
 
                         date_display = gr.HTML(get_initial_header)
-                        img_out = gr.Image(label="الصورة الجاهزة للنسخ", interactive=False)
+                        img_out = gr.Image(label="الصورة الجاهزة للنسخ", interactive=False, elem_classes="masar-image-label-right")
                         tbl_out = gr.HTML(value="")
                     
                         with gr.Column(elem_classes="whatsapp-box"):
@@ -9710,21 +9783,21 @@ with gr.Blocks() as app:
                             with gr.Row(): msg_individual_html = gr.HTML(label="💌 بطاقات التكليف الفردية")
 
                         gr.HTML("<div class='external-section-title leader-title'>⚙️ لوحة القائد: التعديل اليدوي والتبادل</div>")
-                        with gr.Accordion("فتح / إغلاق لوحة القائد", open=False, elem_classes="leader-accordion"):
+                        with gr.Accordion("فتح / إغلاق لوحة القائد", open=False, elem_classes=["leader-accordion", "masar-accordion-arrow-fix", "leader-outer-card"]):
                             with gr.Column(elem_classes="admin-zone"):
                                 admin_zone_title = gr.HTML("<h4 style='color:#004d40; text-align:center; margin-top:0;'>🛠️ غرفة العمليات والقيادة</h4>")
                                 admin_zone_help = gr.HTML("<div style='color:#00695c; background:#e0f2f1; padding:15px; border-radius:8px; border-right: 4px solid #00897b;'>💡 <b>توضيح:</b> اختر المعلم الغائب ثم الحصة، وبعدها نفّذ الإجراء المناسب من نفس اللوحة حسب دورك وصلاحيتك.</div>")
                             
-                                with gr.Row():
-                                    edit_abs_t = gr.Dropdown([], label="1️⃣ المعلم الغائب", allow_custom_value=True)
-                                    edit_period = gr.Dropdown([], label="2️⃣ اختر الحصة", allow_custom_value=False)
-                                    edit_intervention_type = gr.Dropdown([], label="3️⃣ نطاق البحث عن بديل (تلقائي ذكي)", allow_custom_value=True)
+                                with gr.Row(elem_classes="leader-row-rtl"):
+                                    edit_abs_t = gr.Dropdown([], label="‏1️⃣ المعلم الغائب", allow_custom_value=True, elem_classes=["masar-arrow-fix", "masar-field-label-right"])
+                                    edit_period = gr.Dropdown([], label="‏2️⃣ اختر الحصة", allow_custom_value=False, elem_classes=["masar-arrow-fix", "masar-field-label-right"])
+                                    edit_intervention_type = gr.Dropdown([], label="‏3️⃣ نطاق البحث عن بديل (تلقائي ذكي)", allow_custom_value=True, elem_classes=["masar-arrow-fix", "masar-field-label-right"])
                             
                                 with gr.Row():
                                     cb_cross_dept = gr.Checkbox(label="🔓 تفعيل التعاون مع قسم آخر 🤝", visible=False)
                             
-                                with gr.Row():
-                                    edit_new_sub = gr.Dropdown([], label="4️⃣ البديل المنقذ", allow_custom_value=True)
+                                with gr.Row(elem_classes="leader-row-rtl"):
+                                    edit_new_sub = gr.Dropdown([], label="‏4️⃣ البديل المنقذ", allow_custom_value=True, elem_classes=["masar-arrow-fix", "masar-field-label-right"])
                                 with gr.Row():
                                     btn_apply_override = gr.Button("✍🏻 تكليف احتياط رسمي", elem_classes=["admin-btn", "leader-official-btn"], interactive=False)
                                     btn_apply_tabadul = gr.Button("🤝 اعتماد كـ تبادل", elem_classes=["tabadul-btn", "leader-swap-btn"], interactive=False)
