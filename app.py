@@ -7061,13 +7061,23 @@ css = """
     text-align: right !important;
 }
 
-/* Fix 8: محاذاة عناوين رفع الملفات إلى اليمين */
-.masar-file-upload-right label,
-.masar-file-upload-right .label-wrap,
-.masar-file-upload-right .label-wrap span {
+/* Fix 9: ترتيب عنوان Accordion تغيير رمز دخولي فقط */
+.masar-accordion-arrow-fix > .label-wrap {
+    flex-direction: row-reverse !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+}
+.masar-accordion-arrow-fix > .label-wrap span {
     text-align: right !important;
-    direction: rtl !important;
-    justify-content: flex-end !important;
+}
+
+/* Fix 9: محاذاة عناوين رفع الملفات إلى اليمين مع إلغاء تموضع Gradio المطلق */
+.masar-file-upload-right label,
+.masar-file-upload-right [data-testid="block-label"] {
+    position: static !important;
+    text-align: right !important;
+    width: 100% !important;
+    display: block !important;
 }
 /* فرض وضع النهار بالقوة على مستوى المتصفح */
 :root, body, .dark, * { color-scheme: light !important; }
@@ -9498,7 +9508,7 @@ with gr.Blocks() as app:
             with gr.Column(scale=1, min_width=120, elem_classes="logout-col"):
                 logout_btn = gr.Button("🚪 خروج و إقفال", elem_classes=["reset-btn", "logout-btn"])
         
-        with gr.Accordion("🔑 تغيير رمز دخولي", open=False):
+        with gr.Accordion("🔑 تغيير رمز دخولي", open=False, elem_classes="masar-accordion-arrow-fix"):
             gr.HTML(
                 "<div style='background:#eef6f3;color:#004d40;padding:10px;"
                 "border-radius:8px;border-right:4px solid #0f766e;"
