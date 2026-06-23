@@ -9866,7 +9866,7 @@ with gr.Blocks() as app:
                             tbl_short = gr.HTML()
                 
                     gr.HTML("<div class='external-section-title vault-title'>🔒 الخزنة: تعديل يدوي للأرصدة والهواتف</div>")
-                    with gr.Accordion("فتح / إغلاق الخزنة", open=False, elem_classes=["yellow-box", "vault-accordion"]):
+                    with gr.Accordion("فتح / إغلاق الخزنة", open=False, elem_classes=["yellow-box", "vault-accordion", "masar-accordion-arrow-fix"]):
                         gr.HTML("""
                         <div class='vault-guide-box'>
                             💡 <b>توضيح:</b><br>
@@ -9875,9 +9875,9 @@ with gr.Blocks() as app:
                         </div>
                         """)
                         with gr.Row():
-                            t_name = gr.Dropdown(list(teachers_db.keys()), label="المعلم")
+                            t_name = gr.Dropdown(list(teachers_db.keys()), label="المعلم", elem_classes="masar-arrow-fix")
                             t_dept_edit = gr.Textbox(label="القسم / المادة (للعرض فقط)", interactive=False)
-                            t_role_edit = gr.Dropdown(ALL_ROLES, label="المنصب الإشرافي", interactive=False)
+                            t_role_edit = gr.Dropdown(ALL_ROLES, label="المنصب الإشرافي", interactive=False, elem_classes="masar-arrow-fix")
                         with gr.Row():
                             t_phone_edit = gr.Textbox(label="رقم الهاتف (الواتساب)", interactive=False)
                             t_specialty_edit = gr.Dropdown(
