@@ -7129,6 +7129,39 @@ css = """
     text-align: right !important;
 }
 
+/* Fix 17: إبراز بطاقة تغيير رمز الدخول من الخارج دون لمس منطقها */
+.self-pin-accordion-card {
+    background: linear-gradient(135deg, #f8fffb, #eef8f3) !important;
+    border: 1.5px solid #c8e6c9 !important;
+    border-radius: 20px !important;
+    padding: 12px 14px !important;
+    margin: 14px 0 18px 0 !important;
+    box-shadow: 0 8px 20px rgba(0, 77, 64, 0.10) !important;
+}
+.self-pin-accordion-card > .label-wrap {
+    background: linear-gradient(135deg, #004d40, #0f766e) !important;
+    border: 1px solid rgba(255, 202, 40, 0.45) !important;
+    border-radius: 16px !important;
+    padding: 12px 18px !important;
+    min-height: 48px !important;
+    box-shadow: 0 6px 14px rgba(0, 77, 64, 0.20) !important;
+}
+.self-pin-accordion-card > .label-wrap span {
+    color: #ffca28 !important;
+    -webkit-text-fill-color: #ffca28 !important;
+    font-weight: 900 !important;
+    font-size: 16px !important;
+}
+.self-pin-accordion-card > .label-wrap svg,
+.self-pin-accordion-card > .label-wrap .icon-wrap {
+    color: #ffca28 !important;
+    fill: #ffca28 !important;
+}
+.self-pin-accordion-card > .content,
+.self-pin-accordion-card [data-testid="accordion-content"] {
+    background: transparent !important;
+}
+
 /* Fix 10: محاذاة نص عنوان رفع الملفات فقط دون تضخيم أيقونة الرفع */
 .masar-file-upload-right [data-testid="block-label"] {
     position: static !important;
@@ -9574,7 +9607,7 @@ with gr.Blocks() as app:
             with gr.Column(scale=1, min_width=120, elem_classes="logout-col"):
                 logout_btn = gr.Button("🚪 خروج و إقفال", elem_classes=["reset-btn", "logout-btn"])
         
-        with gr.Accordion("🔑 تغيير رمز دخولي", open=False, elem_classes="masar-accordion-arrow-fix"):
+        with gr.Accordion("🔑 تغيير رمز دخولي", open=False, elem_classes=["masar-accordion-arrow-fix", "self-pin-accordion-card"]):
             with gr.Column(elem_classes="self-pin-card"):
                 gr.HTML(
                     "<div class='self-pin-card-head'>"
