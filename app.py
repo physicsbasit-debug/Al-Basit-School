@@ -10033,18 +10033,16 @@ with gr.Blocks() as app:
                                     audit_teacher_filter = gr.Dropdown(["الكل"], value="الكل", label="المعلم المتأثر", elem_classes="masar-arrow-fix")
                                 with gr.Row():
                                     audit_date_from = gr.DateTime(
-                                        label="اختر تاريخ البداية",
+                                        label="تاريخ البداية",
                                         include_time=False,
                                         type="string",
                                         timezone="Asia/Muscat",
-                                        info="اختر تاريخ البداية من التقويم",
                                     )
                                     audit_date_to = gr.DateTime(
-                                        label="اختر تاريخ النهاية",
+                                        label="تاريخ النهاية",
                                         include_time=False,
                                         type="string",
                                         timezone="Asia/Muscat",
-                                        info="اختر تاريخ النهاية من التقويم",
                                     )
                                 with gr.Row():
                                     audit_today_btn = gr.Button("اليوم", elem_classes="admin-btn")
