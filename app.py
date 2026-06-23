@@ -7241,6 +7241,40 @@ css = """
 }
 
 
+/* v1.8.4d Fix 6: استرجاع تجميل غلاف Accordion لوحة القائد باستهداف أوسع للـ label-wrap */
+.leader-outer-card .label-wrap,
+.leader-outer-card button[aria-expanded],
+.leader-outer-card summary {
+    background: linear-gradient(135deg, #004d40, #0f766e) !important;
+    border: 1px solid rgba(255, 202, 40, 0.45) !important;
+    border-radius: 16px !important;
+    padding: 12px 18px !important;
+    min-height: 48px !important;
+    box-shadow: 0 6px 14px rgba(0, 77, 64, 0.20) !important;
+}
+.leader-outer-card .label-wrap {
+    flex-direction: row-reverse !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+}
+.leader-outer-card .label-wrap span,
+.leader-outer-card button[aria-expanded] span,
+.leader-outer-card summary span {
+    color: #ffca28 !important;
+    -webkit-text-fill-color: #ffca28 !important;
+    font-weight: 900 !important;
+    font-size: 16px !important;
+    text-align: right !important;
+}
+.leader-outer-card .label-wrap svg,
+.leader-outer-card .label-wrap .icon-wrap,
+.leader-outer-card button[aria-expanded] svg,
+.leader-outer-card summary svg {
+    color: #ffca28 !important;
+    fill: #ffca28 !important;
+}
+
+
 /* v1.8.4d Fix 3: تجميل الغلاف الخارجي لقائمة حدد المعلمين الغائبين وضبط سهمها */
 .absent-box {
     background: linear-gradient(135deg, #ffffff, #f8fffb) !important;
@@ -7305,6 +7339,29 @@ css = """
 .leader-outer-card .icon-wrap {
     color: #ffca28 !important;
     fill: #ffca28 !important;
+}
+
+
+/* v1.8.4d Fix 7: ضبط سهم Accordion فتح / إغلاق لوحة القائد مثل القوائم المعتمدة */
+.leader-outer-card .label-wrap,
+.leader-outer-card summary,
+.leader-outer-card [role="button"] {
+    display: flex !important;
+    flex-direction: row-reverse !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    width: 100% !important;
+}
+.leader-outer-card .label-wrap span,
+.leader-outer-card summary span,
+.leader-outer-card [role="button"] span {
+    text-align: right !important;
+}
+.leader-outer-card .label-wrap svg,
+.leader-outer-card summary svg,
+.leader-outer-card [role="button"] svg {
+    margin-left: 0 !important;
+    margin-right: auto !important;
 }
 
 .masar-field-label-right [data-testid="block-label"] {
