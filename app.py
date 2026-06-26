@@ -5507,10 +5507,10 @@ def generate_whatsapp_html(df_state, day_name, absent_list):
         elegant_class = format_elegant_class(row['الصف'])
         
         if status == "تبادل":
-            msg = f"أهلاً بك أستاذنا المتعاون 🤝 {sub_display}،\nتم اعتماد التكليف كحصة (تبادلية) للصف ({elegant_class}) في الحصة ({row['الحصة']})، بدلاً من الأستاذ {abs_fmt}.\nعلى أن يتم التنسيق بينكما ليعوض الأستاذ {abs_fmt} حصته.\nإدارة مدرسة الباسط تشكر لكم هذا التعاون المثمر! 💐"
+            msg = f"أهلاً بك أستاذنا المتعاون 🤝 {sub_display}،\nتم اعتماد التكليف كحصة (تبادلية) للصف ({elegant_class}) في الحصة ({row['الحصة']})، بدلاً من الأستاذ {abs_fmt}.\nعلى أن يتم التنسيق بينكما ليعوض الأستاذ {abs_fmt} حصته.\nإدارة مدرسة الباسط تشكر لكم هذا التعاون المثمر!"
             btn_color = "#00897b"
         else:
-            msg = f"أهلاً بك أستاذنا المبدع 🌟 {sub_display}،\nتم تكليفك اليوم بمهمة قيادة الصف ({elegant_class}) في الحصة ({row['الحصة']})، بدلاً من الأستاذ {abs_fmt}.\nشاكرين لك مبادرتك وتعاونك الدائم! 💐\n- إدارة مدرسة الباسط"
+            msg = f"أهلاً بك أستاذنا المبدع {sub_display}،\nتم تكليفك اليوم بمهمة قيادة الصف ({elegant_class}) في الحصة ({row['الحصة']})، بدلاً من الأستاذ {abs_fmt}.\nشاكرين لك مبادرتك وتعاونك الدائم!\n- إدارة مدرسة الباسط"
             btn_color = "#25D366" if teachers_db.get(sub_raw, {}).get("phone", "") else "#075e54"
             
         encoded_msg = urllib.parse.quote(msg)
@@ -5961,7 +5961,7 @@ def refresh_ui_on_change(dept, day_name, is_admin_logged_in, current_abs=None):
                     exhausted_msgs.append(f"<li style='margin-bottom:5px;'>⚠️ الأستاذ <b>{sub}</b> سيدرس الحصص ({grp_str}) متتالية!</li>")
     
     if exhausted_msgs:
-        radar_alert = f"<div style='background:#fff8e1; color:#e65100; padding:15px; border-radius:10px; border:2px solid #ffb74d; margin-bottom:15px; text-align:right;'><b style='font-size:16px;'>🫀 الرادار الإنساني (تنبيه إرهاق):</b><ul style='margin-top:8px; margin-bottom:0; padding-right:20px; font-size:14px;'>" + "".join(exhausted_msgs) + "</ul></div>"
+        radar_alert = f"<div style='background:#fff8e1; color:#e65100; padding:15px; border-radius:10px; border:2px solid #ffb74d; margin-bottom:15px; text-align:right;'><b style='font-size:16px;'>الرادار الإنساني (تنبيه إرهاق):</b><ul style='margin-top:8px; margin-bottom:0; padding-right:20px; font-size:14px;'>" + "".join(exhausted_msgs) + "</ul></div>"
         warning_html = radar_alert + warning_html
 
     persistent_conflict_html = ""
@@ -6487,7 +6487,7 @@ def update_available_subs_smart(abs_t, period, intervention_type, day_name, df_s
 
     opts = []
 
-    # 🚀 الهيئة التدريسية (يستبعد الإداريين)
+    # الهيئة التدريسية (يستبعد الإداريين)
     if target_dept == "الهيئة التدريسية":
         available_cands = []
         for t, info in teachers_db.items():
@@ -6515,7 +6515,7 @@ def update_available_subs_smart(abs_t, period, intervention_type, day_name, df_s
             opts.append("إشراف إداري")
         return gr.update(choices=opts, value=None, interactive=True)
 
-    # 🚀 الهيئة الإدارية (خاص بالمدير)
+    # الهيئة الإدارية (خاص بالمدير)
     if target_dept == "الهيئة الإدارية":
         available_cands = []
         for t, info in teachers_db.items():
@@ -9618,7 +9618,7 @@ def generate_wa_msg(choice, t_req, p_req, d_req):
         req_class_raw = teachers_db.get(t_req_clean, {}).get(d_req, {}).get(p_req_clean, teachers_db.get(t_req_clean, {}).get(d_req, {}).get(int(p_req_clean) if p_req_clean.isdigit() else p_req_clean, ""))
         req_class_elegant = format_elegant_class(req_class_raw)
         
-        msg = f"السلام عليكم ورحمة الله وبركاته أستاذي العزيز ({t_target}) 🌹\n\n"
+        msg = f"السلام عليكم ورحمة الله وبركاته أستاذي العزيز ({t_target})\n\n"
         msg += f"يرغب الأستاذ ({t_req}) بالتبادل الودي معك (بعد إذنك وموافقتك طبعاً لظرف طارئ).\n"
         msg += f"ستقوم أنت مشكوراً بتغطية الصف ({req_class_elegant}) في الحصة ({p_req_clean}) يوم ({d_req}).\n"
         
@@ -10112,9 +10112,9 @@ with gr.Blocks() as app:
                         abs_in = gr.Dropdown([], label="👨‍🏫 حدد المعلمين الغائبين", multiselect=True, elem_classes=["absent-box", "masar-arrow-fix", "masar-field-label-right"])
 
                         with gr.Row():
-                            btn = gr.Button("🚀 توليد وتوزيع الاحتياط", variant="primary", interactive=False, elem_classes="action-btn")
+                            btn = gr.Button("توليد وتوزيع الاحتياط", variant="primary", interactive=False, elem_classes="action-btn")
                             btn_regenerate = gr.Button("🔁 إعادة توليد من جديد", visible=False, interactive=False, elem_classes="regen-btn")
-                            btn_alt = gr.Button("🪄 مقترح آخر", interactive=False, elem_classes="action-btn")
+                            btn_alt = gr.Button("مقترح آخر", interactive=False, elem_classes="action-btn")
                             btn_img = gr.Button("🖼️ تحميل الجدول كصورة", interactive=False, elem_classes="export-btn")
 
                         date_display = gr.HTML(get_initial_header)
@@ -10252,7 +10252,7 @@ with gr.Blocks() as app:
                         )
                         swap_p1 = gr.Dropdown([], label="4️⃣ الحصة المراد مبادلتها", allow_custom_value=False, elem_classes="masar-arrow-fix")
 
-                    btn_run_radar = gr.Button("🚀 تشغيل الرادار والبحث عن بدائل الآن", variant="primary", visible=False)
+                    btn_run_radar = gr.Button("تشغيل الرادار والبحث عن بدائل الآن", variant="primary", visible=False)
 
                     swap_options = gr.Radio(
                         label="5️⃣ الخيارات المتاحة (اختر المعلم الذي يناسبك لتوليد الرسالة 💬)",
@@ -10289,7 +10289,7 @@ with gr.Blocks() as app:
                         page_info_html = gr.HTML(elem_classes="day-page-info")
                         btn_next_page = gr.Button("التالي ▶", elem_classes="admin-btn", scale=1, min_width=110)
                 with gr.Tab("🔍 جدول المعلم", id="teacher_table") as teacher_tab:
-                    gr.Markdown("### 🧐 شاشة التدقيق")
+                    gr.Markdown("### شاشة التدقيق")
                     check_teacher_in = gr.Dropdown(get_teacher_schedule_choices("الكل"), label="👨‍🏫 اختر المعلم", elem_classes="masar-arrow-fix")
                     check_tbl = gr.HTML("<div style='text-align:center; color:#64748b; padding:18px; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:12px; direction:rtl;'>اختر المعلم لعرض جدوله الأسبوعي.</div>")
                     check_teacher_in.change(get_teacher_weekly_schedule_html, check_teacher_in, check_tbl)
@@ -10370,7 +10370,7 @@ with gr.Blocks() as app:
                                 manual_add_btn = gr.Button("➕ حفظ وإضافة", elem_classes="admin-btn")
                         manual_status_html = gr.HTML()
                         clear_status_html = gr.HTML()
-                        clear_btn = gr.Button("🧨 مسح وتصفير المنظومة", elem_classes="reset-btn", visible=False)
+                        clear_btn = gr.Button("مسح وتصفير المنظومة", elem_classes="reset-btn", visible=False)
 
 
                     with gr.Column(visible=False, elem_id="school_data_panel_identity", elem_classes="school-data-panel-box") as school_data_identity_panel:
@@ -10521,7 +10521,7 @@ with gr.Blocks() as app:
                             )
 
                             with gr.Column(elem_classes=["school-data-subsection-card", "account-profile-direct-panel"]):
-                                gr.HTML("<div class='school-data-subsection-title'>✨ الترحيب والمسميات</div>")
+                                gr.HTML("<div class='school-data-subsection-title'>الترحيب والمسميات</div>")
                                 gr.HTML(
                                     "<div style='background:#fff7ed;color:#7c2d12;padding:10px;"
                                     "border-radius:8px;border-right:4px solid #f59e0b;"
