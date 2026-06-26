@@ -605,10 +605,6 @@ def load_school_config():
 
 SCHOOL_CONFIG = load_school_config()
 
-# اختبار مؤقت: إجبار المنظومة على 8 حصص لحسم قراءة ملف Excel 8 حصص
-# يُحذف هذا السطر بعد انتهاء الاختبار واستبداله لاحقًا بإعداد رسمي من مركز البيانات.
-SCHOOL_CONFIG["periods_per_day"] = 8
-
 MINISTRY_NAME = str(DEFAULT_SCHOOL_CONFIG["ministry_name"])
 DIRECTORATE_PREFIX = str(DEFAULT_SCHOOL_CONFIG["directorate_prefix"])
 DIRECTORATE_REGION = str(SCHOOL_CONFIG.get("directorate_region", DEFAULT_SCHOOL_CONFIG["directorate_region"]))
@@ -3314,14 +3310,63 @@ def update_home_hero_after_login(
     return gr.update(value=build_home_hero_html(account_record=record))
 
 
+def _coerce_periods_per_day(value, default=None):
+    try:
+        parsed = int(str(value).strip())
+    except Exception:
+        parsed = default if default is not None else int(DEFAULT_SCHOOL_CONFIG["periods_per_day"])
+    if parsed not in (7, 8):
+        parsed = default if default in (7, 8) else int(DEFAULT_SCHOOL_CONFIG["periods_per_day"])
+    return int(parsed)
+
+
+def get_config_periods_per_day(config=None):
+    cfg = config if isinstance(config, dict) else load_school_config()
+    return _coerce_periods_per_day(
+        cfg.get("periods_per_day", DEFAULT_SCHOOL_CONFIG["periods_per_day"]),
+        int(DEFAULT_SCHOOL_CONFIG["periods_per_day"]),
+    )
+
+
+def render_operational_settings_status_html(config=None):
+    cfg = config if isinstance(config, dict) else load_school_config()
+    saved_periods = get_config_periods_per_day(cfg)
+    running_periods = int(MAX_PERIODS)
+    if saved_periods == running_periods:
+        status_line = "الإعداد المحفوظ مطابق لوضع التشغيل الحالي."
+        status_bg = "#dcfce7"
+        status_fg = "#166534"
+        status_border = "#16a34a"
+    else:
+        status_line = "تم حفظ إعداد مختلف عن وضع التشغيل الحالي. يلزم إعادة تشغيل المنظومة لتطبيقه."
+        status_bg = "#fff7ed"
+        status_fg = "#9a3412"
+        status_border = "#f59e0b"
+
+    return f"""
+<div style='background:{status_bg};color:{status_fg};padding:12px;border-radius:10px;border-right:5px solid {status_border};font-weight:800;line-height:1.9;text-align:right;margin-bottom:12px;'>
+    <div>عدد الحصص المحفوظ في ملف الإعدادات: <b>{saved_periods}</b></div>
+    <div>عدد الحصص في التشغيل الحالي: <b>{running_periods}</b></div>
+    <div>{status_line}</div>
+</div>
+"""
+
+
 def render_school_config_summary_html(config=None):
     cfg = dict(_current_identity_config())
+    loaded_config = load_school_config()
+    cfg.update(loaded_config)
     if isinstance(config, dict):
         cfg.update(config)
 
     directorate = _identity_directorate_full_name(
         cfg.get("directorate_region", DIRECTORATE_REGION)
     )
+    saved_periods = get_config_periods_per_day(cfg)
+    if saved_periods == int(MAX_PERIODS):
+        periods_text = f"{saved_periods}"
+    else:
+        periods_text = f"المحفوظ: {saved_periods} | التشغيل الحالي: {MAX_PERIODS} — يلزم إعادة التشغيل للتطبيق"
 
     return f"""
 <div style='background:#fffde7;color:#4d3b00;padding:12px;border-radius:10px;border-right:5px solid {html_lib.escape(str(cfg.get("accent_color", ACCENT_COLOR)))};margin-bottom:12px;font-weight:800;line-height:1.8;'>
@@ -3330,9 +3375,71 @@ def render_school_config_summary_html(config=None):
     الوزارة: <b>{html_lib.escape(DEFAULT_SCHOOL_CONFIG["ministry_name"])}</b><br>
     المديرية: <b>{html_lib.escape(directorate)}</b><br>
     اسم النظام: <b>{html_lib.escape(DEFAULT_SCHOOL_CONFIG["system_name"])} - {html_lib.escape(DEFAULT_SCHOOL_CONFIG["system_subtitle"])}</b><br>
-    عدد الحصص اليومية: <b>{MAX_PERIODS}</b>
+    عدد الحصص اليومية: <b>{html_lib.escape(str(periods_text))}</b>
 </div>
 """
+
+
+@state_locked
+def save_school_operational_settings(periods_per_day, is_owner=False, actor_name="", actor_role=""):
+    current_config = load_school_config()
+    current_saved = get_config_periods_per_day(current_config)
+
+    if not bool(is_owner):
+        return (
+            gr.update(value=current_saved),
+            "<div style='color:#b91c1c;font-weight:800;'>رفض الحفظ: إعدادات التشغيل مخصصة لمالك النظام فقط.</div>",
+            gr.update(value=render_school_config_summary_html(current_config)),
+            gr.update(value=render_operational_settings_status_html(current_config)),
+        )
+
+    new_periods = _coerce_periods_per_day(periods_per_day, current_saved)
+    if new_periods not in (7, 8):
+        return (
+            gr.update(value=current_saved),
+            "<div style='color:#b91c1c;font-weight:800;'>عدد الحصص يجب أن يكون 7 أو 8 فقط.</div>",
+            gr.update(value=render_school_config_summary_html(current_config)),
+            gr.update(value=render_operational_settings_status_html(current_config)),
+        )
+
+    old_periods = current_saved
+    current_config["periods_per_day"] = int(new_periods)
+
+    if not safe_write_json(SCHOOL_CONFIG_FILE, current_config):
+        return (
+            gr.update(value=old_periods),
+            "<div style='color:#b91c1c;font-weight:800;'>تعذر حفظ إعداد عدد الحصص في ملف المدرسة.</div>",
+            gr.update(value=render_school_config_summary_html(current_config)),
+            gr.update(value=render_operational_settings_status_html(current_config)),
+        )
+
+    if old_periods != new_periods:
+        write_audit_log(
+            "تعديل إعداد عدد الحصص اليومية",
+            target_teacher="",
+            old_value=old_periods,
+            new_value=new_periods,
+            details="تحديث عدد الحصص اليومية من إعدادات التشغيل المدرسية. يلزم إعادة تشغيل المنظومة للتطبيق.",
+            actor_name=actor_name,
+            actor_role=actor_role,
+        )
+
+    saved_config = load_school_config()
+    reboot_note = ""
+    if int(MAX_PERIODS) != int(new_periods):
+        reboot_note = "<br>⚠️ يلزم عمل Restart / Factory reboot حتى تعمل المنظومة بعدد الحصص الجديد."
+
+    return (
+        gr.update(value=int(new_periods)),
+        (
+            "<div style='color:#166534;background:#dcfce7;padding:10px;"
+            "border-radius:8px;font-weight:800;line-height:1.8;'>"
+            f"تم حفظ عدد الحصص اليومية: {int(new_periods)}.{reboot_note}"
+            "</div>"
+        ),
+        gr.update(value=render_school_config_summary_html(saved_config)),
+        gr.update(value=render_operational_settings_status_html(saved_config)),
+    )
 
 def render_school_identity_preview_html(
     system_name,
@@ -5362,13 +5469,14 @@ def school_data_panel_js(panel_name):
     ثم تُثبت دالة show_school_data_panel الحالة من جهة Gradio.
     """
     panel = str(panel_name or "overview").strip()
-    allowed = {"overview", "references", "identity", "accounts", "audit"}
+    allowed = {"overview", "references", "identity", "periods", "accounts", "audit"}
     if panel not in allowed:
         panel = "overview"
 
     classes = [
         "masar-sd-panel-references",
         "masar-sd-panel-identity",
+        "masar-sd-panel-periods",
         "masar-sd-panel-accounts",
         "masar-sd-panel-audit",
     ]
@@ -5378,6 +5486,7 @@ def school_data_panel_js(panel_name):
     panel_map = {
         "references": "school_data_panel_references",
         "identity": "school_data_panel_identity",
+        "periods": "school_data_panel_periods",
         "accounts": "school_data_panel_accounts",
         "audit": "school_data_panel_audit",
     }
@@ -5429,6 +5538,7 @@ def show_school_data_panel(panel_name="overview"):
         "overview": "اختر بطاقة من الأعلى لعرض أدواتها. حالة التخزين وإعدادات المدرسة تظهر هنا دائمًا.",
         "references": "رفع وتحديث الجداول المرجعية، أرقام المعلمين، وملف الإداريين.",
         "identity": "تعديل اسم المدرسة، المحافظة، الشعار، والألوان العامة.",
+        "periods": "إعدادات التشغيل المدرسية: اختيار عدد الحصص اليومية 7 أو 8.",
         "accounts": "إدارة الحسابات والرموز، ثم ضبط الترحيب والمسميات من صفحة واحدة.",
         "audit": "متابعة سجل العمليات والنسخ الاحتياطية في أقسام واضحة.",
     }
@@ -5441,6 +5551,7 @@ def show_school_data_panel(panel_name="overview"):
         gr.update(visible=show_overview),
         gr.update(visible=(panel == "references")),
         gr.update(visible=(panel == "identity")),
+        gr.update(visible=(panel == "periods")),
         gr.update(visible=(panel == "accounts")),
         gr.update(visible=(panel == "audit")),
     )
@@ -9003,6 +9114,7 @@ div[data-testid="dropdown-options"] *,
 
 body.masar-sd-panel-references #school_data_btn_references,
 body.masar-sd-panel-identity #school_data_btn_identity,
+body.masar-sd-panel-periods #school_data_btn_periods,
 body.masar-sd-panel-accounts #school_data_btn_accounts,
 body.masar-sd-panel-audit #school_data_btn_audit {
     border-color: #004d40 !important;
@@ -10000,6 +10112,7 @@ with gr.Blocks() as app:
                     with gr.Row(elem_classes="school-data-nav-row"):
                         btn_school_data_references_panel = gr.Button("🗂️\nالملفات المرجعية", elem_id="school_data_btn_references", elem_classes=["school-data-nav-btn"])
                         btn_school_data_identity_panel = gr.Button("🎨\nهوية المدرسة", elem_id="school_data_btn_identity", elem_classes=["school-data-nav-btn"])
+                        btn_school_data_periods_panel = gr.Button("⚙️\nإعدادات التشغيل", elem_id="school_data_btn_periods", elem_classes=["school-data-nav-btn"])
                         btn_school_data_accounts_panel = gr.Button("🔐\nحسابات الدخول", elem_id="school_data_btn_accounts", elem_classes=["school-data-nav-btn"])
                         btn_school_data_audit_panel = gr.Button("🛡️\nالسجل والنسخ", elem_id="school_data_btn_audit", elem_classes=["school-data-nav-btn"])
 
@@ -10135,6 +10248,39 @@ with gr.Blocks() as app:
                                 )
                             )
 
+
+
+                    with gr.Column(visible=False, elem_id="school_data_panel_periods", elem_classes="school-data-panel-box") as school_data_periods_panel:
+                        gr.HTML("<div class='school-data-panel-title'>⚙️ إعدادات التشغيل المدرسية</div>")
+                        with gr.Column(elem_classes=["school-data-inner-card", "periods-direct-panel"]):
+                            gr.HTML("<div class='school-data-subsection-title'>🕒 عدد الحصص اليومية</div>")
+                            gr.HTML(
+                                "<div style='background:#eef6f3;color:#004d40;padding:12px;"
+                                "border-radius:10px;border-right:5px solid #0f766e;"
+                                "margin-bottom:12px;font-weight:800;line-height:1.8;text-align:right;'>"
+                                "اختر عدد الحصص اليومي للمدرسة. هذا الإعداد يُحفظ في ملف school_config.json الحقيقي. "
+                                "بعد الحفظ يلزم إعادة تشغيل المنظومة حتى تُبنى القوائم والجداول على العدد الجديد."
+                                "</div>"
+                            )
+                            operational_settings_current_html = gr.HTML(value=render_operational_settings_status_html())
+                            with gr.Row():
+                                operational_periods_dropdown = gr.Dropdown(
+                                    choices=[7, 8],
+                                    value=get_config_periods_per_day(),
+                                    label="عدد الحصص اليومية",
+                                    elem_classes="masar-arrow-fix",
+                                )
+                            with gr.Row():
+                                operational_periods_save_btn = gr.Button("حفظ إعداد عدد الحصص", elem_classes="admin-btn")
+                            operational_periods_status_html = gr.HTML()
+                            gr.HTML(
+                                "<div style='background:#fff7ed;color:#9a3412;padding:10px;"
+                                "border-radius:10px;border-right:5px solid #f59e0b;"
+                                "margin-top:12px;font-weight:900;line-height:1.8;text-align:right;'>"
+                                "تنبيه: لا تحدّث ملفات جداول 7 حصص والمنظومة مضبوطة على 8، ولا العكس. "
+                                "غيّر الإعداد ثم أعد التشغيل قبل رفع الجداول المناسبة."
+                                "</div>"
+                            )
 
 
                     with gr.Column(visible=False, elem_id="school_data_panel_accounts", elem_classes="school-data-panel-box") as school_data_accounts_panel:
@@ -10298,7 +10444,7 @@ with gr.Blocks() as app:
     btn_school_data_references_panel.click(
         lambda: show_school_data_panel("references"),
         [],
-        [school_data_section_status, persistent_storage_status_html, school_config_summary_html, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
+        [school_data_section_status, persistent_storage_status_html, school_config_summary_html, school_data_references_panel, school_data_identity_panel, school_data_periods_panel, school_data_accounts_panel, school_data_audit_panel],
         queue=False,
     ).then(
         None,
@@ -10309,7 +10455,7 @@ with gr.Blocks() as app:
     btn_school_data_identity_panel.click(
         lambda: show_school_data_panel("identity"),
         [],
-        [school_data_section_status, persistent_storage_status_html, school_config_summary_html, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
+        [school_data_section_status, persistent_storage_status_html, school_config_summary_html, school_data_references_panel, school_data_identity_panel, school_data_periods_panel, school_data_accounts_panel, school_data_audit_panel],
         queue=False,
     ).then(
         None,
@@ -10317,10 +10463,21 @@ with gr.Blocks() as app:
         None,
         js=school_data_panel_js("identity"),
     )
+    btn_school_data_periods_panel.click(
+        lambda: show_school_data_panel("periods"),
+        [],
+        [school_data_section_status, persistent_storage_status_html, school_config_summary_html, school_data_references_panel, school_data_identity_panel, school_data_periods_panel, school_data_accounts_panel, school_data_audit_panel],
+        queue=False,
+    ).then(
+        None,
+        None,
+        None,
+        js=school_data_panel_js("periods"),
+    )
     btn_school_data_accounts_panel.click(
         lambda: show_school_data_panel("accounts"),
         [],
-        [school_data_section_status, persistent_storage_status_html, school_config_summary_html, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
+        [school_data_section_status, persistent_storage_status_html, school_config_summary_html, school_data_references_panel, school_data_identity_panel, school_data_periods_panel, school_data_accounts_panel, school_data_audit_panel],
         queue=False,
     ).then(
         None,
@@ -10336,7 +10493,7 @@ with gr.Blocks() as app:
     btn_school_data_audit_panel.click(
         lambda: show_school_data_panel("audit"),
         [],
-        [school_data_section_status, persistent_storage_status_html, school_config_summary_html, school_data_references_panel, school_data_identity_panel, school_data_accounts_panel, school_data_audit_panel],
+        [school_data_section_status, persistent_storage_status_html, school_config_summary_html, school_data_references_panel, school_data_identity_panel, school_data_periods_panel, school_data_accounts_panel, school_data_audit_panel],
         queue=False,
     ).then(
         None,
@@ -10366,6 +10523,7 @@ with gr.Blocks() as app:
             school_config_summary_html,
             school_data_references_panel,
             school_data_identity_panel,
+            school_data_periods_panel,
             school_data_accounts_panel,
             school_data_audit_panel,
         ],
@@ -10713,6 +10871,13 @@ with gr.Blocks() as app:
             owner_profile_preview_html,
             owner_accounts_status,
         ],
+        queue=False,
+    )
+
+    operational_periods_save_btn.click(
+        save_school_operational_settings,
+        [operational_periods_dropdown, current_user_is_owner, current_user_name, current_user_role],
+        [operational_periods_dropdown, operational_periods_status_html, school_config_summary_html, operational_settings_current_html],
         queue=False,
     )
 
