@@ -2111,7 +2111,7 @@ def refresh_schedule_from_reference(dept_name, current_day, is_owner=False):
             if r + 2 >= len(df):
                 break
 
-            for base_col in [0, 9]:
+            for base_col in [0, MAX_PERIODS + 2]:
                 if base_col + MAX_PERIODS >= len(df.columns):
                     continue
 
@@ -4598,7 +4598,7 @@ def process_uploaded_excel(file, selected_dept, current_day):
 
         for r in range(start_row, len(df), 10):
             if r + 2 >= len(df): break 
-            for base_col in [0, 9]:
+            for base_col in [0, MAX_PERIODS + 2]:
                 if base_col + MAX_PERIODS >= len(df.columns): continue 
                 t_name_raw = str(df.iloc[r, base_col]).strip()
                 if not t_name_raw or "ALBATINAH" in t_name_raw.upper() or "اليوم" in t_name_raw: continue
