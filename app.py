@@ -573,7 +573,7 @@ DEFAULT_SCHOOL_CONFIG = {
     "theme_color": "#004d40",
     "theme_color_2": "#00695c",
     "accent_color": "#ffca28",
-    "periods_per_day": 8,
+    "periods_per_day": 7,
     "week_days": ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس"],
     "weekend_days": ["الجمعة", "السبت"],
     "official_departments": ["الهيئة الإدارية", "التربية الإسلامية", "اللغة العربية", "الرياضيات", "العلوم", "اللغة الإنجليزية", "الدراسات الإجتماعية", "المهارات الفردية"]
@@ -604,6 +604,10 @@ def load_school_config():
     return config
 
 SCHOOL_CONFIG = load_school_config()
+
+# اختبار مؤقت: إجبار المنظومة على 8 حصص لحسم قراءة ملف Excel 8 حصص
+# يُحذف هذا السطر بعد انتهاء الاختبار واستبداله لاحقًا بإعداد رسمي من مركز البيانات.
+SCHOOL_CONFIG["periods_per_day"] = 8
 
 MINISTRY_NAME = str(DEFAULT_SCHOOL_CONFIG["ministry_name"])
 DIRECTORATE_PREFIX = str(DEFAULT_SCHOOL_CONFIG["directorate_prefix"])
