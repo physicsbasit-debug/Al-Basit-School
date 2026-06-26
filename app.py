@@ -2056,6 +2056,166 @@ def save_schedule_reference_file(file, dept_name, is_owner=False):
             f"<div style='color:red; font-weight:bold;'>❌ خطأ أثناء حفظ الملف المرجعي للقسم ({dept_name}): {str(e)}</div>",
             gr.update(value=render_schedule_reference_cards())
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v1.8.4g — فحص أولي لقوالب جداول Excel قبل الاستيراد
+# ─────────────────────────────────────────────────────────────────────────────
+SCHEDULE_PERIOD_HEADER_WORDS = {
+    1: "الاولى",
+    2: "الثانية",
+    3: "الثالثة",
+    4: "الرابعة",
+    5: "الخامسة",
+    6: "السادسة",
+    7: "السابعة",
+    8: "الثامنة",
+}
+
+
+def _normalize_schedule_header_text(value):
+    text_value = str(value or "").strip()
+    text_value = text_value.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
+    text_value = re.sub(r"\s+", " ", text_value)
+    return text_value
+
+
+def _excel_column_label_zero_based(index):
+    """تحويل رقم عمود صفري إلى حرف Excel تقريبي للرسائل فقط."""
+    try:
+        index = int(index)
+    except Exception:
+        return str(index)
+    label = ""
+    index += 1
+    while index > 0:
+        index, remainder = divmod(index - 1, 26)
+        label = chr(65 + remainder) + label
+    return label
+
+
+def precheck_schedule_excel_template(df, dept_name=""):
+    """
+    فحص سريع قبل قراءة جداول المعلمين.
+    لا يغير منطق القراءة، بل يمنع الفشل الصامت عند رفع قالب غير مطابق
+    أو عند عدم تطابق إعداد 7/8 حصص مع ملف Excel.
+    """
+    try:
+        if df is None or len(df) == 0 or len(df.columns) == 0:
+            return False, "الملف فارغ أو لا يحتوي بيانات قابلة للقراءة."
+
+        header_row = None
+        normalized_header_row = ""
+        rows_to_scan = min(15, len(df))
+
+        for i in range(rows_to_scan):
+            row_values = [
+                _normalize_schedule_header_text(value)
+                for value in df.iloc[i].values
+            ]
+            row_joined = " ".join(row_values)
+            if "اليوم" in row_joined and "الاولى" in row_joined:
+                header_row = i
+                normalized_header_row = row_joined
+                break
+
+        if header_row is None:
+            return (
+                False,
+                "لم يُعثر على صف العناوين المتوقع (اليوم/الأولى) ضمن أول 15 صفًا. "
+                "تأكد من اتباع قالب جداول المعلمين الرسمي."
+            )
+
+        if MAX_PERIODS < 8 and "الثامنة" in normalized_header_row:
+            return (
+                False,
+                "يبدو أن ملف الجدول يحتوي على الحصة الثامنة، بينما إعداد التشغيل الحالي مضبوط على 7 حصص. "
+                "افتح إعدادات التشغيل المدرسية، اختر 8 حصص، احفظ الإعداد، ثم أعد تشغيل المنظومة قبل الاستيراد."
+            )
+
+        expected_periods = [
+            SCHEDULE_PERIOD_HEADER_WORDS[p]
+            for p in range(1, MAX_PERIODS + 1)
+            if p in SCHEDULE_PERIOD_HEADER_WORDS
+        ]
+        missing_from_full_header = [
+            word for word in expected_periods
+            if word not in normalized_header_row
+        ]
+        if missing_from_full_header:
+            missing_text = "، ".join(missing_from_full_header)
+            return (
+                False,
+                f"ملف الجدول لا يحتوي عناوين الحصص المطلوبة حتى ح{MAX_PERIODS}. "
+                f"العناوين الناقصة: {missing_text}. تأكد من اختيار عدد الحصص الصحيح ومن استخدام القالب الرسمي."
+            )
+
+        expected_width = MAX_PERIODS + 1  # عدد الحصص + عمود اليوم
+        expected_bases = [0, MAX_PERIODS + 2]
+        valid_blocks = []
+        block_notes = []
+
+        for base_col in expected_bases:
+            if base_col >= len(df.columns):
+                continue
+
+            end_col = base_col + MAX_PERIODS
+            if end_col >= len(df.columns):
+                block_notes.append(
+                    f"الكتلة التي تبدأ من العمود {_excel_column_label_zero_based(base_col)} "
+                    f"لا تحتوي {expected_width} أعمدة متوقعة."
+                )
+                continue
+
+            block_values = [
+                _normalize_schedule_header_text(df.iloc[header_row, col])
+                for col in range(base_col, end_col + 1)
+            ]
+            block_joined = " ".join(block_values)
+
+            if "اليوم" not in block_joined:
+                block_notes.append(
+                    f"لم يُعثر على عمود اليوم داخل الكتلة التي تبدأ من العمود {_excel_column_label_zero_based(base_col)}."
+                )
+                continue
+
+            missing_in_block = [
+                word for word in expected_periods
+                if word not in block_joined
+            ]
+            if missing_in_block:
+                block_notes.append(
+                    f"الكتلة التي تبدأ من العمود {_excel_column_label_zero_based(base_col)} "
+                    f"لا تحتوي كل عناوين الحصص المطلوبة حتى ح{MAX_PERIODS}."
+                )
+                continue
+
+            valid_blocks.append(base_col)
+
+        if not valid_blocks:
+            notes_text = " ".join(block_notes) if block_notes else "لم تتطابق أي كتلة مع البنية المتوقعة."
+            return (
+                False,
+                "لم يتطابق ملف الجدول مع عدد الحصص المحدد في إعدادات التشغيل. "
+                f"الإعداد الحالي: {MAX_PERIODS} حصص. {notes_text}"
+            )
+
+        return True, ""
+
+    except Exception as exc:
+        return False, f"تعذر فحص قالب ملف الجدول قبل الاستيراد: {str(exc)}"
+
+
+def render_schedule_precheck_error_html(message, dept_name=""):
+    dept_part = f" لقسم ({html_lib.escape(str(dept_name))})" if dept_name else ""
+    safe_message = html_lib.escape(str(message or ""))
+    return (
+        "<div style='color:#b91c1c;background:#fee2e2;padding:12px;"
+        "border-radius:10px;border-right:5px solid #dc2626;font-weight:800;line-height:1.8;'>"
+        f"❌ تعذر تحديث جدول{dept_part}.<br>{safe_message}"
+        "</div>"
+    )
+
 @state_locked
 def refresh_schedule_from_reference(dept_name, current_day, is_owner=False):
     if not bool(is_owner):
@@ -2095,6 +2255,21 @@ def refresh_schedule_from_reference(dept_name, current_day, is_owner=False):
     try:
         df = pd.read_excel(schedule_file, header=None) if not schedule_file.endswith(".csv") else pd.read_csv(schedule_file, header=None)
         df = df.fillna('')
+
+        precheck_ok, precheck_message = precheck_schedule_excel_template(df, dept_name)
+        if not precheck_ok:
+            return (
+                render_schedule_precheck_error_html(precheck_message, dept_name),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(value=render_schedule_reference_cards()),
+                gr.update(value=None)
+            )
+
         found_in_file = []
         start_row = 0
 
@@ -4698,6 +4873,22 @@ def process_uploaded_excel(file, selected_dept, current_day):
     try:
         df = pd.read_excel(file.name, header=None) if not file.name.endswith('.csv') else pd.read_csv(file.name, header=None)
         df = df.fillna('')
+
+        precheck_ok, precheck_message = precheck_schedule_excel_template(df, selected_dept)
+        if not precheck_ok:
+            return (
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(value=get_updated_balance("الكل")),
+                gr.update(value=get_updated_absences("الكل")),
+                gr.update(value=get_day_overview(current_day, "الكل")),
+                render_schedule_precheck_error_html(precheck_message, selected_dept),
+                gr.update(),
+                gr.update()
+            )
+
         found_in_file = []
         start_row = 0
         for i in range(min(15, len(df))):
