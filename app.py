@@ -7863,40 +7863,43 @@ css = """
     text-align: right !important;
 }
 
-/* v1.8.4n: تجميل اختيار المعلم في تبويب جدول المعلم */
-.teacher-schedule-selector-accordion {
+/* v1.8.4o: بطاقة ثابتة لاختيار جدول المعلم بدون Accordion خارجي */
+.teacher-schedule-selector-card {
     background: linear-gradient(135deg, #f8fffb, #fff8dc) !important;
     border: 1.5px solid #ffca28 !important;
     border-radius: 20px !important;
-    padding: 12px 14px !important;
+    padding: 14px 16px !important;
     margin: 12px 0 18px 0 !important;
     box-shadow: 0 8px 20px rgba(0, 77, 64, 0.10) !important;
+    direction: rtl !important;
 }
-.teacher-schedule-selector-accordion > .label-wrap {
+.teacher-schedule-selector-title {
     background: linear-gradient(135deg, #004d40, #0f766e) !important;
     border: 1px solid rgba(255, 202, 40, 0.48) !important;
     border-radius: 16px !important;
     padding: 12px 18px !important;
-    min-height: 48px !important;
-    box-shadow: 0 6px 14px rgba(0, 77, 64, 0.20) !important;
+    margin-bottom: 12px !important;
+    color: #ffca28 !important;
+    text-align: right !important;
+    box-shadow: 0 6px 14px rgba(0, 77, 64, 0.18) !important;
 }
-.teacher-schedule-selector-accordion > .label-wrap span {
+.teacher-schedule-selector-title .title-main {
     color: #ffca28 !important;
     -webkit-text-fill-color: #ffca28 !important;
     font-weight: 950 !important;
     font-size: 17px !important;
+    line-height: 1.6 !important;
 }
-.teacher-schedule-selector-accordion > .label-wrap svg,
-.teacher-schedule-selector-accordion > .label-wrap .icon-wrap {
-    color: #ffca28 !important;
-    fill: #ffca28 !important;
+.teacher-schedule-selector-title .title-sub {
+    color: rgba(255, 255, 255, 0.88) !important;
+    -webkit-text-fill-color: rgba(255, 255, 255, 0.88) !important;
+    font-weight: 750 !important;
+    font-size: 13px !important;
+    line-height: 1.7 !important;
+    margin-top: 2px !important;
 }
-.teacher-schedule-selector-accordion > .content,
-.teacher-schedule-selector-accordion [data-testid="accordion-content"] {
-    background: transparent !important;
-}
-.teacher-schedule-selector-accordion .masar-arrow-fix {
-    margin-top: 10px !important;
+.teacher-schedule-selector-card .masar-arrow-fix {
+    margin-top: 6px !important;
 }
 
 /* فرض وضع النهار بالقوة على مستوى المتصفح */
@@ -10595,8 +10598,14 @@ with gr.Blocks() as app:
                         page_info_html = gr.HTML(elem_classes="day-page-info")
                         btn_next_page = gr.Button("التالي ▶", elem_classes="admin-btn", scale=1, min_width=110)
                 with gr.Tab("🔍 جدول المعلم", id="teacher_table") as teacher_tab:
-                    with gr.Accordion("اختر المعلم", open=True, elem_classes=["teacher-schedule-selector-accordion", "masar-accordion-arrow-fix"]):
-                        check_teacher_in = gr.Dropdown(get_teacher_schedule_choices("الكل"), label="المعلم", elem_classes=["masar-arrow-fix", "masar-field-label-right"])
+                    with gr.Group(elem_classes=["teacher-schedule-selector-card"]):
+                        gr.HTML("""
+<div class="teacher-schedule-selector-title">
+  <div class="title-main">اختيار جدول المعلم</div>
+  <div class="title-sub">اختر اسم المعلم لعرض جدوله الأسبوعي.</div>
+</div>
+""")
+                        check_teacher_in = gr.Dropdown(get_teacher_schedule_choices("الكل"), label="اختر المعلم", elem_classes=["masar-arrow-fix", "masar-field-label-right"])
                     check_tbl = gr.HTML("<div style='text-align:center; color:#64748b; padding:18px; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:12px; direction:rtl;'>اختر المعلم لعرض جدوله الأسبوعي.</div>")
                     check_teacher_in.change(get_teacher_weekly_schedule_html, check_teacher_in, check_tbl)
                 with gr.Tab("🗄️ مركز البيانات المدرسية", id="school_data") as school_data_tab:
