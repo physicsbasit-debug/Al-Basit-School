@@ -1852,6 +1852,7 @@ def refresh_admins_from_reference(dept_filter, is_owner=False):
                     "role": role_val,
                     "exempt_days": [],
                     "exempt_periods": [],
+                    "exempt_slots": [],
                     "absence_dates": [],
                     "الأحد": {},
                     "الإثنين": {},
@@ -2312,6 +2313,7 @@ def refresh_schedule_from_reference(dept_name, current_day, is_owner=False):
                         "role": "معلم",
                         "exempt_days": [],
                         "exempt_periods": [],
+                        "exempt_slots": [],
                         "absence_dates": [],
                         "الأحد": {},
                         "الإثنين": {},
@@ -2479,6 +2481,59 @@ def save_db():
     if not safe_write_json(DB_FILE, teachers_db):
         print("save_db error: safe_write_json failed")
 
+def normalize_exempt_slots(raw_slots):
+    """Return clean [{"day": day, "period": int}] pairs for specific day-period exemptions."""
+    clean_slots = []
+    seen = set()
+    for slot in raw_slots or []:
+        day = None
+        period = None
+        if isinstance(slot, dict):
+            day = slot.get("day") or slot.get("اليوم")
+            period = slot.get("period") or slot.get("الحصة")
+        elif isinstance(slot, (list, tuple)) and len(slot) >= 2:
+            day, period = slot[0], slot[1]
+        else:
+            s = str(slot or "").strip()
+            day = next((d for d in SCHOOL_WEEK_DAYS if d in s), None)
+            m = re.search(r"(?:ح|الحصة)?\s*(\d+)", s)
+            period = m.group(1) if m else None
+        day = str(day or "").strip()
+        if day not in SCHOOL_WEEK_DAYS:
+            continue
+        try:
+            period_int = int(period)
+        except Exception:
+            continue
+        if period_int < 1 or period_int > MAX_PERIODS:
+            continue
+        key = (day, period_int)
+        if key in seen:
+            continue
+        seen.add(key)
+        clean_slots.append({"day": day, "period": period_int})
+    return clean_slots
+
+
+def build_exempt_slots_from_days_periods(days, periods):
+    clean_days = [str(d).strip() for d in (days or []) if str(d).strip() in SCHOOL_WEEK_DAYS]
+    clean_periods = []
+    for p in periods or []:
+        try:
+            p_int = int(p)
+        except Exception:
+            continue
+        if 1 <= p_int <= MAX_PERIODS and p_int not in clean_periods:
+            clean_periods.append(p_int)
+    return [{"day": d, "period": p} for d in clean_days for p in clean_periods]
+
+
+def format_exempt_slots_for_display(slots):
+    clean_slots = normalize_exempt_slots(slots)
+    if not clean_slots:
+        return "—"
+    return "، ".join([f"{slot['day']} ح{slot['period']}" for slot in clean_slots])
+
 def load_db():
     global teachers_db
     if os.path.exists(DB_FILE):
@@ -2493,6 +2548,7 @@ def load_db():
                  
                     teachers_db[t]["exempt_days"] = teachers_db[t].get("exempt_days", [])
                     teachers_db[t]["exempt_periods"] = [int(p) for p in teachers_db[t].get("exempt_periods", [])]
+                    teachers_db[t]["exempt_slots"] = normalize_exempt_slots(teachers_db[t].get("exempt_slots", []))
                     teachers_db[t]["absence_dates"] = teachers_db[t].get("absence_dates", [])
                     teachers_db[t]["shortcoming_count"] = teachers_db[t].get("shortcoming_count", 0) 
                     teachers_db[t]["exemption_updated_at"] = teachers_db[t].get("exemption_updated_at", "")
@@ -3880,6 +3936,7 @@ def render_exemptions_log_html():
             continue
         days = info.get("exempt_days", []) or []
         periods = info.get("exempt_periods", []) or []
+        slots = normalize_exempt_slots(info.get("exempt_slots", []) or [])
 
         clean_days = [str(d).strip() for d in days if str(d).strip()]
         clean_periods = []
@@ -3890,7 +3947,7 @@ def render_exemptions_log_html():
                 if str(p).strip():
                     clean_periods.append(str(p).strip())
 
-        if not clean_days and not clean_periods:
+        if not clean_days and not clean_periods and not slots:
             continue
 
         active_rows.append({
@@ -3898,6 +3955,7 @@ def render_exemptions_log_html():
             "dept": info.get("dept", "—"),
             "days": clean_days,
             "periods": clean_periods,
+            "slots": slots,
             "updated_at": info.get("exemption_updated_at", "محفوظ")
         })
 
@@ -3910,32 +3968,36 @@ def render_exemptions_log_html():
     for item in active_rows:
         teacher_name = format_teacher_name(str(item.get("teacher", "")).strip()) if str(item.get("teacher", "")).strip() else "—"
         dept = str(item.get("dept", "—")).strip() or "—"
-        days = item.get("days", [])
-        periods = item.get("periods", [])
+        days_text = "، ".join(item["days"]) if item["days"] else "—"
+        periods_text = "، ".join([f"ح{p}" for p in item["periods"]]) if item["periods"] else "—"
+        slots_text = format_exempt_slots_for_display(item.get("slots", []))
         updated_at = str(item.get("updated_at", "محفوظ")).strip() or "محفوظ"
-        days_text = "، ".join(days) if days else "—"
-        periods_text = "، ".join(str(p) for p in periods) if periods else "—"
         rows_html += f"""
         <tr>
             <td style='padding:8px; border:1px solid #d1d5db;'>{teacher_name}</td>
             <td style='padding:8px; border:1px solid #d1d5db;'>{dept}</td>
             <td style='padding:8px; border:1px solid #d1d5db;'>{days_text}</td>
             <td style='padding:8px; border:1px solid #d1d5db;'>{periods_text}</td>
+            <td style='padding:8px; border:1px solid #d1d5db;'>{slots_text}</td>
             <td style='padding:8px; border:1px solid #d1d5db;'>{updated_at}</td>
         </tr>
         """
 
     return f"""
     <div style='margin-top:14px; background:#f8fafc; border:1px solid #dbeafe; border-radius:12px; padding:14px;'>
-        <div style='font-weight:bold; color:#0f172a; margin-bottom:10px;'>🗂️ سجل حالات الإعفاء الحالية</div>
+        <div style='font-weight:bold; color:#0f172a; margin-bottom:8px;'>🗂️ سجل حالات الإعفاء الحالية</div>
+        <div style='font-size:13px; color:#475569; margin-bottom:10px;'>
+            يوم فقط = إعفاء اليوم كاملًا، حصة فقط = إعفاء الحصة طوال الأسبوع، يوم + حصة = إعفاء محدد لذلك اليوم وتلك الحصة فقط.
+        </div>
         <div style='overflow-x:auto;'>
             <table style='width:100%; border-collapse:collapse; text-align:center; direction:rtl; font-size:14px;'>
                 <thead>
                     <tr style='background:#0f766e; color:#ffffff;'>
                         <th style='padding:9px; border:1px solid #d1d5db;'>المعلم</th>
                         <th style='padding:9px; border:1px solid #d1d5db;'>القسم</th>
-                        <th style='padding:9px; border:1px solid #d1d5db;'>الأيام</th>
-                        <th style='padding:9px; border:1px solid #d1d5db;'>الحصص</th>
+                        <th style='padding:9px; border:1px solid #d1d5db;'>أيام كاملة</th>
+                        <th style='padding:9px; border:1px solid #d1d5db;'>حصص أسبوعية</th>
+                        <th style='padding:9px; border:1px solid #d1d5db;'>إعفاءات محددة</th>
                         <th style='padding:9px; border:1px solid #d1d5db;'>آخر تحديث</th>
                     </tr>
                 </thead>
@@ -4697,6 +4759,7 @@ def get_falcon_eye_candidates(absent_t, period, day_name):
         
         for name, info in teachers_db.items():
             if name == absent_t: continue
+            if is_teacher_exempt_for_slot(name, day_name, p_int): continue
             if str(p_int) in info.get(day_name, {}) or p_int in info.get(day_name, {}): continue
             
             teaches_same = False
@@ -4720,7 +4783,7 @@ def add_manual_staff(name, dept, phone, role, dept_filter, is_owner=False):
         return "<div style='color:red; font-weight:bold;'>❌ الرجاء إدخال الاسم.</div>", gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
     t_name = clean_teacher_name(name)
     if t_name not in teachers_db:
-        teachers_db[t_name] = {"dept": dept, "cover_count": 0, "absent_count": 0, "shortcoming_count": 0, "phone": "", "specialty": "", "role": role, "exempt_days": [], "exempt_periods": [], "absence_dates": [], "الأحد": {}, "الإثنين": {}, "الثلاثاء": {}, "الأربعاء": {}, "الخميس": {}}
+        teachers_db[t_name] = {"dept": dept, "cover_count": 0, "absent_count": 0, "shortcoming_count": 0, "phone": "", "specialty": "", "role": role, "exempt_days": [], "exempt_periods": [], "exempt_slots": [], "absence_dates": [], "الأحد": {}, "الإثنين": {}, "الثلاثاء": {}, "الأربعاء": {}, "الخميس": {}}
     else:
         teachers_db[t_name]["dept"] = dept
         teachers_db[t_name]["role"] = role
@@ -4786,6 +4849,7 @@ def process_admin_excel(file, dept_filter):
                     "role": role_val,
                     "exempt_days": [],
                     "exempt_periods": [],
+                    "exempt_slots": [],
                     "absence_dates": [],
                     "الأحد": {},
                     "الإثنين": {},
@@ -4909,7 +4973,7 @@ def process_uploaded_excel(file, selected_dept, current_day):
                 if t_name not in found_in_file: found_in_file.append(t_name)
                 
                 if t_name not in teachers_db:
-                    teachers_db[t_name] = {"dept": selected_dept, "cover_count": 0, "absent_count": 0, "shortcoming_count": 0, "phone": "", "specialty": "", "role": "معلم", "exempt_days": [], "exempt_periods": [], "absence_dates": [], "الأحد": {}, "الإثنين": {}, "الثلاثاء": {}, "الأربعاء": {}, "الخميس": {}}
+                    teachers_db[t_name] = {"dept": selected_dept, "cover_count": 0, "absent_count": 0, "shortcoming_count": 0, "phone": "", "specialty": "", "role": "معلم", "exempt_days": [], "exempt_periods": [], "exempt_slots": [], "absence_dates": [], "الأحد": {}, "الإثنين": {}, "الثلاثاء": {}, "الأربعاء": {}, "الخميس": {}}
                 else: teachers_db[t_name]["dept"] = selected_dept
 
                 col_to_p = {}
@@ -6232,9 +6296,7 @@ def assign_logic(absent_list, day_name, dept_filter, max_reserves, is_alt, is_ad
                     continue
                 if daily_assigned_count[t] >= max_reserves:
                     continue
-                if day_name in t_info.get("exempt_days", []):
-                    continue
-                if p_int in t_info.get("exempt_periods", []):
+                if is_teacher_exempt_for_slot(t, day_name, p_int):
                     continue
                 cands.append(t)
             if not cands:
@@ -6431,16 +6493,29 @@ def is_teacher_exempt_for_slot(teacher_name, day_name, period_int):
     info = teachers_db.get(teacher_name, {})
     exempt_days = info.get("exempt_days", []) or []
     exempt_periods = info.get("exempt_periods", []) or []
+    exempt_slots = normalize_exempt_slots(info.get("exempt_slots", []) or [])
+
+    try:
+        period_int = int(period_int)
+    except Exception:
+        return False
 
     try:
         exempt_periods = [int(p) for p in exempt_periods]
     except Exception:
         exempt_periods = [p for p in exempt_periods]
 
+    # توافق مع الإعفاءات العامة القديمة والجديدة:
+    # يوم فقط = اليوم كامل، حصة فقط = الحصة طوال الأسبوع.
     if day_name in exempt_days:
         return True
     if period_int in exempt_periods:
         return True
+
+    # الإعفاءات المحددة الجديدة: يوم + حصة فقط.
+    for slot in exempt_slots:
+        if slot.get("day") == day_name and int(slot.get("period")) == period_int:
+            return True
     return False
 
 def update_available_subs_smart(abs_t, period, intervention_type, day_name, df_state, is_admin):
@@ -6876,9 +6951,22 @@ def resolve_teacher_key_from_ui(value):
 def load_teacher_rules(t_name):
     t_key = resolve_teacher_key_from_ui(t_name)
     if t_key and t_key in teachers_db:
+        info = teachers_db[t_key]
+        slots = normalize_exempt_slots(info.get("exempt_slots", []))
+        if slots and not info.get("exempt_days") and not info.get("exempt_periods"):
+            # عرض الإعفاءات المحددة في الواجهة الحالية كأيام وحصص فريدة.
+            # عند الحفظ ستُعاد كتابتها كضرب تلقائي للأيام × الحصص المختارة.
+            slot_days = []
+            slot_periods = []
+            for slot in slots:
+                if slot["day"] not in slot_days:
+                    slot_days.append(slot["day"])
+                if int(slot["period"]) not in slot_periods:
+                    slot_periods.append(int(slot["period"]))
+            return (gr.update(value=slot_days), gr.update(value=slot_periods))
         return (
-            gr.update(value=teachers_db[t_key].get("exempt_days", [])),
-            gr.update(value=teachers_db[t_key].get("exempt_periods", []))
+            gr.update(value=info.get("exempt_days", [])),
+            gr.update(value=info.get("exempt_periods", []))
         )
     return gr.update(value=[]), gr.update(value=[])
 
@@ -6892,34 +6980,64 @@ def save_teacher_rules(t_name, days, periods, actor_name="", actor_role="", is_a
     if t_key and t_key in teachers_db:
         if teachers_db[t_key].get("dept") == "الهيئة الإدارية" or teachers_db[t_key].get("role", "معلم") in ADMIN_ROLES:
             return "<div style='color:#b91c1c; font-weight:bold; background:#fee2e2; padding:10px; border-radius:5px; text-align:center;'>❌ لا يمكن تسجيل حالات إعفاء للهيئة الإدارية أو الإداريين.</div>", gr.update(value=render_exemptions_log_html())
-        clean_days = list(days) if days else []
+        clean_days = [str(d).strip() for d in (days or []) if str(d).strip() in SCHOOL_WEEK_DAYS]
         clean_periods = []
         for p in (periods or []):
             try:
-                clean_periods.append(int(p))
+                p_int = int(p)
+                if 1 <= p_int <= MAX_PERIODS and p_int not in clean_periods:
+                    clean_periods.append(p_int)
             except Exception:
                 continue
 
         old_days = list(teachers_db[t_key].get("exempt_days", []) or [])
         old_periods = list(teachers_db[t_key].get("exempt_periods", []) or [])
+        old_slots = normalize_exempt_slots(teachers_db[t_key].get("exempt_slots", []) or [])
 
-        teachers_db[t_key]["exempt_days"] = clean_days
-        teachers_db[t_key]["exempt_periods"] = clean_periods
+        if clean_days and clean_periods:
+            # الاختيار المشترك يعني إعفاءات محددة: كل الأيام المختارة × كل الحصص المختارة.
+            new_days = []
+            new_periods = []
+            new_slots = build_exempt_slots_from_days_periods(clean_days, clean_periods)
+            exemption_mode = "إعفاء محدد"
+            mode_details = f"إعفاءات محددة: {format_exempt_slots_for_display(new_slots)}"
+        elif clean_days:
+            new_days = clean_days
+            new_periods = []
+            new_slots = []
+            exemption_mode = "إعفاء يوم كامل"
+            mode_details = f"أيام كاملة: {'، '.join(new_days)}"
+        elif clean_periods:
+            new_days = []
+            new_periods = clean_periods
+            new_slots = []
+            exemption_mode = "إعفاء حصة أسبوعية"
+            mode_details = "حصص أسبوعية: " + "، ".join([f"ح{p}" for p in new_periods])
+        else:
+            new_days = []
+            new_periods = []
+            new_slots = []
+            exemption_mode = "إلغاء الإعفاء"
+            mode_details = "لا توجد أيام أو حصص محددة"
 
-        if old_days != clean_days or old_periods != clean_periods:
+        teachers_db[t_key]["exempt_days"] = new_days
+        teachers_db[t_key]["exempt_periods"] = new_periods
+        teachers_db[t_key]["exempt_slots"] = new_slots
+
+        if old_days != new_days or old_periods != new_periods or old_slots != new_slots:
             write_audit_log(
                 "تعديل حالات الإعفاء",
                 target_teacher=t_key,
-                old_value={"days": old_days, "periods": old_periods},
-                new_value={"days": clean_days, "periods": clean_periods},
-                details="تعديل أيام/حصص الإعفاء",
+                old_value={"days": old_days, "periods": old_periods, "slots": old_slots},
+                new_value={"days": new_days, "periods": new_periods, "slots": new_slots},
+                details=f"{exemption_mode} - {mode_details}",
                 actor_name=actor_name,
                 actor_role=actor_role
             )
 
-        if clean_days or clean_periods:
+        if new_days or new_periods or new_slots:
             teachers_db[t_key]["exemption_updated_at"] = get_now_oman().strftime("%Y-%m-%d %H:%M")
-            status_html = f"<div style='color:#2e7d32; font-weight:bold; background:#e8f5e9; padding:10px; border-radius:5px; text-align:center;'>✅ تم تثبيت قوانين الإعفاء للأستاذ ({format_teacher_name(t_key)}) بنجاح!</div>"
+            status_html = f"<div style='color:#2e7d32; font-weight:bold; background:#e8f5e9; padding:10px; border-radius:5px; text-align:center;'>✅ تم تثبيت قوانين الإعفاء للأستاذ ({format_teacher_name(t_key)}) بنجاح!<br><span style='font-weight:600; color:#166534;'>{mode_details}</span></div>"
         else:
             teachers_db[t_key]["exemption_updated_at"] = ""
             status_html = f"<div style='color:#b45309; font-weight:bold; background:#fff7ed; padding:10px; border-radius:5px; text-align:center;'>ℹ️ تم إلغاء إعفاءات الأستاذ ({format_teacher_name(t_key)}) لأنه لا توجد أيام أو حصص محددة.</div>"
