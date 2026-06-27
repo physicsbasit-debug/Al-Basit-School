@@ -5115,6 +5115,98 @@ def get_day_overview(day, dept_filter="الكل"):
     ]
     return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["المعلم"] + [f"ح {p}" for p in range(1, MAX_PERIODS + 1)])
 
+DAY_DEPT_STYLE_MAP = {
+    "التربية الإسلامية": {"main": "#0f766e", "light": "#ecfdf5", "border": "#99f6e4", "accent": "#14b8a6"},
+    "اللغة العربية": {"main": "#1d4ed8", "light": "#eff6ff", "border": "#bfdbfe", "accent": "#3b82f6"},
+    "الرياضيات": {"main": "#b45309", "light": "#fffbeb", "border": "#fde68a", "accent": "#f59e0b"},
+    "العلوم": {"main": "#047857", "light": "#ecfdf5", "border": "#a7f3d0", "accent": "#10b981"},
+    "اللغة الإنجليزية": {"main": "#6d28d9", "light": "#f5f3ff", "border": "#ddd6fe", "accent": "#8b5cf6"},
+    "الدراسات الإجتماعية": {"main": "#9f1239", "light": "#fff1f2", "border": "#fecdd3", "accent": "#f43f5e"},
+    "المهارات الفردية": {"main": "#475569", "light": "#f8fafc", "border": "#cbd5e1", "accent": "#64748b"},
+}
+
+DAY_DEPT_FALLBACK_STYLES = [
+    {"main": "#0f766e", "light": "#ecfdf5", "border": "#99f6e4", "accent": "#14b8a6"},
+    {"main": "#1d4ed8", "light": "#eff6ff", "border": "#bfdbfe", "accent": "#3b82f6"},
+    {"main": "#b45309", "light": "#fffbeb", "border": "#fde68a", "accent": "#f59e0b"},
+    {"main": "#6d28d9", "light": "#f5f3ff", "border": "#ddd6fe", "accent": "#8b5cf6"},
+]
+
+def get_day_dept_style(dept_name, index=0):
+    dept_key = str(dept_name or "").strip()
+    if dept_key in DAY_DEPT_STYLE_MAP:
+        return DAY_DEPT_STYLE_MAP[dept_key]
+    return DAY_DEPT_FALLBACK_STYLES[index % len(DAY_DEPT_FALLBACK_STYLES)]
+
+
+def render_day_department_section_html(dept_name, df, style, index=0):
+    safe_df = df.fillna("-").copy() if df is not None else pd.DataFrame()
+    dept_label = html_lib.escape(str(dept_name or "—"))
+    count = len(safe_df)
+    open_attr = " open" if index == 0 else " open"
+
+    if safe_df.empty:
+        table_html = "<div style='text-align:center; color:#64748b; padding:14px; background-color:#ffffff !important; border:1px dashed #cbd5e1; border-radius:12px; font-weight:800;'>لا توجد بيانات لهذا القسم.</div>"
+    else:
+        headers_html = "".join(
+            f"<th style='padding:10px 12px; background-color:{style['main']} !important; color:#ffffff !important; -webkit-text-fill-color:#ffffff !important; border:1px solid {style['border']}; white-space:nowrap; font-size:13px; font-weight:900;'>{html_lib.escape(str(col))}</th>"
+            for col in safe_df.columns
+        )
+        rows_html = ""
+        for row_idx, (_, row) in enumerate(safe_df.iterrows()):
+            bg = "#ffffff" if row_idx % 2 == 0 else "#f8fafc"
+            cells_html = "".join(
+                f"<td style='padding:9px 10px; background-color:{bg} !important; color:#0f172a !important; -webkit-text-fill-color:#0f172a !important; border:1px solid #d1d5db; white-space:nowrap; font-size:13px; font-weight:700;'>{html_lib.escape(str(row[col]))}</td>"
+                for col in safe_df.columns
+            )
+            rows_html += f"<tr>{cells_html}</tr>"
+        table_html = f"""
+        <div style='overflow-x:auto; width:100%; -webkit-overflow-scrolling:touch;'>
+            <table style='width:100%; min-width:760px; border-collapse:collapse; text-align:center; direction:rtl; font-family:Cairo, Arial, sans-serif; background-color:#ffffff !important;'>
+                <thead><tr>{headers_html}</tr></thead>
+                <tbody>{rows_html}</tbody>
+            </table>
+        </div>
+        """
+
+    return f"""
+    <details{open_attr} style='direction:rtl; background:{style['light']}; border:2px solid {style['border']}; border-right:8px solid {style['accent']}; border-radius:18px; margin:14px 0; overflow:hidden; box-shadow:0 8px 18px rgba(15,23,42,0.08);'>
+        <summary style='cursor:pointer; list-style:none; padding:14px 18px; background:linear-gradient(135deg, {style['light']}, #ffffff); color:{style['main']}; font-weight:950; font-size:17px; text-align:right; border-bottom:1px solid {style['border']};'>
+            <span style='display:inline-block; min-width:12px; min-height:12px; border-radius:999px; background:{style['accent']}; margin-left:8px; vertical-align:middle;'></span>
+            {dept_label}
+            <span style='font-size:12px; color:#475569; font-weight:900; margin-right:8px;'>عدد المعلمين: {count}</span>
+        </summary>
+        <div style='padding:12px; background-color:#ffffff !important;'>
+            {table_html}
+        </div>
+    </details>
+    """
+
+
+def render_day_all_departments_html(day_name):
+    sections = []
+    total_rows = 0
+    display_depts = [d for d in OFFICIAL_DEPTS if str(d).strip() != "الهيئة الإدارية"]
+    for idx, dept_name in enumerate(display_depts):
+        dept_df = get_day_overview(day_name, dept_name)
+        if dept_df is None or dept_df.empty:
+            continue
+        total_rows += len(dept_df)
+        sections.append(render_day_department_section_html(dept_name, dept_df, get_day_dept_style(dept_name, idx), idx))
+
+    if not sections:
+        return "<div style='text-align:center; color:#64748b; padding:18px; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:12px; direction:rtl;'>لا توجد بيانات لعرضها في جدول اليوم.</div>", 0
+
+    day_label = html_lib.escape(str(day_name or ""))
+    return f"""
+    <div style='direction:rtl; font-family:Cairo, Arial, sans-serif;'>
+        <div style='text-align:right; color:#004d40; background:linear-gradient(135deg,#f8fffb,#fff8dc); border:1.5px solid #ffca28; border-radius:16px; padding:12px 16px; font-weight:950; margin:8px 0 14px 0;'>
+            جداول الأقسام ليوم {day_label} — إجمالي المعلمين المعروضين: {total_rows}
+        </div>
+        {''.join(sections)}
+    </div>
+    """, total_rows
+
 def render_day_table_html(df, page=0, page_size=PAGE_SIZE):
     if df is None or df.empty:
         empty_html = "<div style='text-align:center; color:#64748b; padding:18px; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:12px;'>لا توجد بيانات لعرضها في جدول اليوم.</div>"
@@ -5163,6 +5255,24 @@ def render_day_table_html(df, page=0, page_size=PAGE_SIZE):
 
 def get_day_table_updates(day_name, dept_filter, page=0):
     effective_dept = resolve_effective_dept(dept_filter)
+
+    if effective_dept == "الكل":
+        df = get_day_overview(day_name, effective_dept)
+        if df is None or df.empty:
+            load_db()
+            df = get_day_overview(day_name, effective_dept)
+        table_html, total_rows = render_day_all_departments_html(day_name)
+        page_html = f"<div style='text-align:center; color:#0f766e; font-weight:bold; padding:8px 0;'>إجمالي المعلمين المعروضين: {total_rows}</div>"
+        return (
+            gr.update(value=df, visible=False),
+            gr.update(value=table_html, visible=True),
+            gr.update(visible=False),
+            gr.update(interactive=False),
+            gr.update(interactive=False),
+            gr.update(value=page_html, visible=True),
+            0,
+        )
+
     df = get_day_overview(day_name, effective_dept)
 
     if df is None or df.empty:
@@ -5170,7 +5280,7 @@ def get_day_table_updates(day_name, dept_filter, page=0):
         df = get_day_overview(day_name, effective_dept)
 
     table_html, safe_page, total_pages, total_rows = render_day_table_html(df, page, PAGE_SIZE)
-    label = "إجمالي المعلمين المعروضين" if effective_dept == "الكل" else f"إجمالي معلمي {effective_dept}"
+    label = f"إجمالي معلمي {effective_dept}"
     page_html = f"<div style='text-align:center; color:#0f766e; font-weight:bold; padding:8px 0;'>{label}: {total_rows} | صفحة {safe_page + 1} من {total_pages}</div>"
 
     return (
@@ -7751,6 +7861,42 @@ css = """
     display: block !important;
     width: 100% !important;
     text-align: right !important;
+}
+
+/* v1.8.4n: تجميل اختيار المعلم في تبويب جدول المعلم */
+.teacher-schedule-selector-accordion {
+    background: linear-gradient(135deg, #f8fffb, #fff8dc) !important;
+    border: 1.5px solid #ffca28 !important;
+    border-radius: 20px !important;
+    padding: 12px 14px !important;
+    margin: 12px 0 18px 0 !important;
+    box-shadow: 0 8px 20px rgba(0, 77, 64, 0.10) !important;
+}
+.teacher-schedule-selector-accordion > .label-wrap {
+    background: linear-gradient(135deg, #004d40, #0f766e) !important;
+    border: 1px solid rgba(255, 202, 40, 0.48) !important;
+    border-radius: 16px !important;
+    padding: 12px 18px !important;
+    min-height: 48px !important;
+    box-shadow: 0 6px 14px rgba(0, 77, 64, 0.20) !important;
+}
+.teacher-schedule-selector-accordion > .label-wrap span {
+    color: #ffca28 !important;
+    -webkit-text-fill-color: #ffca28 !important;
+    font-weight: 950 !important;
+    font-size: 17px !important;
+}
+.teacher-schedule-selector-accordion > .label-wrap svg,
+.teacher-schedule-selector-accordion > .label-wrap .icon-wrap {
+    color: #ffca28 !important;
+    fill: #ffca28 !important;
+}
+.teacher-schedule-selector-accordion > .content,
+.teacher-schedule-selector-accordion [data-testid="accordion-content"] {
+    background: transparent !important;
+}
+.teacher-schedule-selector-accordion .masar-arrow-fix {
+    margin-top: 10px !important;
 }
 
 /* فرض وضع النهار بالقوة على مستوى المتصفح */
@@ -10449,8 +10595,8 @@ with gr.Blocks() as app:
                         page_info_html = gr.HTML(elem_classes="day-page-info")
                         btn_next_page = gr.Button("التالي ▶", elem_classes="admin-btn", scale=1, min_width=110)
                 with gr.Tab("🔍 جدول المعلم", id="teacher_table") as teacher_tab:
-                    gr.Markdown("### شاشة التدقيق")
-                    check_teacher_in = gr.Dropdown(get_teacher_schedule_choices("الكل"), label="👨‍🏫 اختر المعلم", elem_classes="masar-arrow-fix")
+                    with gr.Accordion("اختر المعلم", open=True, elem_classes=["teacher-schedule-selector-accordion", "masar-accordion-arrow-fix"]):
+                        check_teacher_in = gr.Dropdown(get_teacher_schedule_choices("الكل"), label="المعلم", elem_classes=["masar-arrow-fix", "masar-field-label-right"])
                     check_tbl = gr.HTML("<div style='text-align:center; color:#64748b; padding:18px; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:12px; direction:rtl;'>اختر المعلم لعرض جدوله الأسبوعي.</div>")
                     check_teacher_in.change(get_teacher_weekly_schedule_html, check_teacher_in, check_tbl)
                 with gr.Tab("🗄️ مركز البيانات المدرسية", id="school_data") as school_data_tab:
