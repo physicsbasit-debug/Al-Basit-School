@@ -510,7 +510,7 @@ def get_reference_file_status(file_path, status_key="", data_loaded=False):
     registry = load_reference_status_registry()
     record = registry.get(str(status_key), {}) if status_key else {}
     file_exists = os.path.isfile(file_path)
-    data_active = bool(data_loaded or record.get("applied", False))
+    data_active = bool(data_loaded)
 
     if file_exists:
         modified_time = datetime.datetime.fromtimestamp(
