@@ -5512,13 +5512,19 @@ def generate_styled_html_table(df):
 
         if status == "تقصير" or "❌" in sub_teacher_display: bg_color, text_color, border_style = "#ffebee", "#c62828", "border-top: 2px solid #ef9a9a; border-bottom: 2px solid #ef9a9a;"
         elif status == "تبادل" or "🤝" in sub_teacher_display: bg_color, text_color, border_style = "#e0f2f1", "#00695c", "border-top: 2px solid #80cbc4; border-bottom: 2px solid #80cbc4;"
-        elif is_admin_supervision: bg_color, text_color, border_style = "#fff1f2", "#b91c1c", "border-top: 3px solid #fecaca; border-bottom: 3px solid #fecaca;"
+        elif is_admin_supervision: bg_color, text_color, border_style = "#fee2e2", "#991b1b", "border-top: 4px solid #ef4444; border-bottom: 4px solid #ef4444;"
         else: bg_color, text_color, border_style = "#f1f8e9" if index % 2 == 0 else "#ffffff", "#333333", "border-bottom: 1px solid #e5e7eb;"
 
-        row_shadow = "box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.10);" if is_admin_supervision else ""
-        base_cell_style = f"padding: 12px; font-size: 15px; font-weight: bold; {border_style} {row_shadow}"
-        right_cell_style = base_cell_style + (" border-right: 6px solid #ef4444;" if is_admin_supervision else "")
-        left_cell_style = base_cell_style + (" border-left: 6px solid #ef4444;" if is_admin_supervision else "")
+        if is_admin_supervision:
+            row_shadow = "box-shadow: inset 0 0 0 2px rgba(220, 38, 38, 0.18), 0 0 0 2px rgba(248, 113, 113, 0.35);"
+            admin_badge_style = "display:inline-block; background:#dc2626; color:#ffffff; padding:4px 12px; border-radius:999px; font-weight:900; box-shadow:0 2px 4px rgba(220,38,38,0.25);"
+            sub_teacher_display = f"<span style='{admin_badge_style}'>{sub_teacher_display}</span>"
+        else:
+            row_shadow = ""
+
+        base_cell_style = f"padding: 12px; font-size: 15px; font-weight: bold; background-color: {bg_color} !important; color: {text_color} !important; {border_style} {row_shadow}"
+        right_cell_style = base_cell_style + (" border-right: 10px solid #dc2626; border-top-right-radius: 14px; border-bottom-right-radius: 14px;" if is_admin_supervision else "")
+        left_cell_style = base_cell_style + (" border-left: 10px solid #dc2626; border-top-left-radius: 14px; border-bottom-left-radius: 14px;" if is_admin_supervision else "")
 
         html += f"<tr style='background-color: {bg_color}; color: {text_color};'>"
         html += f"<td style='{right_cell_style}'>{abs_teacher}</td>"
