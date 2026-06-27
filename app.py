@@ -5288,6 +5288,15 @@ def draw_schedule_image(df, day_name):
             total_h -= line_gap
         return max_w, total_h
 
+    def sanitize_image_substitute_display(value):
+        """تنظيف نص المعلم البديل في الصورة فقط دون تغيير منطق التبادل أو الواجهة."""
+        text = "" if value is None else str(value)
+        text = text.replace(chr(0x1F91D), "")
+        text = re.sub(r"\s+\)", ")", text)
+        text = re.sub(r"\(\s+", "(", text)
+        text = re.sub(r"\s{2,}", " ", text).strip()
+        return text
+
     pad_x = 40
     pad_y = 30
     title_h = text_size(title_text, font_title)[1]
@@ -5342,7 +5351,7 @@ def draw_schedule_image(df, day_name):
             "المعلم الغائب": str(row.get("المعلم الغائب", "")),
             "الصف": class_lines,
             "الحصة": str(row.get("الحصة", "")),
-            "المعلم البديل": sub_display,
+            "المعلم البديل": sanitize_image_substitute_display(sub_display),
             "_status": status,
         }
         prepared_rows.append(row_values)
@@ -5429,23 +5438,29 @@ def draw_schedule_image(df, day_name):
 
 def generate_styled_html_table(df):
     if df is None or df.empty: return "<div style='text-align:center; color:gray; padding:20px; border: 1px dashed #ccc; border-radius: 10px;'>لا توجد تكليفات للعرض. اختر معلماً غائباً واضغط توليد.</div>"
-    html = "<div style='overflow-x: auto; margin-top: 15px;'><table style='width: 100%; border-collapse: collapse; text-align: center; font-family: Cairo, Arial, sans-serif; direction: rtl; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px rgba(0,0,0,0.05);'>"
+    html = "<div style='overflow-x: auto; margin-top: 15px;'><table style='width: 100%; border-collapse: separate; border-spacing: 0 6px; text-align: center; font-family: Cairo, Arial, sans-serif; direction: rtl; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px rgba(0,0,0,0.05);'>"
     html += "<tr style='background-color: #004d40; color: white; font-size: 16px; border-bottom: 3px solid #ffca28;'><th style='padding: 15px;'>المعلم الغائب</th><th style='padding: 15px;'>الصف</th><th style='padding: 15px;'>الحصة</th><th style='padding: 15px;'>المعلم البديل</th></tr>"
     for index, row in df.iterrows():
         sub_teacher_display = str(row.get("المعلم البديل عرض", row["المعلم البديل"]))
         abs_teacher = str(row["المعلم الغائب"])
         status = row.get("حالة_التكليف", "")
+        is_admin_supervision = "إشراف" in sub_teacher_display
 
-        if status == "تقصير" or "❌" in sub_teacher_display: bg_color, text_color, border_style = "#ffebee", "#c62828", "border-bottom: 2px solid #ef9a9a;"
-        elif status == "تبادل" or "🤝" in sub_teacher_display: bg_color, text_color, border_style = "#e0f2f1", "#00695c", "border-bottom: 2px solid #80cbc4;"
-        elif "إشراف" in sub_teacher_display: bg_color, text_color, border_style = "#ffebee", "#c62828", "border-bottom: 2px solid #ef9a9a;"
+        if status == "تقصير" or "❌" in sub_teacher_display: bg_color, text_color, border_style = "#ffebee", "#c62828", "border-top: 2px solid #ef9a9a; border-bottom: 2px solid #ef9a9a;"
+        elif status == "تبادل" or "🤝" in sub_teacher_display: bg_color, text_color, border_style = "#e0f2f1", "#00695c", "border-top: 2px solid #80cbc4; border-bottom: 2px solid #80cbc4;"
+        elif is_admin_supervision: bg_color, text_color, border_style = "#fff1f2", "#b91c1c", "border-top: 3px solid #fecaca; border-bottom: 3px solid #fecaca;"
         else: bg_color, text_color, border_style = "#f1f8e9" if index % 2 == 0 else "#ffffff", "#333333", "border-bottom: 1px solid #e5e7eb;"
 
-        html += f"<tr style='background-color: {bg_color}; color: {text_color}; {border_style}'>"
-        html += f"<td style='padding: 12px; font-size: 15px; font-weight: bold;'>{abs_teacher}</td>"
-        html += f"<td style='padding: 12px; font-size: 15px; font-weight: bold;'>{row['الصف']}</td>"
-        html += f"<td style='padding: 12px; font-size: 15px; font-weight: bold;'>{row['الحصة']}</td>"
-        html += f"<td style='padding: 12px; font-size: 15px; font-weight: bold;'>{sub_teacher_display}</td></tr>"
+        row_shadow = "box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.10);" if is_admin_supervision else ""
+        base_cell_style = f"padding: 12px; font-size: 15px; font-weight: bold; {border_style} {row_shadow}"
+        right_cell_style = base_cell_style + (" border-right: 6px solid #ef4444;" if is_admin_supervision else "")
+        left_cell_style = base_cell_style + (" border-left: 6px solid #ef4444;" if is_admin_supervision else "")
+
+        html += f"<tr style='background-color: {bg_color}; color: {text_color};'>"
+        html += f"<td style='{right_cell_style}'>{abs_teacher}</td>"
+        html += f"<td style='{base_cell_style}'>{row['الصف']}</td>"
+        html += f"<td style='{base_cell_style}'>{row['الحصة']}</td>"
+        html += f"<td style='{left_cell_style}'>{sub_teacher_display}</td></tr>"
     html += "</table></div>"
     return html
 
@@ -5457,13 +5472,20 @@ def format_sub_display(row):
     elif status == "تقصير": return f"{name_fmt} (لم يُنفذ التكليف ❌)"
     return name_fmt
 
+def format_sub_display_for_image(row):
+    """تنسيق نص المعلم البديل للصورة فقط دون رمز المصافحة."""
+    display_text = format_sub_display(row)
+    swap_emoji = chr(0x1F91D)
+    display_text = display_text.replace(f" {swap_emoji}", "").replace(swap_emoji, "")
+    return display_text
+
 def generate_image_only(dept, day_name):
     effective_dept = resolve_effective_dept(dept)
     target_date = get_date_of_weekday(day_name)
     display_records = [r for r in daily_db if r["date"] == target_date and (effective_dept == "الكل" or r["dept"] == effective_dept)]
     df = pd.DataFrame(display_records, columns=["المعلم الغائب", "الصف", "الحصة", "المعلم البديل", "dept", "date", "حالة_التكليف"]).sort_values(["المعلم الغائب", "الحصة"])
     if not df.empty:
-        df["المعلم البديل عرض"] = df.apply(format_sub_display, axis=1)
+        df["المعلم البديل عرض"] = df.apply(format_sub_display_for_image, axis=1)
         df["المعلم الغائب"] = df["المعلم الغائب"].apply(format_teacher_name)
         img_path = draw_schedule_image(df, day_name)
         return gr.update(value=img_path)
@@ -7568,6 +7590,20 @@ css = """
     display: block !important;
     width: 100% !important;
     text-align: right !important;
+}
+/* v1.8.4j: إبراز عنوان اختيار الغائبين بدون المساس ببنية multiselect */
+.absent-box [data-testid="block-label"] span,
+.absent-box > label span {
+    color: #003c32 !important;
+    -webkit-text-fill-color: #003c32 !important;
+    font-size: 17px !important;
+    font-weight: 950 !important;
+    line-height: 1.8 !important;
+    background: linear-gradient(135deg, #fff8e1, #ffffff) !important;
+    border-right: 5px solid #ffca28 !important;
+    border-radius: 10px !important;
+    padding: 6px 10px !important;
+    margin-bottom: 8px !important;
 }
 .absent-box svg.dropdown-arrow {
     margin-left: 0 !important;
@@ -10109,7 +10145,7 @@ with gr.Blocks() as app:
                             ⚫️ استخدم <b>مقترح آخر</b> لعرض توزيع آلي بديل للغيابات الحالية.
                         </div>
                         """)
-                        abs_in = gr.Dropdown([], label="👨‍🏫 حدد المعلمين الغائبين", multiselect=True, elem_classes=["absent-box", "masar-arrow-fix", "masar-field-label-right"])
+                        abs_in = gr.Dropdown([], label="حدد المعلمين الغائبين", multiselect=True, elem_classes=["absent-box", "masar-arrow-fix", "masar-field-label-right"])
 
                         with gr.Row():
                             btn = gr.Button("توليد وتوزيع الاحتياط", variant="primary", interactive=False, elem_classes="action-btn")
