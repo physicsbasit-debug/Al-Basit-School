@@ -3,8 +3,8 @@
 storage.py
 طبقة التخزين الأساسية لمنظومة مسار.
 
-هذه المرحلة تنقل المسارات ودوال JSON الآمنة والأقفال فقط من app.py.
-ولا تنقل القيم الديناميكية المحمّلة من school_config.json مثل:
+هذه المرحلة تنقل المسارات ودوال JSON الآمنة والأقفال من app.py،
+وتضيف تحميل إعدادات المدرسة والقيم التشغيلية المشتقة منها:
 SCHOOL_CONFIG / MAX_PERIODS / OFFICIAL_DEPTS.
 """
 
@@ -21,6 +21,7 @@ from config import (
     APP_DIR,
     LOCAL_DATA_DIR,
     REQUESTED_PERSISTENT_DATA_DIR,
+    DEFAULT_SCHOOL_CONFIG,
     MAX_BACKUPS_PER_FILE,
     DB_FILENAME,
     DAILY_DB_FILENAME,
@@ -236,3 +237,55 @@ def safe_write_json(file_path, data, *, make_backup=True):
                 except Exception:
                     pass
             return False
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v1.8.5d / Phase 3C — إعدادات المدرسة التشغيلية
+# ─────────────────────────────────────────────────────────────────────────────
+
+def load_school_config():
+    """
+    تحميل إعدادات المدرسة من school_config.json.
+    إذا لم يوجد الملف يتم إنشاؤه بالقيم الافتراضية.
+    """
+    ensure_data_directories()
+    config = dict(DEFAULT_SCHOOL_CONFIG)
+
+    if os.path.exists(SCHOOL_CONFIG_FILE):
+        try:
+            with open(SCHOOL_CONFIG_FILE, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                config.update({k: v for k, v in loaded.items() if v is not None})
+        except Exception as e:
+            print(f"load_school_config warning: {e}")
+    else:
+        try:
+            safe_write_json(SCHOOL_CONFIG_FILE, config, make_backup=False)
+        except Exception as e:
+            print(f"create school_config warning: {e}")
+
+    return config
+
+
+def _coerce_runtime_periods_per_day(config):
+    try:
+        value = int(config.get("periods_per_day", DEFAULT_SCHOOL_CONFIG["periods_per_day"]))
+    except Exception:
+        value = int(DEFAULT_SCHOOL_CONFIG["periods_per_day"])
+    return value if value in (7, 8) else int(DEFAULT_SCHOOL_CONFIG["periods_per_day"])
+
+
+SCHOOL_CONFIG = load_school_config()
+MAX_PERIODS = _coerce_runtime_periods_per_day(SCHOOL_CONFIG)
+SCHOOL_WEEK_DAYS = list(
+    SCHOOL_CONFIG.get("week_days", DEFAULT_SCHOOL_CONFIG["week_days"])
+    or DEFAULT_SCHOOL_CONFIG["week_days"]
+)
+SCHOOL_WEEKEND_DAYS = list(
+    SCHOOL_CONFIG.get("weekend_days", DEFAULT_SCHOOL_CONFIG["weekend_days"])
+    or DEFAULT_SCHOOL_CONFIG["weekend_days"]
+)
+OFFICIAL_DEPTS = list(
+    SCHOOL_CONFIG.get("official_departments", DEFAULT_SCHOOL_CONFIG["official_departments"])
+    or DEFAULT_SCHOOL_CONFIG["official_departments"]
+)
