@@ -319,6 +319,22 @@ def check_css_markers(combined_text: str, results: list[CheckResult]) -> None:
         )
 
 
+def check_external_css_extraction(app_path: Path, app_text: str, style_text: str, results: list[CheckResult]) -> None:
+    """تأكد أن استخراج CSS حقيقي بعد مرحلة masar_styles.css."""
+    if "load_masar_css" in app_text or "masar_styles.css" in app_text:
+        css_path = app_path.with_name("masar_styles.css")
+        if css_path.exists() and style_text.strip():
+            add(results, "استخراج CSS إلى ملف خارجي", "PASS", f"تم العثور على {css_path.name} وضمّه للفحص.")
+        else:
+            add(results, "استخراج CSS إلى ملف خارجي", "FAIL", "app.py يستدعي masar_styles.css لكن ملف CSS الخارجي غير موجود أو فارغ.")
+
+        internal_css_lines = line_numbers_for_pattern(app_text, r"^css\s*=\s*[\"']{3}")
+        if internal_css_lines:
+            add(results, "منع بقاء كتلة CSS داخل app.py", "WARN", f"وجد تعريف css ثلاثي الاقتباس في الأسطر: {internal_css_lines[:10]}")
+        else:
+            add(results, "منع بقاء كتلة CSS داخل app.py", "PASS", "لا توجد كتلة css ثلاثية الاقتباس داخل app.py.")
+
+
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
     warn = sum(r.status == "WARN" for r in results)
@@ -387,6 +403,7 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     expected_symbols = parse_expected_symbols(args.expected_symbols)
 
+    check_external_css_extraction(path, app_text, style_text, results)
     check_syntax(path, results)
     check_forbidden_patterns(app_text, results)
     check_required_markers(combined_text, app_text, results)
