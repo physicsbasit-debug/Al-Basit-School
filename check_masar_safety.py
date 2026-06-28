@@ -585,6 +585,111 @@ def check_storage_phase3b(app_path: Path, app_text: str, results: list[CheckResu
     )
 
 
+
+def check_auth_phase3d(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص مرحلة auth.py: فصل الحسابات والصلاحيات دون نقل ربط Gradio."""
+    auth_path = app_path.with_name("auth.py")
+    if not auth_path.exists():
+        add(results, "auth.py: وجود الملف", "FAIL", f"غير موجود: {auth_path}")
+        return
+
+    auth_text = auth_path.read_text(encoding="utf-8")
+    add(results, "auth.py: وجود الملف", "PASS", f"موجود: {auth_path}")
+
+    required_auth_markers = [
+        "OWNER_ROLE",
+        "SHARED_TEACHER_ROLE",
+        "def load_auth_db",
+        "def authenticate_login_pin",
+        "def load_auth_accounts",
+        "def save_auth_accounts",
+        "def get_auth_account_choices",
+        "def get_permissions",
+        "def get_ui_visibility_updates",
+    ]
+    missing_auth = [marker for marker in required_auth_markers if marker not in auth_text]
+    add(
+        results,
+        "auth.py: عناصر الحسابات والصلاحيات الأساسية موجودة",
+        "PASS" if not missing_auth else "FAIL",
+        "عناصر auth الأساسية موجودة." if not missing_auth else f"ناقص: {missing_auth}",
+    )
+
+    app_auth_imports = [
+        "from auth import",
+        "authenticate_login_pin",
+        "load_auth_accounts",
+        "save_auth_accounts",
+        "get_permissions",
+        "OWNER_ACCOUNT_ID",
+        "OWNER_ROLE",
+        "SHARED_TEACHER_ROLE",
+    ]
+    missing_imports = [marker for marker in app_auth_imports if marker not in app_text]
+    add(
+        results,
+        "app.py: يستورد طبقة auth",
+        "PASS" if not missing_imports else "FAIL",
+        "app.py يستورد عناصر auth المطلوبة." if not missing_imports else f"ناقص: {missing_imports}",
+    )
+
+    moved_auth_patterns = [
+        r"^def\s+load_auth_db\s*\(",
+        r"^def\s+authenticate_login_pin\s*\(",
+        r"^def\s+load_auth_accounts\s*\(",
+        r"^def\s+save_auth_accounts\s*\(",
+        r"^def\s+get_auth_account_choices\s*\(",
+        r"^def\s+get_permissions\s*\(",
+        r"^def\s+get_ui_visibility_updates\s*\(",
+        r"^PIN_HASH_ALGORITHM\s*=",
+        r"^AUTH_ACCOUNTS_VERSION\s*=",
+        r"^OWNER_ACCOUNT_ID\s*=",
+    ]
+    app_offenders: list[int] = []
+    for pattern in moved_auth_patterns:
+        app_offenders.extend(line_numbers_for_pattern(app_text, pattern))
+    add(
+        results,
+        "app.py: لا يحتوي تعريفات auth المنقولة",
+        "PASS" if not app_offenders else "FAIL",
+        "تعريفات auth المنقولة غير موجودة داخل app.py." if not app_offenders else f"وجدت في الأسطر: {app_offenders[:10]}",
+    )
+
+    no_gradio_in_auth = (
+        "import gradio" not in auth_text
+        and "gr." not in auth_text
+        and "Blocks(" not in auth_text
+        and ".click(" not in auth_text
+        and ".change(" not in auth_text
+        and ".submit(" not in auth_text
+    )
+    add(
+        results,
+        "auth.py: لا يحتوي ربط Gradio",
+        "PASS" if no_gradio_in_auth else "FAIL",
+        "auth.py خالٍ من مكونات وربط Gradio." if no_gradio_in_auth else "ظهر أثر Gradio داخل auth.py؛ هذا ممنوع في Phase 3D.",
+    )
+
+    storage_import_ok = "from storage import" in auth_text and "AUTH_ACCOUNTS_FILE" in auth_text and "safe_write_json" in auth_text
+    add(
+        results,
+        "auth.py: يستخدم storage للتخزين",
+        "PASS" if storage_import_ok else "FAIL",
+        "auth.py يستورد ملفات الحسابات والحفظ الآمن من storage.py." if storage_import_ok else "استيراد storage داخل auth.py غير مكتمل.",
+    )
+
+    login_binding_preserved = (
+        "login_btn.click" in app_text
+        and "pin_input.submit" in app_text
+        and "attempt_login" in app_text
+    )
+    add(
+        results,
+        "app.py: ربط تسجيل الدخول بقي في app.py",
+        "PASS" if login_binding_preserved else "FAIL",
+        "ربط Gradio لتسجيل الدخول ما زال داخل app.py." if login_binding_preserved else "لم تظهر روابط login_btn/pin_input/attempt_login كما ينبغي.",
+    )
+
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
     warn = sum(r.status == "WARN" for r in results)
@@ -666,6 +771,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_external_css_extraction(path, app_text, style_text, results)
     check_config_phase3a(path, app_text, results)
     check_storage_phase3b(path, app_text, results)
+    check_auth_phase3d(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
