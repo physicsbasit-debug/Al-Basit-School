@@ -7437,6 +7437,28 @@ def resolve_effective_dept(dept_value):
     return "الكل" if str(dept_value or "").strip() == "المعلمون" else dept_value
 
 
+def get_day_dept_filter_update(role="", dept_value="", is_owner=False, is_admin=False, is_shared_teacher=False):
+    """
+    فلتر مستقل خاص بتبويب جدول اليوم فقط.
+    لا يوسع dept_in المشترك حتى لا تتسرب صلاحية "الكل" إلى التوزيع أو الأرصدة أو الإعفاءات.
+    """
+    effective_dept = resolve_effective_dept(dept_value)
+
+    if bool(is_shared_teacher):
+        return gr.update(choices=["الكل"], value="الكل", interactive=False)
+
+    if bool(is_owner) or bool(is_admin):
+        choices = ["الكل"] + OFFICIAL_DEPTS
+        value = effective_dept if effective_dept in choices else "الكل"
+        return gr.update(choices=choices, value=value, interactive=True)
+
+    dept_clean = str(effective_dept or "").strip()
+    if dept_clean and dept_clean != "الكل":
+        return gr.update(choices=[dept_clean, "الكل"], value=dept_clean, interactive=True)
+
+    return gr.update(choices=["الكل"], value="الكل", interactive=True)
+
+
 def attempt_login(pin, day_val):
     load_db()
     load_daily_db()
@@ -7465,7 +7487,7 @@ def attempt_login(pin, day_val):
         is_admin = bool(ui_vis["is_admin"])
 
         temporary_note = ""
-        if bool(user_info.get("must_change_pin", False)):
+        if bool(user_info.get("must_change_pin", False)) and not is_shared_teacher:
             temporary_note = (
                 "<div style='margin-top:8px;color:#fff;background:#b45309;"
                 "padding:7px;border-radius:7px;font-size:14px;'>"
@@ -7492,11 +7514,13 @@ def attempt_login(pin, day_val):
             gr.update(visible=False),
             gr.update(visible=True),
             welcome_msg,
+            gr.update(visible=not is_shared_teacher),
             gr.update(
                 choices=["الكل"] + OFFICIAL_DEPTS,
                 value=dept_for_ui,
                 interactive=is_admin,
             ),
+            get_day_dept_filter_update(role, dept, is_owner, is_admin, is_shared_teacher),
             gr.update(value=""),
             up_dept_update,
             manual_entry_visibility,
@@ -7544,6 +7568,8 @@ def attempt_login(pin, day_val):
         gr.update(),
         gr.update(),
         gr.update(),
+        gr.update(),
+        gr.update(),
         False,
         False,
         "",
@@ -7569,7 +7595,9 @@ def do_logout():
         gr.update(visible=True),
         gr.update(visible=False),
         "",
+        gr.update(visible=True),
         gr.update(choices=["الكل"] + OFFICIAL_DEPTS, value="الكل"),
+        gr.update(choices=["الكل"] + OFFICIAL_DEPTS, value="الكل", interactive=True),
         False,
         False,
         "",
@@ -10332,7 +10360,7 @@ with gr.Blocks() as app:
             with gr.Column(scale=1, min_width=120, elem_classes="logout-col"):
                 logout_btn = gr.Button("🚪 خروج و إقفال", elem_classes=["reset-btn", "logout-btn"])
         
-        with gr.Accordion("🔑 تغيير رمز دخولي", open=False, elem_classes=["masar-accordion-arrow-fix", "self-pin-accordion-card"]):
+        with gr.Accordion("🔑 تغيير رمز دخولي", open=False, elem_classes=["masar-accordion-arrow-fix", "self-pin-accordion-card"]) as self_pin_accordion:
             with gr.Column(elem_classes="self-pin-card"):
                 gr.HTML(
                     "<div class='self-pin-card-head'>"
@@ -10591,6 +10619,14 @@ with gr.Blocks() as app:
 
                 with gr.Tab("📅 جدول اليوم", id="day_table") as day_tab:
                     day_page_state = gr.State(value=0)
+                    with gr.Group(elem_classes=["teacher-schedule-selector-card"]):
+                        gr.HTML("""
+<div class="teacher-schedule-selector-title">
+  <div class="title-main">عرض جدول اليوم</div>
+  <div class="title-sub">هذا الفلتر خاص بجدول اليوم فقط ولا يغيّر صلاحيات التوزيع أو الإعفاءات.</div>
+</div>
+""")
+                        day_dept_filter = gr.Dropdown(["الكل"] + OFFICIAL_DEPTS, label="القسم المعروض", value="الكل", elem_classes=["masar-arrow-fix", "masar-field-label-right"])
                     tbl_day = gr.Dataframe(headers=["المعلم"] + [f"ح {p}" for p in range(1, MAX_PERIODS + 1)], interactive=False, visible=True)
                     day_table_html = gr.HTML(visible=False)
                     with gr.Row(visible=False) as day_pagination_row:
@@ -11088,7 +11124,7 @@ with gr.Blocks() as app:
     login_btn.click(
         attempt_login,
         inputs=[pin_input, day_in],
-        outputs=[login_container, main_app_container, welcome_html, dept_in, login_msg, up_dept, manual_entry_container, current_user_is_admin, current_user_is_owner, current_user_name, current_user_role, current_user_account_id] + update_outputs + [t_specialty_edit, clear_btn, school_data_tab, controls_row, exemptions_tab, distribution_tab, balances_tab, swap_tab, day_tab, teacher_tab, swap_export_row]
+        outputs=[login_container, main_app_container, welcome_html, self_pin_accordion, dept_in, day_dept_filter, login_msg, up_dept, manual_entry_container, current_user_is_admin, current_user_is_owner, current_user_name, current_user_role, current_user_account_id] + update_outputs + [t_specialty_edit, clear_btn, school_data_tab, controls_row, exemptions_tab, distribution_tab, balances_tab, swap_tab, day_tab, teacher_tab, swap_export_row]
     ).then(
         show_home_dashboard_after_login,
         [dept_in, current_user_is_admin, current_user_is_owner, current_user_role],
@@ -11111,6 +11147,11 @@ with gr.Blocks() as app:
         refresh_ui_on_change,
         [dept_in, day_in, current_user_is_admin],
         update_outputs
+    ).then(
+        lambda dy, day_dp: get_day_table_updates(dy, day_dp, 0),
+        [day_in, day_dept_filter],
+        [tbl_day, day_table_html, day_pagination_row, btn_prev_page, btn_next_page, page_info_html, day_page_state],
+        queue=False
     ).then(
         get_generation_button_updates,
         [abs_in, day_in, dept_in, reserve_generation_state],
@@ -11129,7 +11170,7 @@ with gr.Blocks() as app:
     pin_input.submit(
         attempt_login,
         inputs=[pin_input, day_in],
-        outputs=[login_container, main_app_container, welcome_html, dept_in, login_msg, up_dept, manual_entry_container, current_user_is_admin, current_user_is_owner, current_user_name, current_user_role, current_user_account_id] + update_outputs + [t_specialty_edit, clear_btn, school_data_tab, controls_row, exemptions_tab, distribution_tab, balances_tab, swap_tab, day_tab, teacher_tab, swap_export_row]
+        outputs=[login_container, main_app_container, welcome_html, self_pin_accordion, dept_in, day_dept_filter, login_msg, up_dept, manual_entry_container, current_user_is_admin, current_user_is_owner, current_user_name, current_user_role, current_user_account_id] + update_outputs + [t_specialty_edit, clear_btn, school_data_tab, controls_row, exemptions_tab, distribution_tab, balances_tab, swap_tab, day_tab, teacher_tab, swap_export_row]
     ).then(
         show_home_dashboard_after_login,
         [dept_in, current_user_is_admin, current_user_is_owner, current_user_role],
@@ -11153,6 +11194,11 @@ with gr.Blocks() as app:
         [dept_in, day_in, current_user_is_admin],
         update_outputs
     ).then(
+        lambda dy, day_dp: get_day_table_updates(dy, day_dp, 0),
+        [day_in, day_dept_filter],
+        [tbl_day, day_table_html, day_pagination_row, btn_prev_page, btn_next_page, page_info_html, day_page_state],
+        queue=False
+    ).then(
         get_generation_button_updates,
         [abs_in, day_in, dept_in, reserve_generation_state],
         [btn, btn_regenerate]
@@ -11167,7 +11213,7 @@ with gr.Blocks() as app:
         [reset_month_btn],
         queue=False
     )
-    logout_btn.click(do_logout, inputs=[], outputs=[login_container, main_app_container, welcome_html, dept_in, current_user_is_admin, current_user_is_owner, current_user_name, current_user_role, current_user_account_id, current_schedule_state, img_out, cb_cross_dept, school_data_tab, controls_row, exemptions_tab, distribution_tab, balances_tab, swap_tab, day_tab, teacher_tab, swap_export_row, reserve_generation_state, swap_confirmed_state]).then(
+    logout_btn.click(do_logout, inputs=[], outputs=[login_container, main_app_container, welcome_html, self_pin_accordion, dept_in, day_dept_filter, current_user_is_admin, current_user_is_owner, current_user_name, current_user_role, current_user_account_id, current_schedule_state, img_out, cb_cross_dept, school_data_tab, controls_row, exemptions_tab, distribution_tab, balances_tab, swap_tab, day_tab, teacher_tab, swap_export_row, reserve_generation_state, swap_confirmed_state]).then(
         None, None, None,
         js="""() => {
             const style = document.createElement('style');
@@ -11183,16 +11229,27 @@ with gr.Blocks() as app:
     update_trigger,
     update_outputs + [t_specialty_edit]
     )
-    day_in.change(lambda d, dy, adm: refresh_ui_on_change(d, dy, adm), update_trigger, update_outputs)
+    day_in.change(lambda d, dy, adm: refresh_ui_on_change(d, dy, adm), update_trigger, update_outputs).then(
+        lambda dy, day_dp: get_day_table_updates(dy, day_dp, 0),
+        [day_in, day_dept_filter],
+        [tbl_day, day_table_html, day_pagination_row, btn_prev_page, btn_next_page, page_info_html, day_page_state],
+        queue=False
+    )
+    day_dept_filter.change(
+        lambda dy, day_dp: get_day_table_updates(dy, day_dp, 0),
+        [day_in, day_dept_filter],
+        [tbl_day, day_table_html, day_pagination_row, btn_prev_page, btn_next_page, page_info_html, day_page_state],
+        queue=False
+    )
     btn_prev_page.click(
         lambda dy, dp, pg: change_day_page(-1, dy, dp, pg),
-        [day_in, dept_in, day_page_state],
+        [day_in, day_dept_filter, day_page_state],
         [tbl_day, day_table_html, day_pagination_row, btn_prev_page, btn_next_page, page_info_html, day_page_state],
         queue=False
     )
     btn_next_page.click(
         lambda dy, dp, pg: change_day_page(1, dy, dp, pg),
-        [day_in, dept_in, day_page_state],
+        [day_in, day_dept_filter, day_page_state],
         [tbl_day, day_table_html, day_pagination_row, btn_prev_page, btn_next_page, page_info_html, day_page_state],
         queue=False
     )
@@ -11202,6 +11259,11 @@ with gr.Blocks() as app:
         force_refresh_data,
         [dept_in, day_in, current_user_is_admin, abs_in],
         update_outputs
+    ).then(
+        lambda dy, day_dp: get_day_table_updates(dy, day_dp, 0),
+        [day_in, day_dept_filter],
+        [tbl_day, day_table_html, day_pagination_row, btn_prev_page, btn_next_page, page_info_html, day_page_state],
+        queue=False
     ).then(
         get_generation_button_updates,
         [abs_in, day_in, dept_in, reserve_generation_state],
