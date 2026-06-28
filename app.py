@@ -61,6 +61,12 @@ from storage import (
     AUDIT_LOG_FILE,
     SCHOOL_CONFIG_FILE,
     SCHEDULE_FILES,
+    load_school_config,
+    SCHOOL_CONFIG,
+    MAX_PERIODS,
+    SCHOOL_WEEK_DAYS,
+    SCHOOL_WEEKEND_DAYS,
+    OFFICIAL_DEPTS,
     ensure_data_directories,
     safe_write_json,
 )
@@ -69,9 +75,9 @@ from storage import (
 # --- 1. الإعدادات والوقت ---
 tz_oman = datetime.timezone(datetime.timedelta(hours=4))
 
-# v1.8.5b / Phase 3B
-# دوال ومسارات التخزين الأساسية انتقلت إلى storage.py لتقليل حجم app.py
-# دون نقل القيم الديناميكية SCHOOL_CONFIG / MAX_PERIODS / OFFICIAL_DEPTS.
+# v1.8.5d / Phase 3C
+# دوال ومسارات التخزين الأساسية وإعدادات التشغيل الديناميكية انتقلت إلى storage.py.
+# تبقى واجهة Gradio وربط الأحداث والمنطق التشغيلي الرئيسي داخل app.py مؤقتًا.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -401,31 +407,7 @@ def get_reference_file_status(file_path, status_key="", data_loaded=False):
     }
 
 
-def load_school_config():
-    """
-    v1.5 — تحميل إعدادات المدرسة.
-    إذا لم يوجد الملف يتم إنشاؤه بالقيم الافتراضية.
-    """
-    ensure_data_directories()
-    config = dict(DEFAULT_SCHOOL_CONFIG)
-
-    if os.path.exists(SCHOOL_CONFIG_FILE):
-        try:
-            with open(SCHOOL_CONFIG_FILE, "r", encoding="utf-8") as f:
-                loaded = json.load(f)
-            if isinstance(loaded, dict):
-                config.update({k: v for k, v in loaded.items() if v is not None})
-        except Exception as e:
-            print(f"load_school_config warning: {e}")
-    else:
-        try:
-            safe_write_json(SCHOOL_CONFIG_FILE, config, make_backup=False)
-        except Exception as e:
-            print(f"create school_config warning: {e}")
-
-    return config
-
-SCHOOL_CONFIG = load_school_config()
+# Phase 3C: load_school_config وSCHOOL_CONFIG انتقلت إلى storage.py.
 
 MINISTRY_NAME = str(DEFAULT_SCHOOL_CONFIG["ministry_name"])
 DIRECTORATE_PREFIX = str(DEFAULT_SCHOOL_CONFIG["directorate_prefix"])
@@ -440,15 +422,7 @@ THEME_COLOR = str(SCHOOL_CONFIG.get("theme_color", DEFAULT_SCHOOL_CONFIG["theme_
 THEME_COLOR_2 = str(SCHOOL_CONFIG.get("theme_color_2", DEFAULT_SCHOOL_CONFIG["theme_color_2"]))
 ACCENT_COLOR = str(SCHOOL_CONFIG.get("accent_color", DEFAULT_SCHOOL_CONFIG["accent_color"]))
 
-try:
-    MAX_PERIODS = int(SCHOOL_CONFIG.get("periods_per_day", DEFAULT_SCHOOL_CONFIG["periods_per_day"]))
-except Exception:
-    MAX_PERIODS = int(DEFAULT_SCHOOL_CONFIG["periods_per_day"])
-
-SCHOOL_WEEK_DAYS = list(SCHOOL_CONFIG.get("week_days", DEFAULT_SCHOOL_CONFIG["week_days"]) or DEFAULT_SCHOOL_CONFIG["week_days"])
-SCHOOL_WEEKEND_DAYS = list(SCHOOL_CONFIG.get("weekend_days", DEFAULT_SCHOOL_CONFIG["weekend_days"]) or DEFAULT_SCHOOL_CONFIG["weekend_days"])
-
-OFFICIAL_DEPTS = list(SCHOOL_CONFIG.get("official_departments", DEFAULT_SCHOOL_CONFIG["official_departments"]) or DEFAULT_SCHOOL_CONFIG["official_departments"])
+# Phase 3C: MAX_PERIODS / SCHOOL_WEEK_DAYS / SCHOOL_WEEKEND_DAYS / OFFICIAL_DEPTS مستوردة من storage.py.
 
 ADMIN_ROLES = ["مدير المدرسة", "المدير المساعد", "منسق شؤون مدرسية", "أخصائي توجيه مهني", "أخصائي اجتماعي", "أخصائي شؤون ادارية ومالية", "أخصائي مصادر التعلم", "أخصائي أنظمة مدرسية", "فني مختبر علوم", "فني دعم أجهزة مدرسية ثالث"]
 ALL_ROLES = ["معلم", "معلم أول", "منسق مادة"] + ADMIN_ROLES
