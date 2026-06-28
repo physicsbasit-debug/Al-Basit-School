@@ -430,18 +430,18 @@ def check_config_phase3a(app_path: Path, app_text: str, results: list[CheckResul
         "لا توجد تعريفات runtime ممنوعة في config.py." if not offenders else f"وجدت مخالفات في الأسطر: {offenders[:10]}",
     )
 
-    app_runtime_markers = [
+    runtime_markers = [
         "def load_school_config",
         "SCHOOL_CONFIG = load_school_config()",
-        "MAX_PERIODS = int(",
-        "OFFICIAL_DEPTS = list(",
+        "MAX_PERIODS",
+        "OFFICIAL_DEPTS",
     ]
-    missing_runtime = [marker for marker in app_runtime_markers if marker not in app_text]
+    missing_runtime = [marker for marker in runtime_markers if marker not in runtime_text]
     add(
         results,
-        "app.py: القيم الديناميكية بقيت في app.py",
+        "runtime config: القيم الديناميكية خارج config.py",
         "PASS" if not missing_runtime else "FAIL",
-        "load_school_config وSCHOOL_CONFIG وMAX_PERIODS وOFFICIAL_DEPTS بقيت في app.py." if not missing_runtime else f"ناقص: {missing_runtime}",
+        "load_school_config وSCHOOL_CONFIG وMAX_PERIODS وOFFICIAL_DEPTS موجودة خارج config.py." if not missing_runtime else f"ناقص: {missing_runtime}",
     )
 
     imported_markers = [
@@ -460,7 +460,7 @@ def check_config_phase3a(app_path: Path, app_text: str, results: list[CheckResul
 
 
 def check_storage_phase3b(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
-    """فحص مرحلة storage.py: نقل طبقة التخزين الأساسية دون نقل SCHOOL_CONFIG/MAX_PERIODS/OFFICIAL_DEPTS."""
+    """فحص مرحلة storage.py: طبقة التخزين + إعدادات التشغيل الديناميكية حتى Phase 3C."""
     storage_path = app_path.with_name("storage.py")
     if not storage_path.exists():
         add(results, "storage.py: وجود الملف", "FAIL", f"غير موجود: {storage_path}")
@@ -518,20 +518,63 @@ def check_storage_phase3b(app_path: Path, app_text: str, results: list[CheckResu
         "تعريفات storage المنقولة غير موجودة داخل app.py." if not app_offenders else f"وجدت في الأسطر: {app_offenders[:10]}",
     )
 
-    forbidden_in_storage = [
-        r"def\s+load_school_config\s*\(",
-        r"^\s*SCHOOL_CONFIG\s*=",
-        r"^\s*MAX_PERIODS\s*=",
-        r"^\s*OFFICIAL_DEPTS\s*=",
+    runtime_storage_markers = [
+        "def load_school_config",
+        "SCHOOL_CONFIG = load_school_config()",
+        "MAX_PERIODS = _coerce_runtime_periods_per_day(SCHOOL_CONFIG)",
+        "SCHOOL_WEEK_DAYS = list(",
+        "SCHOOL_WEEKEND_DAYS = list(",
+        "OFFICIAL_DEPTS = list(",
     ]
-    storage_offenders = []
-    for pattern in forbidden_in_storage:
-        storage_offenders.extend(line_numbers_for_pattern(storage_text, pattern))
+    missing_runtime_storage = [marker for marker in runtime_storage_markers if marker not in storage_text]
     add(
         results,
-        "storage.py: لا يحتوي القيم الديناميكية المؤجلة",
-        "PASS" if not storage_offenders else "FAIL",
-        "لم تُنقل SCHOOL_CONFIG/MAX_PERIODS/OFFICIAL_DEPTS إلى storage.py." if not storage_offenders else f"وجدت مخالفات في الأسطر: {storage_offenders[:10]}",
+        "storage.py: يحتوي إعدادات التشغيل الديناميكية Phase 3C",
+        "PASS" if not missing_runtime_storage else "FAIL",
+        "تم نقل load_school_config وSCHOOL_CONFIG وMAX_PERIODS وOFFICIAL_DEPTS إلى storage.py." if not missing_runtime_storage else f"ناقص: {missing_runtime_storage}",
+    )
+
+    forbidden_runtime_in_app = [
+        r"^def\s+load_school_config\s*\(",
+        r"^SCHOOL_CONFIG\s*=\s*load_school_config\s*\(",
+        r"^\s*MAX_PERIODS\s*=\s*int\(",
+        r"^\s*OFFICIAL_DEPTS\s*=\s*list\(",
+    ]
+    app_runtime_offenders = []
+    for pattern in forbidden_runtime_in_app:
+        app_runtime_offenders.extend(line_numbers_for_pattern(app_text, pattern))
+    add(
+        results,
+        "app.py: لا يحتوي تعريفات إعدادات التشغيل المنقولة",
+        "PASS" if not app_runtime_offenders else "FAIL",
+        "تعريفات load_school_config/MAX_PERIODS/OFFICIAL_DEPTS المنقولة غير موجودة داخل app.py." if not app_runtime_offenders else f"وجدت في الأسطر: {app_runtime_offenders[:10]}",
+    )
+
+    app_runtime_imports = [
+        "load_school_config",
+        "SCHOOL_CONFIG",
+        "MAX_PERIODS",
+        "SCHOOL_WEEK_DAYS",
+        "SCHOOL_WEEKEND_DAYS",
+        "OFFICIAL_DEPTS",
+    ]
+    missing_runtime_imports = [marker for marker in app_runtime_imports if marker not in app_text]
+    add(
+        results,
+        "app.py: يستورد إعدادات التشغيل من storage.py",
+        "PASS" if not missing_runtime_imports else "FAIL",
+        "app.py يستورد إعدادات التشغيل الديناميكية من storage.py." if not missing_runtime_imports else f"ناقص: {missing_runtime_imports}",
+    )
+
+    storage_runtime_integrity = all(
+        marker in storage_text
+        for marker in ["DEFAULT_SCHOOL_CONFIG", "SCHOOL_CONFIG_FILE", "safe_write_json", "_coerce_runtime_periods_per_day"]
+    )
+    add(
+        results,
+        "storage.py: تحميل إعدادات المدرسة يستخدم التخزين الآمن",
+        "PASS" if storage_runtime_integrity else "FAIL",
+        "load_school_config يعتمد DEFAULT_SCHOOL_CONFIG وSCHOOL_CONFIG_FILE وsafe_write_json." if storage_runtime_integrity else "نمط تحميل إعدادات المدرسة غير مكتمل.",
     )
 
     add(
