@@ -379,6 +379,10 @@ def check_external_css_extraction(app_path: Path, app_text: str, style_text: str
 def check_config_phase3a(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
     """فحص مرحلة config.py الآمنة: نقل الثوابت الخام فقط دون القيم الديناميكية."""
     config_path = app_path.with_name("config.py")
+    storage_path = app_path.with_name("storage.py")
+    storage_text = storage_path.read_text(encoding="utf-8") if storage_path.exists() else ""
+    runtime_text = app_text + "\n" + storage_text
+
     if not config_path.exists():
         add(results, "config.py: وجود الملف", "FAIL", f"غير موجود: {config_path}")
         return
@@ -386,11 +390,12 @@ def check_config_phase3a(app_path: Path, app_text: str, results: list[CheckResul
     config_text = config_path.read_text(encoding="utf-8")
     add(results, "config.py: وجود الملف", "PASS", f"موجود: {config_path}")
 
+    imports_config = "from config import" in app_text or "from config import" in storage_text
     add(
         results,
-        "config.py: استيراد الثوابت من config داخل app.py",
-        "PASS" if "from config import" in app_text else "FAIL",
-        "app.py يستورد من config.py." if "from config import" in app_text else "لم يظهر from config import.",
+        "config.py: استيراد الثوابت من config",
+        "PASS" if imports_config else "FAIL",
+        "app.py أو storage.py يستورد من config.py." if imports_config else "لم يظهر from config import.",
     )
 
     required_config_markers = [
@@ -445,12 +450,95 @@ def check_config_phase3a(app_path: Path, app_text: str, results: list[CheckResul
         "SCHOOL_CONFIG_FILENAME",
         "DB_FILENAME",
     ]
-    missing_imported = [marker for marker in imported_markers if marker not in app_text]
+    missing_imported = [marker for marker in imported_markers if marker not in runtime_text]
     add(
         results,
-        "app.py: يستخدم ثوابت config الأساسية",
+        "app.py/storage.py: يستخدمان ثوابت config الأساسية",
         "PASS" if not missing_imported else "FAIL",
-        "app.py يحتوي ثوابت config الأساسية." if not missing_imported else f"ناقص: {missing_imported}",
+        "ثوابت config الأساسية مستخدمة في app.py أو storage.py." if not missing_imported else f"ناقص: {missing_imported}",
+    )
+
+
+def check_storage_phase3b(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص مرحلة storage.py: نقل طبقة التخزين الأساسية دون نقل SCHOOL_CONFIG/MAX_PERIODS/OFFICIAL_DEPTS."""
+    storage_path = app_path.with_name("storage.py")
+    if not storage_path.exists():
+        add(results, "storage.py: وجود الملف", "FAIL", f"غير موجود: {storage_path}")
+        return
+
+    storage_text = storage_path.read_text(encoding="utf-8")
+    add(results, "storage.py: وجود الملف", "PASS", f"موجود: {storage_path}")
+
+    required_storage_markers = [
+        "def safe_write_json",
+        "def ensure_data_directories",
+        "def state_locked",
+        "def _get_json_file_lock",
+        "DATA_DIR",
+        "SCHEDULE_FILES",
+        "AUTH_DB_FILE",
+    ]
+    missing_storage = [marker for marker in required_storage_markers if marker not in storage_text]
+    add(
+        results,
+        "storage.py: عناصر التخزين الأساسية موجودة",
+        "PASS" if not missing_storage else "FAIL",
+        "عناصر التخزين الأساسية موجودة." if not missing_storage else f"ناقص: {missing_storage}",
+    )
+
+    app_storage_imports = [
+        "from storage import",
+        "safe_write_json",
+        "ensure_data_directories",
+        "state_locked",
+        "SCHEDULE_FILES",
+    ]
+    missing_app_imports = [marker for marker in app_storage_imports if marker not in app_text]
+    add(
+        results,
+        "app.py: يستورد طبقة storage",
+        "PASS" if not missing_app_imports else "FAIL",
+        "app.py يستورد عناصر storage المطلوبة." if not missing_app_imports else f"ناقص: {missing_app_imports}",
+    )
+
+    forbidden_in_app = [
+        r"^def\s+safe_write_json\s*\(",
+        r"^def\s+_probe_writable_directory\s*\(",
+        r"^def\s+ensure_data_directories\s*\(",
+        r"^\s*DATA_DIR\s*=",
+        r"^\s*SCHEDULE_FILES\s*=",
+    ]
+    app_offenders = []
+    for pattern in forbidden_in_app:
+        app_offenders.extend(line_numbers_for_pattern(app_text, pattern))
+    add(
+        results,
+        "app.py: لا يحتوي تعريفات storage المنقولة",
+        "PASS" if not app_offenders else "FAIL",
+        "تعريفات storage المنقولة غير موجودة داخل app.py." if not app_offenders else f"وجدت في الأسطر: {app_offenders[:10]}",
+    )
+
+    forbidden_in_storage = [
+        r"def\s+load_school_config\s*\(",
+        r"^\s*SCHOOL_CONFIG\s*=",
+        r"^\s*MAX_PERIODS\s*=",
+        r"^\s*OFFICIAL_DEPTS\s*=",
+    ]
+    storage_offenders = []
+    for pattern in forbidden_in_storage:
+        storage_offenders.extend(line_numbers_for_pattern(storage_text, pattern))
+    add(
+        results,
+        "storage.py: لا يحتوي القيم الديناميكية المؤجلة",
+        "PASS" if not storage_offenders else "FAIL",
+        "لم تُنقل SCHOOL_CONFIG/MAX_PERIODS/OFFICIAL_DEPTS إلى storage.py." if not storage_offenders else f"وجدت مخالفات في الأسطر: {storage_offenders[:10]}",
+    )
+
+    add(
+        results,
+        "storage.py: يستورد من config.py",
+        "PASS" if "from config import" in storage_text else "FAIL",
+        "storage.py يستورد الثوابت الخام من config.py." if "from config import" in storage_text else "لم يظهر from config import داخل storage.py.",
     )
 
 
@@ -534,6 +622,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_css_markers(combined_text, results)
     check_external_css_extraction(path, app_text, style_text, results)
     check_config_phase3a(path, app_text, results)
+    check_storage_phase3b(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
