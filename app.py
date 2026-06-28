@@ -27,15 +27,33 @@ import arabic_reshaper
 from bidi.algorithm import get_display
 from PIL import Image, ImageDraw, ImageFont
 
+from config import (
+    APP_DIR,
+    PAGE_SIZE,
+    LOCAL_DATA_DIR,
+    REQUESTED_PERSISTENT_DATA_DIR,
+    MAX_BACKUPS_PER_FILE,
+    DB_FILENAME,
+    DAILY_DB_FILENAME,
+    SWAP_DB_FILENAME,
+    AUTH_DB_FILENAME,
+    REFERENCE_STATUS_FILENAME,
+    AUTH_ACCOUNTS_FILENAME,
+    MIGRATION_STATUS_FILENAME,
+    ADMIN_FILENAME,
+    PHONES_FILENAME,
+    EXEMPTIONS_LOG_FILENAME,
+    AUDIT_LOG_FILENAME,
+    SCHOOL_CONFIG_FILENAME,
+    SCHEDULE_FILE_NAMES,
+    DEFAULT_SCHOOL_CONFIG,
+)
+
 
 # --- 1. الإعدادات والوقت ---
 tz_oman = datetime.timezone(datetime.timedelta(hours=4))
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
-PAGE_SIZE = 12
 
 # v1.8.1 — الاستمرارية والتخزين الدائم
-LOCAL_DATA_DIR = os.path.join(APP_DIR, "data")
-REQUESTED_PERSISTENT_DATA_DIR = os.getenv("MASAR_DATA_DIR", "/data/masar").strip() or "/data/masar"
 
 def _probe_writable_directory(path_value):
     """التحقق من أن مسار التخزين موجود وقابل للكتابة."""
@@ -68,10 +86,10 @@ else:
     STORAGE_MODE = "local_fallback"
     STORAGE_ERROR = _persistent_error
 
-DB_FILE = os.path.join(DATA_DIR, "school_balances.json")
-DAILY_DB_FILE = os.path.join(DATA_DIR, "daily_assignments.json")
-SWAP_DB_FILE = os.path.join(DATA_DIR, "friendly_swaps.json")
-AUTH_DB_FILE = os.getenv("AUTH_DB_FILE", os.path.join(DATA_DIR, "auth_db.json"))
+DB_FILE = os.path.join(DATA_DIR, DB_FILENAME)
+DAILY_DB_FILE = os.path.join(DATA_DIR, DAILY_DB_FILENAME)
+SWAP_DB_FILE = os.path.join(DATA_DIR, SWAP_DB_FILENAME)
+AUTH_DB_FILE = os.getenv("AUTH_DB_FILE", os.path.join(DATA_DIR, AUTH_DB_FILENAME))
 
 IMG_DIR = os.path.join(DATA_DIR, "generated_images")
 SWAP_IMG_DIR = os.path.join(DATA_DIR, "generated_swap_tables")
@@ -79,10 +97,9 @@ SCHEDULES_DIR = os.path.join(DATA_DIR, "schedules")
 BACKUPS_DIR = os.path.join(DATA_DIR, "backups")
 EXPORTS_DIR = os.path.join(DATA_DIR, "exports")
 BRANDING_DIR = os.path.join(DATA_DIR, "branding")
-REFERENCE_STATUS_FILE = os.path.join(DATA_DIR, "reference_files_status.json")
-AUTH_ACCOUNTS_FILE = os.path.join(DATA_DIR, "auth_accounts.json")
-MIGRATION_STATUS_FILE = os.path.join(DATA_DIR, ".v1_8_1_migration.json")
-MAX_BACKUPS_PER_FILE = 10
+REFERENCE_STATUS_FILE = os.path.join(DATA_DIR, REFERENCE_STATUS_FILENAME)
+AUTH_ACCOUNTS_FILE = os.path.join(DATA_DIR, AUTH_ACCOUNTS_FILENAME)
+MIGRATION_STATUS_FILE = os.path.join(DATA_DIR, MIGRATION_STATUS_FILENAME)
 
 # v1.6 — أقفال داخلية لحماية الحالة وملفات JSON عند تعدد المستخدمين
 STATE_LOCK = threading.RLock()
@@ -106,21 +123,13 @@ def state_locked(func):
             return func(*args, **kwargs)
     return wrapper
 
-ADMIN_FILE = os.path.join(DATA_DIR, "admin_staff.xlsx")
-PHONES_FILE = os.path.join(DATA_DIR, "teacher_phones.xlsx")
-EXEMPTIONS_LOG_FILE = os.path.join(DATA_DIR, "exemptions_log.json")
-AUDIT_LOG_FILE = os.path.join(DATA_DIR, "audit_log.json")
-SCHOOL_CONFIG_FILE = os.path.join(DATA_DIR, "school_config.json")
+ADMIN_FILE = os.path.join(DATA_DIR, ADMIN_FILENAME)
+PHONES_FILE = os.path.join(DATA_DIR, PHONES_FILENAME)
+EXEMPTIONS_LOG_FILE = os.path.join(DATA_DIR, EXEMPTIONS_LOG_FILENAME)
+AUDIT_LOG_FILE = os.path.join(DATA_DIR, AUDIT_LOG_FILENAME)
+SCHOOL_CONFIG_FILE = os.path.join(DATA_DIR, SCHOOL_CONFIG_FILENAME)
 
-SCHEDULE_FILES = {
-    "التربية الإسلامية": os.path.join(SCHEDULES_DIR, "التربية_الإسلامية.xlsx"),
-    "اللغة العربية": os.path.join(SCHEDULES_DIR, "اللغة_العربية.xlsx"),
-    "الرياضيات": os.path.join(SCHEDULES_DIR, "الرياضيات.xlsx"),
-    "العلوم": os.path.join(SCHEDULES_DIR, "العلوم.xlsx"),
-    "اللغة الإنجليزية": os.path.join(SCHEDULES_DIR, "اللغة_الإنجليزية.xlsx"),
-    "الدراسات الإجتماعية": os.path.join(SCHEDULES_DIR, "الدراسات_الاجتماعية.xlsx"),
-    "المهارات الفردية": os.path.join(SCHEDULES_DIR, "المهارات_الفردية.xlsx"),
-}
+SCHEDULE_FILES = {dept: os.path.join(SCHEDULES_DIR, filename) for dept, filename in SCHEDULE_FILE_NAMES.items()}
 def ensure_data_directories():
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(IMG_DIR, exist_ok=True)
@@ -561,23 +570,6 @@ def get_reference_file_status(file_path, status_key="", data_loaded=False):
         "modified_at": record.get("updated_at") or "—",
     }
 
-DEFAULT_SCHOOL_CONFIG = {
-    "ministry_name": "وزارة التعليم",
-    "directorate_region": "جنوب الباطنة",
-    "directorate_prefix": "المديرية العامة للتعليم بمحافظة",
-    "system_name": "منظومة مسار",
-    "system_subtitle": "للاحتياط والتبادل الودي",
-    "school_name": "مدرسة الباسط للتعليم الأساسي (8-10)",
-    "developer_credit": "فكرة وتطوير: أ. محمود اليحيائي - أ. وليد الهنائي © 2026",
-    "logo_url": "https://i.imgur.com/1cxFlX7.png",
-    "theme_color": "#004d40",
-    "theme_color_2": "#00695c",
-    "accent_color": "#ffca28",
-    "periods_per_day": 7,
-    "week_days": ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس"],
-    "weekend_days": ["الجمعة", "السبت"],
-    "official_departments": ["الهيئة الإدارية", "التربية الإسلامية", "اللغة العربية", "الرياضيات", "العلوم", "اللغة الإنجليزية", "الدراسات الإجتماعية", "المهارات الفردية"]
-}
 
 def load_school_config():
     """
