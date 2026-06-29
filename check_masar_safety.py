@@ -2328,6 +2328,158 @@ def check_generate_wa_msg_phase3ia4b(app_path: Path, app_text: str, results: lis
     except Exception as exc:
         add(results, "3I-a-4b: py_compile swaps.py", "FAIL", f"فشل py_compile: {exc}")
 
+
+def check_get_swap_candidates_phase3ia4c(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3I-a-4c: تقسيم get_swap_candidates_for_period إلى core/wrapper."""
+    swaps_path = app_path.with_name("swaps.py")
+    if not swaps_path.exists():
+        add(results, "3I-a-4c: وجود swaps.py", "FAIL", f"غير موجود: {swaps_path}")
+        return
+
+    swaps_text = swaps_path.read_text(encoding="utf-8")
+    core_body = function_body(swaps_text, "get_swap_candidates_for_period_core")
+    wrapper_body = function_body(app_text, "get_swap_candidates_for_period")
+    on_select_body = function_body(app_text, "on_swap_option_selected")
+
+    core_exists = bool(re.search(r"^def\s+get_swap_candidates_for_period_core\s*\(", swaps_text, re.MULTILINE))
+    add(
+        results,
+        "3I-a-4c: get_swap_candidates_for_period_core موجودة في swaps.py",
+        "PASS" if core_exists else "FAIL",
+        "core موجودة داخل swaps.py." if core_exists else "لم يتم العثور على core داخل swaps.py.",
+    )
+
+    wrapper_exists = bool(re.search(r"^def\s+get_swap_candidates_for_period\s*\(", app_text, re.MULTILINE))
+    duplicated_core = bool(re.search(r"^def\s+get_swap_candidates_for_period_core\s*\(", app_text, re.MULTILINE))
+    add(
+        results,
+        "3I-a-4c: wrapper موجودة في app.py بلا core مكرر",
+        "PASS" if wrapper_exists and not duplicated_core else "FAIL",
+        "wrapper باقية في app.py ولا يوجد core مكرر هناك." if wrapper_exists and not duplicated_core else f"wrapper_exists={wrapper_exists}, duplicated_core={duplicated_core}",
+    )
+
+    wrapper_calls_core = bool(wrapper_body) and "get_swap_candidates_for_period_core(" in wrapper_body
+    wrapper_updates_ok = (
+        bool(wrapper_body)
+        and "gr.update(choices=candidates" in wrapper_body
+        and "gr.update(value=saved_message" in wrapper_body
+        and "gr.update(value=btn_value" in wrapper_body
+        and "interactive=confirm_interactive" in wrapper_body
+    )
+    add(
+        results,
+        "3I-a-4c: wrapper يستدعي core ويرجع مخرجات Gradio القديمة",
+        "PASS" if wrapper_calls_core and wrapper_updates_ok else "FAIL",
+        "wrapper يحوّل القيم الخام إلى 4 مخرجات Gradio." if wrapper_calls_core and wrapper_updates_ok else f"calls_core={wrapper_calls_core}, updates_ok={wrapper_updates_ok}",
+    )
+
+    no_state_lock = not bool(re.search(r"@state_locked\s*\ndef\s+get_swap_candidates_for_period_core\s*\(", swaps_text))
+    add(
+        results,
+        "3I-a-4c: get_swap_candidates_for_period_core بلا @state_locked",
+        "PASS" if no_state_lock else "FAIL",
+        "لا توجد @state_locked على core لأنها لا تعدّل البيانات." if no_state_lock else "ظهرت @state_locked على core بلا حاجة.",
+    )
+
+    no_reverse_import = "import app" not in swaps_text and "from app import" not in swaps_text
+    swaps_no_gradio = "gr.update" not in swaps_text and "import gradio" not in swaps_text and "from gradio" not in swaps_text and "gr.SelectData" not in swaps_text
+    add(
+        results,
+        "3I-a-4c: swaps.py لا يستورد app.py",
+        "PASS" if no_reverse_import else "FAIL",
+        "لا يوجد import app داخل swaps.py." if no_reverse_import else "ظهر import app أو from app import داخل swaps.py.",
+    )
+    add(
+        results,
+        "3I-a-4c: swaps.py بلا Gradio بعد get_swap_candidates_for_period_core",
+        "PASS" if swaps_no_gradio else "FAIL",
+        "لا يوجد gr.update أو import gradio أو gr.SelectData داخل swaps.py." if swaps_no_gradio else "ظهر اعتماد مباشر على Gradio داخل swaps.py.",
+    )
+
+    direct_cores_ok = (
+        bool(core_body)
+        and "run_radar_safe_core(" in core_body
+        and "generate_wa_msg_core(" in core_body
+        and "run_radar_safe(" not in core_body
+        and "generate_wa_msg(" not in core_body
+        and "_get_update_choices" not in core_body
+        and "_get_update_value" not in core_body
+    )
+    add(
+        results,
+        "3I-a-4c: core يستدعي cores مباشرة بلا حيلة gr.update",
+        "PASS" if direct_cores_ok else "FAIL",
+        "core يستدعي run_radar_safe_core و generate_wa_msg_core مباشرة." if direct_cores_ok else "core ما زال يعتمد على wrappers أو دوال استخراج gr.update.",
+    )
+
+    update_choices_removed = "_get_update_choices" not in app_text and "_get_update_choices" not in swaps_text
+    add(
+        results,
+        "3I-a-4c: حذف _get_update_choices بعد موتها",
+        "PASS" if update_choices_removed else "FAIL",
+        "_get_update_choices غير موجودة بعد أن أصبحت كودًا ميتًا." if update_choices_removed else "_get_update_choices ما زالت موجودة.",
+    )
+
+    update_value_kept_for_next = (
+        bool(re.search(r"^def\s+_get_update_value\s*\(", app_text, re.MULTILINE))
+        and bool(on_select_body)
+        and "_get_update_value" in on_select_body
+    )
+    add(
+        results,
+        "3I-a-4c: إبقاء _get_update_value مؤقتًا لـ on_swap_option_selected",
+        "PASS" if update_value_kept_for_next else "FAIL",
+        "_get_update_value باقية لأنها ما زالت مطلوبة في on_swap_option_selected." if update_value_kept_for_next else "_get_update_value حُذفت مبكرًا أو لم تعد ظاهرة في on_swap_option_selected.",
+    )
+
+    core_clean = bool(core_body) and "gr.update" not in core_body and "return gr.update" not in core_body
+    add(
+        results,
+        "3I-a-4c: get_swap_candidates_for_period_core يرجع بيانات خام فقط",
+        "PASS" if core_clean else "FAIL",
+        "core بلا gr.update ويرجع candidates/choice/message/button/interactivity كقيم خام." if core_clean else "core يحتوي gr.update أو لا يمكن قراءة جسم الدالة.",
+    )
+
+    try:
+        app_tree = ast.parse(app_text)
+        wrapper_returns = []
+        for node in ast.walk(app_tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "get_swap_candidates_for_period":
+                wrapper_returns = [r for r in ast.walk(node) if isinstance(r, ast.Return)]
+                break
+        wrapper_four_outputs = bool(wrapper_returns) and all(isinstance(r.value, ast.Tuple) and len(r.value.elts) == 4 for r in wrapper_returns)
+        add(
+            results,
+            "3I-a-4c: wrapper يرجع 4 عناصر",
+            "PASS" if wrapper_four_outputs else "FAIL",
+            "كل فروع wrapper ترجع 4 عناصر." if wrapper_four_outputs else "wrapper لا يرجع 4 عناصر في كل الفروع.",
+        )
+    except SyntaxError as exc:
+        add(results, "3I-a-4c: تحليل AST للـwrapper", "FAIL", f"تعذر تحليل app.py: {exc}")
+
+    try:
+        swaps_tree = ast.parse(swaps_text)
+        core_returns = []
+        for node in ast.walk(swaps_tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "get_swap_candidates_for_period_core":
+                core_returns = [r for r in ast.walk(node) if isinstance(r, ast.Return)]
+                break
+        core_five_raw_outputs = bool(core_returns) and all(isinstance(r.value, ast.Tuple) and len(r.value.elts) == 5 for r in core_returns)
+        add(
+            results,
+            "3I-a-4c: core يرجع 5 قيم خام",
+            "PASS" if core_five_raw_outputs else "FAIL",
+            "core يرجع tuple من 5 قيم خام في كل الفروع." if core_five_raw_outputs else "core لا يرجع tuple من 5 قيم خام في كل الفروع.",
+        )
+    except SyntaxError as exc:
+        add(results, "3I-a-4c: تحليل AST للـcore", "FAIL", f"تعذر تحليل swaps.py: {exc}")
+
+    try:
+        py_compile.compile(str(swaps_path), doraise=True)
+        add(results, "3I-a-4c: py_compile swaps.py", "PASS", "swaps.py لا يحتوي أخطاء نحوية بعد get_swap_candidates_for_period_core.")
+    except Exception as exc:
+        add(results, "3I-a-4c: py_compile swaps.py", "FAIL", f"فشل py_compile: {exc}")
+
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
     warn = sum(r.status == "WARN" for r in results)
@@ -2434,6 +2586,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_confirm_swap_phase3ia3(path, app_text, results)
     check_run_radar_safe_phase3ia4a(path, app_text, results)
     check_generate_wa_msg_phase3ia4b(path, app_text, results)
+    check_get_swap_candidates_phase3ia4c(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
