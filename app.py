@@ -83,6 +83,7 @@ from storage import (
     save_swap_db,
     load_swap_db,
     get_now_oman,
+    write_audit_log,
 )
 
 from auth import (
@@ -1475,52 +1476,6 @@ def format_exempt_slots_for_display(slots):
     return "، ".join([f"{slot['day']} ح{slot['period']}" for slot in clean_slots])
 
 
-
-def _audit_json_safe(value):
-    try:
-        json.dumps(value, ensure_ascii=False)
-        return value
-    except Exception:
-        return str(value)
-
-def write_audit_log(action, target_teacher="", old_value=None, new_value=None, details="", actor_name="", actor_role=""):
-    """تسجيل العمليات الحساسة فقط في ملف data/audit_log.json بصورة متزامنة."""
-    lock = _get_json_file_lock(AUDIT_LOG_FILE)
-    with lock:
-        try:
-            ensure_data_directories()
-            actor_name = str(actor_name or "").strip() or "غير محدد"
-            actor_role = str(actor_role or "").strip() or "غير محدد"
-
-            record = {
-                "timestamp": get_now_oman().strftime("%Y-%m-%d %H:%M:%S"),
-                "actor_name": actor_name,
-                "actor_role": actor_role,
-                "action": str(action or "").strip(),
-                "target_teacher": str(target_teacher or "").strip(),
-                "old_value": _audit_json_safe(old_value),
-                "new_value": _audit_json_safe(new_value),
-                "details": str(details or "").strip(),
-                "source": SYSTEM_NAME
-            }
-
-            existing = []
-            if os.path.exists(AUDIT_LOG_FILE):
-                try:
-                    with open(AUDIT_LOG_FILE, "r", encoding="utf-8") as f:
-                        loaded = json.load(f)
-                    if isinstance(loaded, list):
-                        existing = loaded
-                except Exception:
-                    existing = []
-
-            existing.append(record)
-
-            if not safe_write_json(AUDIT_LOG_FILE, existing):
-                print("write_audit_log error: safe_write_json failed")
-
-        except Exception as e:
-            print(f"write_audit_log error: {e}")
 
 def _queue_audit_change(entries, action, target_teacher, old_value, new_value, details):
     if old_value == new_value:
