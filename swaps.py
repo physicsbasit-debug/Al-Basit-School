@@ -139,6 +139,81 @@ def run_radar_safe_core(t, p, d):
         return ["خطأ داخلي"]
 
 
+def generate_wa_msg_core(choice, t_req, p_req, d_req):
+    """يبني مسودة رسالة واتساب وزرها كقيم خام دون أي اعتماد على Gradio."""
+    default_msg = "💡 يرجى اختيار أحد المعلمين من القائمة بالأعلى لتوليد مسودة رسالة الواتساب هنا..."
+    if not choice or "❌" in str(choice) or "خطأ" in str(choice):
+        return default_msg, ""
+    try:
+        parts = str(choice).split("|")
+        t_target = parts[1].split(":")[1].strip()
+        details = parts[2].strip()
+
+        p_req_clean = extract_clean_period_number(p_req)
+        t_req_clean = str(t_req or "").split(" (")[0].strip()
+        req_class_raw = teachers_db.get(t_req_clean, {}).get(
+            d_req, {}
+        ).get(
+            p_req_clean,
+            teachers_db.get(t_req_clean, {}).get(
+                d_req, {}
+            ).get(int(p_req_clean) if p_req_clean.isdigit() else p_req_clean, "")
+        )
+        req_class_elegant = format_elegant_class(req_class_raw)
+
+        msg = f"السلام عليكم ورحمة الله وبركاته أستاذي العزيز ({t_target})\n\n"
+        msg += f"يرغب الأستاذ ({t_req}) بالتبادل الودي معك (بعد إذنك وموافقتك طبعاً لظرف طارئ).\n"
+        msg += f"ستقوم أنت مشكوراً بتغطية الصف ({req_class_elegant}) في الحصة ({p_req_clean}) يوم ({d_req}).\n"
+
+        if "مثالي" in str(choice):
+            rep_part = details.split("وتغطيه ")[1].split(")")[0].replace("(", "")
+            rep_day, rep_period = rep_part.split(" ح")
+
+            clean_rep_day = rep_day.replace(" القادم", "").strip()
+            target_class_raw = teachers_db.get(t_target, {}).get(
+                clean_rep_day, {}
+            ).get(
+                str(rep_period),
+                teachers_db.get(t_target, {}).get(
+                    clean_rep_day, {}
+                ).get(int(rep_period) if str(rep_period).isdigit() else rep_period, "")
+            )
+            target_class_elegant = format_elegant_class(target_class_raw)
+
+            msg += f"وسيقوم الأستاذ ({t_req}) بتغطية الصف ({target_class_elegant}) في الحصة ({rep_period}) يوم ({rep_day}) بدلاً عنك.\n\n"
+        else:
+            msg += f"ونظراً لانشغال الأستاذ ({t_req}) وقت حصتك، سيتم التنسيق لرد الحصة لاحقاً.\n\n"
+
+        msg += "هل يناسبك هذا التبادل ليتم اعتماده؟ شاكرين ومقدرين تعاونك 🤝"
+
+        phone = teachers_db.get(t_target, {}).get("phone", "")
+        btn_color = "#25D366"
+
+        if phone:
+            phone = "".join(filter(str.isdigit, str(phone)))
+            if len(phone) == 8:
+                phone = "968" + phone
+            btn_text = f"✅ إرسال للأستاذ {t_target}"
+        else:
+            phone = ""
+            btn_text = "⚠️ إرسال (لا يوجد رقم)"
+
+        encoded_msg = urllib.parse.quote(msg)
+        wa_link = f"https://api.whatsapp.com/send?phone={phone}&text={encoded_msg}"
+
+        btn_html = (
+            f'<div style="margin-top: 10px; border: 2px solid {btn_color}; border-radius: 8px; padding: 2px;">'
+            f'<a href="{wa_link}" target="_blank" '
+            f'style="display: block; width: 100%; text-align: center; background-color: {btn_color}; color: white; '
+            f'padding: 12px; border-radius: 6px; font-weight: bold; text-decoration: none; font-size: 16px;">'
+            f'{btn_text}</a></div>'
+        )
+
+        return msg, btn_html
+
+    except Exception:
+        return default_msg, ""
+
 def build_swap_button_html(candidate_name, message_text):
     phone = teachers_db.get(candidate_name, {}).get("phone", "")
     btn_color = "#25D366"
