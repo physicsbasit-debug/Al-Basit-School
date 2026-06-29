@@ -2211,6 +2211,123 @@ def check_run_radar_safe_phase3ia4a(app_path: Path, app_text: str, results: list
     except Exception as exc:
         add(results, "3I-a-4a: py_compile swaps.py", "FAIL", f"فشل py_compile: {exc}")
 
+
+def check_generate_wa_msg_phase3ia4b(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3I-a-4b: تقسيم generate_wa_msg إلى core/wrapper داخل swaps.py/app.py."""
+    swaps_path = app_path.with_name("swaps.py")
+    if not swaps_path.exists():
+        add(results, "3I-a-4b: وجود swaps.py", "FAIL", f"غير موجود: {swaps_path}")
+        return
+
+    swaps_text = swaps_path.read_text(encoding="utf-8")
+    core_body = function_body(swaps_text, "generate_wa_msg_core")
+    wrapper_body = function_body(app_text, "generate_wa_msg")
+
+    core_exists = bool(re.search(r"^def\s+generate_wa_msg_core\s*\(", swaps_text, re.MULTILINE))
+    add(
+        results,
+        "3I-a-4b: generate_wa_msg_core موجودة في swaps.py",
+        "PASS" if core_exists else "FAIL",
+        "generate_wa_msg_core موجودة داخل swaps.py." if core_exists else "لم يتم العثور على generate_wa_msg_core داخل swaps.py.",
+    )
+
+    duplicated_core_or_old = bool(re.search(r"^def\s+generate_wa_msg_core\s*\(", app_text, re.MULTILINE))
+    wrapper_exists = bool(re.search(r"^def\s+generate_wa_msg\s*\(", app_text, re.MULTILINE))
+    add(
+        results,
+        "3I-a-4b: wrapper موجودة في app.py بلا core مكرر",
+        "PASS" if wrapper_exists and not duplicated_core_or_old else "FAIL",
+        "generate_wa_msg باقية في app.py كـwrapper ولا يوجد generate_wa_msg_core مكرر هناك." if wrapper_exists and not duplicated_core_or_old else f"wrapper_exists={wrapper_exists}, duplicated_core={duplicated_core_or_old}",
+    )
+
+    wrapper_calls_core = bool(wrapper_body) and "generate_wa_msg_core(" in wrapper_body
+    wrapper_updates_ok = bool(wrapper_body) and "gr.update(value=msg)" in wrapper_body and "gr.update(value=btn_html)" in wrapper_body
+    add(
+        results,
+        "3I-a-4b: wrapper يستدعي core ويرجع مخرجات Gradio القديمة",
+        "PASS" if wrapper_calls_core and wrapper_updates_ok else "FAIL",
+        "wrapper يستدعي generate_wa_msg_core ويرجع gr.update للرسالة والزر." if wrapper_calls_core and wrapper_updates_ok else f"calls_core={wrapper_calls_core}, updates_ok={wrapper_updates_ok}",
+    )
+
+    no_state_lock = not bool(re.search(r"@state_locked\s*\ndef\s+generate_wa_msg_core\s*\(", swaps_text))
+    add(
+        results,
+        "3I-a-4b: generate_wa_msg_core بلا @state_locked",
+        "PASS" if no_state_lock else "FAIL",
+        "لا توجد @state_locked على generate_wa_msg_core لأنها لا تعدّل البيانات." if no_state_lock else "ظهرت @state_locked على core بلا حاجة.",
+    )
+
+    no_reverse_import = "import app" not in swaps_text and "from app import" not in swaps_text
+    swaps_no_gradio = "gr.update" not in swaps_text and "import gradio" not in swaps_text and "from gradio" not in swaps_text and "gr.SelectData" not in swaps_text
+    add(
+        results,
+        "3I-a-4b: swaps.py لا يستورد app.py",
+        "PASS" if no_reverse_import else "FAIL",
+        "لا يوجد import app داخل swaps.py." if no_reverse_import else "ظهر import app أو from app import داخل swaps.py.",
+    )
+    add(
+        results,
+        "3I-a-4b: swaps.py بلا Gradio بعد generate_wa_msg_core",
+        "PASS" if swaps_no_gradio else "FAIL",
+        "لا يوجد gr.update أو import gradio أو gr.SelectData داخل swaps.py." if swaps_no_gradio else "ظهر اعتماد مباشر على Gradio داخل swaps.py.",
+    )
+
+    deps_ok = all(name in swaps_text for name in ["teachers_db", "urllib.parse", "extract_clean_period_number", "format_elegant_class"])
+    add(
+        results,
+        "3I-a-4b: اعتماديات generate_wa_msg_core مكتملة",
+        "PASS" if deps_ok else "FAIL",
+        "اعتماديات core متوفرة داخل swaps.py/storage.py والمكتبة القياسية." if deps_ok else "اعتماديات generate_wa_msg_core غير مكتملة.",
+    )
+
+    core_clean = bool(core_body) and "gr.update" not in core_body and "return gr.update" not in core_body
+    add(
+        results,
+        "3I-a-4b: generate_wa_msg_core يرجع بيانات خام فقط",
+        "PASS" if core_clean else "FAIL",
+        "core بلا gr.update ويرجع msg و btn_html خامين." if core_clean else "core يحتوي gr.update أو لا يمكن قراءة جسم الدالة.",
+    )
+
+    try:
+        app_tree = ast.parse(app_text)
+        wrapper_returns = []
+        for node in ast.walk(app_tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "generate_wa_msg":
+                wrapper_returns = [r for r in ast.walk(node) if isinstance(r, ast.Return)]
+                break
+        wrapper_two_outputs = bool(wrapper_returns) and all(isinstance(r.value, ast.Tuple) and len(r.value.elts) == 2 for r in wrapper_returns)
+        add(
+            results,
+            "3I-a-4b: generate_wa_msg wrapper يرجع عنصرين",
+            "PASS" if wrapper_two_outputs else "FAIL",
+            "كل فروع wrapper ترجع عنصرين." if wrapper_two_outputs else "wrapper لا يرجع عنصرين في كل الفروع.",
+        )
+    except SyntaxError as exc:
+        add(results, "3I-a-4b: تحليل AST للـwrapper", "FAIL", f"تعذر تحليل app.py: {exc}")
+
+    try:
+        swaps_tree = ast.parse(swaps_text)
+        core_returns = []
+        for node in ast.walk(swaps_tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "generate_wa_msg_core":
+                core_returns = [r for r in ast.walk(node) if isinstance(r, ast.Return)]
+                break
+        core_two_raw_outputs = bool(core_returns) and all(isinstance(r.value, ast.Tuple) and len(r.value.elts) == 2 for r in core_returns)
+        add(
+            results,
+            "3I-a-4b: generate_wa_msg_core يرجع msg و btn_html",
+            "PASS" if core_two_raw_outputs else "FAIL",
+            "core يرجع tuple من عنصرين في كل الفروع." if core_two_raw_outputs else "core لا يرجع tuple من عنصرين في كل الفروع.",
+        )
+    except SyntaxError as exc:
+        add(results, "3I-a-4b: تحليل AST للـcore", "FAIL", f"تعذر تحليل swaps.py: {exc}")
+
+    try:
+        py_compile.compile(str(swaps_path), doraise=True)
+        add(results, "3I-a-4b: py_compile swaps.py", "PASS", "swaps.py لا يحتوي أخطاء نحوية بعد generate_wa_msg_core.")
+    except Exception as exc:
+        add(results, "3I-a-4b: py_compile swaps.py", "FAIL", f"فشل py_compile: {exc}")
+
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
     warn = sum(r.status == "WARN" for r in results)
@@ -2316,6 +2433,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_swaps_phase3ia1(path, app_text, results)
     check_confirm_swap_phase3ia3(path, app_text, results)
     check_run_radar_safe_phase3ia4a(path, app_text, results)
+    check_generate_wa_msg_phase3ia4b(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
