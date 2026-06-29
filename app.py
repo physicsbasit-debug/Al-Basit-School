@@ -184,6 +184,7 @@ from swaps import (
     check_teacher_load,
     run_radar_safe_core,
     generate_wa_msg_core,
+    get_swap_candidates_for_period_core,
 )
 
 
@@ -5631,56 +5632,15 @@ def _get_update_value(obj, fallback=""):
     except Exception:
         return fallback
 
-def _get_update_choices(obj):
-    try:
-        if isinstance(obj, dict):
-            return obj.get("choices", [])
-        return getattr(obj, "choices", [])
-    except Exception:
-        try:
-            return obj["choices"]
-        except Exception:
-            return []
-
 def get_swap_candidates_for_period(t, period_value, d, confirmed_state):
-    if not t or not period_value:
-        return (
-            gr.update(choices=[], value=None, visible=True),
-            gr.update(value=SWAP_EMPTY_MSG, visible=True),
-            gr.update(value="", visible=True),
-            gr.update(visible=True, interactive=False)
-        )
-
-    opts_update, _, _ = run_radar_safe(t, period_value, d)
-    candidates = _get_update_choices(opts_update)
-
-    if not candidates:
-        candidates = ["❌ لا يوجد بديل متفرغ"]
-
-    p_clean = extract_clean_period_number(period_value)
-
-    saved_choice = None
-    saved_message = SWAP_EMPTY_MSG
-    btn_update = gr.update(value="", visible=True)
-    confirm_update = gr.update(visible=True, interactive=False)
-
-    if isinstance(confirmed_state, dict) and p_clean in confirmed_state:
-        saved_choice = confirmed_state[p_clean].get("choice")
-        if saved_choice not in candidates:
-            saved_choice = None
-
-        if saved_choice:
-            saved_message = confirmed_state[p_clean].get("message", SWAP_EMPTY_MSG) or SWAP_EMPTY_MSG
-            _, btn_raw = generate_wa_msg(saved_choice, t, period_value, d)
-            btn_value = _get_update_value(btn_raw, "")
-            btn_update = gr.update(value=btn_value, visible=True)
-            confirm_update = gr.update(visible=True, interactive=True)
-
+    candidates, saved_choice, saved_message, btn_value, confirm_interactive = get_swap_candidates_for_period_core(
+        t, period_value, d, confirmed_state
+    )
     return (
         gr.update(choices=candidates, value=saved_choice, visible=True),
         gr.update(value=saved_message, visible=True),
-        btn_update,
-        confirm_update
+        gr.update(value=btn_value, visible=True),
+        gr.update(visible=True, interactive=confirm_interactive)
     )
 
 def on_swap_option_selected(choice, t, period_value, d):
