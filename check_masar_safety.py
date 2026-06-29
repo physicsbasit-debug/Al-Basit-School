@@ -1592,6 +1592,65 @@ def check_process_uploaded_excel_phase3eb4(app_path: Path, app_text: str, result
     except Exception as exc:  # pragma: no cover
         add(results, "3E-b-4: py_compile school_data.py", "FAIL", f"فشل py_compile: {exc}")
 
+
+def check_audit_logging_phase3ha1(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3H-a-1: نقل سجل العمليات الحساسة إلى storage.py."""
+    storage_path = app_path.with_name("storage.py")
+    config_path = app_path.with_name("config.py")
+    if not storage_path.exists():
+        add(results, "3H-a-1: وجود storage.py", "FAIL", f"غير موجود: {storage_path}")
+        return
+
+    storage_text = storage_path.read_text(encoding="utf-8")
+    config_text = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+
+    storage_has_audit = all(marker in storage_text for marker in ["def write_audit_log", "def _audit_json_safe", "AUDIT_LOG_FILE", "safe_write_json", "get_now_oman"])
+    add(
+        results,
+        "3H-a-1: write_audit_log في storage.py",
+        "PASS" if storage_has_audit else "FAIL",
+        "write_audit_log ومساعدها موجودان في storage.py مع اعتماديات التخزين." if storage_has_audit else "نقل سجل العمليات إلى storage.py غير مكتمل.",
+    )
+
+    app_has_local_audit_defs = any(re.search(rf"^def\s+{fn}\s*\(", app_text, re.MULTILINE) for fn in ["write_audit_log", "_audit_json_safe"])
+    add(
+        results,
+        "3H-a-1: app.py لا يعرّف write_audit_log محليًا",
+        "PASS" if not app_has_local_audit_defs else "FAIL",
+        "لا توجد تعريفات محلية لـ write_audit_log/_audit_json_safe داخل app.py." if not app_has_local_audit_defs else "ما زالت تعريفات audit موجودة داخل app.py.",
+    )
+
+    app_imports_audit = "write_audit_log" in app_text and "from storage import" in app_text
+    add(
+        results,
+        "3H-a-1: app.py يستورد write_audit_log من storage.py",
+        "PASS" if app_imports_audit else "FAIL",
+        "app.py يستخدم write_audit_log المستوردة من storage.py." if app_imports_audit else "لم يظهر استيراد write_audit_log من storage.py بوضوح.",
+    )
+
+    config_has_system_name = bool(re.search(r"^SYSTEM_NAME\s*=", config_text, re.MULTILINE))
+    add(
+        results,
+        "3H-a-1: SYSTEM_NAME متاح في config.py",
+        "PASS" if config_has_system_name else "FAIL",
+        "SYSTEM_NAME موجود في config.py كمصدر افتراضي عام." if config_has_system_name else "SYSTEM_NAME غير موجود في config.py.",
+    )
+
+    no_reverse_import = "import app" not in storage_text and "from app import" not in storage_text
+    add(
+        results,
+        "3H-a-1: storage.py لا يستورد app.py بعد audit",
+        "PASS" if no_reverse_import else "FAIL",
+        "لا يوجد اعتماد عكسي من storage.py إلى app.py." if no_reverse_import else "ظهر import app أو from app import داخل storage.py.",
+    )
+
+    try:
+        py_compile.compile(str(storage_path), doraise=True)
+        add(results, "3H-a-1: py_compile storage.py", "PASS", "storage.py لا يحتوي أخطاء نحوية بعد نقل audit.")
+    except Exception as exc:  # pragma: no cover
+        add(results, "3H-a-1: py_compile storage.py", "FAIL", f"فشل py_compile: {exc}")
+
+
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
     warn = sum(r.status == "WARN" for r in results)
@@ -1691,6 +1750,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_refresh_schedule_core_phase3eb2(path, app_text, results)
     check_gradio_bound_helpers_phase3eb3(path, app_text, results)
     check_process_uploaded_excel_phase3eb4(path, app_text, results)
+    check_audit_logging_phase3ha1(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
