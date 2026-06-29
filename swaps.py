@@ -9,6 +9,9 @@ Phase 3I-a-1: نقل دوال العرض/التحليل النصي النظيف�
 import re
 import urllib.parse
 
+import pandas as pd
+from openpyxl.styles import Alignment, Font, PatternFill
+
 from schedules import get_teacher_choices
 
 from storage import (
@@ -477,6 +480,80 @@ def get_teacher_periods_marked_core(t, d, confirmed_state, current_value=None):
     except Exception:
         return ["خطأ داخلي"], None
 
+
+def format_period_label(period_value):
+    raw = str(period_value or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("الحصة"):
+        return raw
+    return f"الحصة {raw}"
+
+
+def export_confirmed_swaps_excel_core():
+    """يصدر سجل التبادلات المعتمدة إلى Excel ويُرجع اسم الملف النسبي أو None.
+
+    يحافظ عمدًا على السلوك القديم: يكتب الملف باسم نسبي في مجلد العمل الحالي،
+    ولا يغيّر مسار الحفظ ضمن هذه المرحلة المعمارية.
+    """
+    if not isinstance(swap_db, dict) or not swap_db:
+        return None
+
+    rows = []
+    for _, info in sorted(swap_db.items(), key=lambda item: (
+        str(item[1].get("updated_at", "")),
+        str(item[1].get("requester", "")),
+        str(item[1].get("day", "")),
+        str(item[1].get("period", "")),
+    )):
+        updated_at = str(info.get("updated_at", "")).strip()
+        approval_date = updated_at.split(" ")[0] if updated_at else ""
+        rows.append({
+            "المعلم الطالب للتبادل": str(info.get("requester", "")),
+            "المعلم البديل": str(info.get("candidate", "")),
+            "الصف": str(info.get("class", "")),
+            "اليوم الأصلي": str(info.get("day", "")),
+            "الحصة الأصلية": format_period_label(info.get("period", "")),
+            "يوم التعويض": str(info.get("comp_day", "")),
+            "حصة التعويض": str(info.get("comp_period", "")),
+            "التاريخ": approval_date,
+        })
+
+    if not rows:
+        return None
+
+    df = pd.DataFrame(rows)
+    filename = f"سجل_التبادلات_الودية_المعتمدة_{get_now_oman().strftime('%Y%m%d_%H%M%S')}.xlsx"
+
+    with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='التبادلات المعتمدة')
+        ws = writer.sheets['التبادلات المعتمدة']
+
+        header_fill = PatternFill(fill_type='solid', fgColor='0B6E4F')
+        header_font = Font(color='FFFFFF', bold=True)
+        center_alignment = Alignment(horizontal='center', vertical='center')
+
+        for cell in ws[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = center_alignment
+
+        for row in ws.iter_rows(min_row=2):
+            for cell in row:
+                cell.alignment = center_alignment
+
+        for column_cells in ws.columns:
+            max_length = 0
+            column_letter = column_cells[0].column_letter
+            for cell in column_cells:
+                cell_value = "" if cell.value is None else str(cell.value)
+                max_length = max(max_length, len(cell_value))
+            ws.column_dimensions[column_letter].width = min(max(max_length + 4, 14), 40)
+
+        ws.freeze_panes = 'A2'
+        ws.sheet_view.rightToLeft = True
+
+    return filename
 
 @state_locked
 def confirm_swap_core(t, period_value, choice, d, msg_text, state, actor_name="", actor_role=""):
