@@ -37,6 +37,7 @@ from config import (
     AUDIT_LOG_FILENAME,
     SCHOOL_CONFIG_FILENAME,
     SCHEDULE_FILE_NAMES,
+    SYSTEM_NAME,
 )
 
 
@@ -244,6 +245,61 @@ def safe_write_json(file_path, data, *, make_backup=True):
                 except Exception:
                     pass
             return False
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v1.8.5l / Phase 3H-a-1 — سجل العمليات الحساسة العام
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _audit_json_safe(value):
+    """تحويل القيم غير القابلة للتسلسل إلى نص قبل حفظها في سجل العمليات."""
+    try:
+        json.dumps(value, ensure_ascii=False)
+        return value
+    except Exception:
+        return str(value)
+
+
+def write_audit_log(action, target_teacher="", old_value=None, new_value=None, details="", actor_name="", actor_role=""):
+    """تسجيل العمليات الحساسة فقط في ملف data/audit_log.json بصورة متزامنة."""
+    lock = _get_json_file_lock(AUDIT_LOG_FILE)
+    with lock:
+        try:
+            ensure_data_directories()
+            actor_name = str(actor_name or "").strip() or "غير محدد"
+            actor_role = str(actor_role or "").strip() or "غير محدد"
+            source_name = str(SCHOOL_CONFIG.get("system_name", SYSTEM_NAME) or SYSTEM_NAME)
+
+            record = {
+                "timestamp": get_now_oman().strftime("%Y-%m-%d %H:%M:%S"),
+                "actor_name": actor_name,
+                "actor_role": actor_role,
+                "action": str(action or "").strip(),
+                "target_teacher": str(target_teacher or "").strip(),
+                "old_value": _audit_json_safe(old_value),
+                "new_value": _audit_json_safe(new_value),
+                "details": str(details or "").strip(),
+                "source": source_name,
+            }
+
+            existing = []
+            if os.path.exists(AUDIT_LOG_FILE):
+                try:
+                    with open(AUDIT_LOG_FILE, "r", encoding="utf-8") as f:
+                        loaded = json.load(f)
+                    if isinstance(loaded, list):
+                        existing = loaded
+                except Exception:
+                    existing = []
+
+            existing.append(record)
+
+            if not safe_write_json(AUDIT_LOG_FILE, existing):
+                print("write_audit_log error: safe_write_json failed")
+
+        except Exception as e:
+            print(f"write_audit_log error: {e}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # v1.8.5d / Phase 3C — إعدادات المدرسة التشغيلية
