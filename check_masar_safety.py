@@ -806,6 +806,111 @@ def check_state_phase3e_pre(app_path: Path, app_text: str, results: list[CheckRe
         "لا يوجد اعتماد عكسي من storage.py إلى app.py." if no_reverse_import else "ظهر import app أو from app import داخل storage.py.",
     )
 
+
+def check_school_data_phase3ea(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3E-a: فصل دوال مركز البيانات النظيفة إلى school_data.py دون اعتماد عكسي على app.py."""
+    school_path = app_path.with_name("school_data.py")
+    if not school_path.exists():
+        add(results, "3E-a: وجود school_data.py", "FAIL", f"غير موجود: {school_path}")
+        return
+
+    school_text = school_path.read_text(encoding="utf-8")
+    add(results, "3E-a: وجود school_data.py", "PASS", f"موجود: {school_path}")
+
+    required_functions = [
+        "load_reference_status_registry",
+        "save_reference_status_registry",
+        "update_reference_file_status",
+        "_reference_status_key",
+        "get_reference_file_status",
+        "dept_has_loaded_schedule_data",
+        "get_school_data_center_status",
+        "render_reference_file_card",
+        "render_admin_reference_card",
+        "render_phones_reference_card",
+        "render_schedule_reference_cards",
+        "save_admin_reference_file",
+        "save_phones_reference_file",
+        "save_schedule_reference_file",
+        "precheck_schedule_excel_template",
+        "render_schedule_precheck_error_html",
+        "validate_reference_filename",
+        "_normalize_schedule_header_text",
+        "_excel_column_label_zero_based",
+    ]
+    missing = [fn for fn in required_functions if not re.search(rf"^def\s+{re.escape(fn)}\s*\(", school_text, re.MULTILINE)]
+    add(
+        results,
+        "3E-a: الدوال النظيفة موجودة في school_data.py",
+        "PASS" if not missing else "FAIL",
+        "جميع دوال مركز البيانات النظيفة موجودة." if not missing else f"ناقص: {missing}",
+    )
+
+    constant_ok = "SCHEDULE_PERIOD_HEADER_WORDS" in school_text
+    add(
+        results,
+        "3E-a: ثابت عناوين الحصص موجود في school_data.py",
+        "PASS" if constant_ok else "FAIL",
+        "SCHEDULE_PERIOD_HEADER_WORDS موجود." if constant_ok else "SCHEDULE_PERIOD_HEADER_WORDS غير موجود.",
+    )
+
+    app_local_defs = []
+    for fn in required_functions:
+        app_local_defs.extend(line_numbers_for_pattern(app_text, rf"^def\s+{re.escape(fn)}\s*\("))
+    add(
+        results,
+        "3E-a: app.py لا يحتوي تعريفات الدوال المنقولة",
+        "PASS" if not app_local_defs else "FAIL",
+        "الدوال المنقولة غير معرفة داخل app.py." if not app_local_defs else f"وجدت في الأسطر: {app_local_defs[:10]}",
+    )
+
+    dangerous = [
+        "get_absentee_choices",
+        "get_teacher_choices",
+        "get_day_overview",
+        "get_updated_absences",
+        "get_updated_balance",
+        "resolve_effective_dept",
+    ]
+    found_dangerous = [name for name in dangerous if name in school_text]
+    add(
+        results,
+        "3E-a: school_data.py لا يستدعي دوال app الخطرة",
+        "PASS" if not found_dangerous else "FAIL",
+        "لا توجد دوال واجهة/توزيع خطرة داخل school_data.py." if not found_dangerous else f"وجد: {found_dangerous}",
+    )
+
+    no_reverse_import = all(marker not in school_text for marker in ["import app", "from app import"])
+    add(
+        results,
+        "3E-a: school_data.py لا يستورد app.py",
+        "PASS" if no_reverse_import else "FAIL",
+        "لا يوجد اعتماد عكسي من school_data.py إلى app.py." if no_reverse_import else "ظهر import app أو from app import داخل school_data.py.",
+    )
+
+    deferred_functions = [
+        "refresh_admins_from_reference",
+        "refresh_phones_from_reference",
+        "refresh_schedule_from_reference",
+        "process_uploaded_excel",
+    ]
+    missing_in_app = [fn for fn in deferred_functions if not re.search(rf"^def\s+{re.escape(fn)}\s*\(", app_text, re.MULTILINE)]
+    wrongly_in_school = [fn for fn in deferred_functions if re.search(rf"^def\s+{re.escape(fn)}\s*\(", school_text, re.MULTILINE)]
+    add(
+        results,
+        "3E-a: الدوال المؤجلة بقيت في app.py",
+        "PASS" if not missing_in_app and not wrongly_in_school else "FAIL",
+        "refresh/process ودوال تحديث الإداريين/الأرقام بقيت في app.py كما هو مخطط." if not missing_in_app and not wrongly_in_school else f"ناقص في app: {missing_in_app}; موجود خطأ في school_data: {wrongly_in_school}",
+    )
+
+    import_ok = "from school_data import" in app_text
+    add(
+        results,
+        "3E-a: app.py يستورد school_data.py",
+        "PASS" if import_ok else "FAIL",
+        "app.py يستورد دوال مركز البيانات من school_data.py." if import_ok else "لم يظهر from school_data import داخل app.py.",
+    )
+
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
     warn = sum(r.status == "WARN" for r in results)
@@ -865,7 +970,16 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     app_text = read_text(path)
     style_text = collect_style_text(path)
-    combined_text = app_text + "\n" + style_text
+    extra_module_texts = []
+    for module_name in ("school_data.py", "storage.py", "auth.py"):
+        module_path = path.with_name(module_name)
+        if module_path.exists():
+            try:
+                extra_module_texts.append(module_path.read_text(encoding="utf-8"))
+            except UnicodeDecodeError:
+                extra_module_texts.append(module_path.read_text(encoding="utf-8-sig"))
+    code_text = app_text + "\n" + "\n".join(extra_module_texts)
+    combined_text = code_text + "\n" + style_text
 
     add(results, "ملف الفحص", "INFO", str(path))
     add(results, "عدد الأسطر", "INFO", str(len(app_text.splitlines())))
@@ -877,7 +991,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_syntax(path, results)
     check_forbidden_patterns(app_text, results)
     check_required_markers(combined_text, app_text, results)
-    check_symbol_counts(app_text, results, expected_symbols)
+    check_symbol_counts(code_text, results, expected_symbols)
     check_excel_and_periods(app_text, results)
     check_error_updates(app_text, results)
     check_exemption_centralization(app_text, results)
@@ -889,6 +1003,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_storage_phase3b(path, app_text, results)
     check_auth_phase3d(path, app_text, results)
     check_state_phase3e_pre(path, app_text, results)
+    check_school_data_phase3ea(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
