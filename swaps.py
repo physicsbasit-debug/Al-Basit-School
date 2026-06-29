@@ -214,6 +214,38 @@ def generate_wa_msg_core(choice, t_req, p_req, d_req):
     except Exception:
         return default_msg, ""
 
+
+def get_swap_candidates_for_period_core(t, period_value, d, confirmed_state):
+    """يرجع بيانات مرشحي التبادل الخام لحصة محددة دون أي اعتماد على Gradio."""
+    empty_msg = "💡 يرجى اختيار أحد المعلمين من القائمة بالأعلى لتوليد مسودة رسالة الواتساب هنا..."
+
+    if not t or not period_value:
+        return [], None, empty_msg, "", False
+
+    candidates = run_radar_safe_core(t, period_value, d)
+
+    if not candidates:
+        candidates = ["❌ لا يوجد بديل متفرغ"]
+
+    p_clean = extract_clean_period_number(period_value)
+
+    saved_choice = None
+    saved_message = empty_msg
+    btn_value = ""
+    confirm_interactive = False
+
+    if isinstance(confirmed_state, dict) and p_clean in confirmed_state:
+        saved_choice = confirmed_state[p_clean].get("choice")
+        if saved_choice not in candidates:
+            saved_choice = None
+
+        if saved_choice:
+            saved_message = confirmed_state[p_clean].get("message", empty_msg) or empty_msg
+            _, btn_value = generate_wa_msg_core(saved_choice, t, period_value, d)
+            confirm_interactive = True
+
+    return candidates, saved_choice, saved_message, btn_value, confirm_interactive
+
 def build_swap_button_html(candidate_name, message_text):
     phone = teachers_db.get(candidate_name, {}).get("phone", "")
     btn_color = "#25D366"
