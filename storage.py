@@ -10,6 +10,7 @@ SCHOOL_CONFIG / MAX_PERIODS / OFFICIAL_DEPTS.
 
 from __future__ import annotations
 
+import datetime
 import functools
 import json
 import os
@@ -118,6 +119,12 @@ AUDIT_LOG_FILE = os.path.join(DATA_DIR, AUDIT_LOG_FILENAME)
 SCHOOL_CONFIG_FILE = os.path.join(DATA_DIR, SCHOOL_CONFIG_FILENAME)
 
 SCHEDULE_FILES = {dept: os.path.join(SCHEDULES_DIR, filename) for dept, filename in SCHEDULE_FILE_NAMES.items()}
+
+
+def get_now_oman():
+    """إرجاع الوقت الحالي بتوقيت سلطنة عُمان كدالة وقت عامة نظيفة."""
+    tz_oman = datetime.timezone(datetime.timedelta(hours=4))
+    return datetime.datetime.now(tz_oman)
 
 
 def ensure_data_directories():
