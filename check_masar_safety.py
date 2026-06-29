@@ -1741,6 +1741,118 @@ def check_exemptions_phase3ha2(app_path: Path, app_text: str, results: list[Chec
         add(results, "3H-a-2: py_compile exemptions.py", "FAIL", f"فشل py_compile: {exc}")
 
 
+def check_save_teacher_rules_phase3ha3(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3H-a-3: تقسيم save_teacher_rules إلى core/wrapper."""
+    exemptions_path = app_path.with_name("exemptions.py")
+    if not exemptions_path.exists():
+        add(results, "3H-a-3: وجود exemptions.py", "FAIL", f"غير موجود: {exemptions_path}")
+        return
+
+    exemptions_text = exemptions_path.read_text(encoding="utf-8")
+    core_exists = bool(re.search(r"^def\s+save_teacher_rules_core\s*\(", exemptions_text, re.MULTILINE))
+    wrapper_exists = bool(re.search(r"^def\s+save_teacher_rules\s*\(", app_text, re.MULTILINE))
+
+    add(
+        results,
+        "3H-a-3: save_teacher_rules_core موجودة في exemptions.py",
+        "PASS" if core_exists else "FAIL",
+        "save_teacher_rules_core موجودة في exemptions.py." if core_exists else "لم يتم العثور على save_teacher_rules_core في exemptions.py.",
+    )
+    add(
+        results,
+        "3H-a-3: save_teacher_rules wrapper باقية في app.py",
+        "PASS" if wrapper_exists else "FAIL",
+        "save_teacher_rules موجودة في app.py كـwrapper." if wrapper_exists else "لم يتم العثور على save_teacher_rules في app.py.",
+    )
+
+    core_decorated = bool(re.search(r"@state_locked\s*\ndef\s+save_teacher_rules_core\s*\(", exemptions_text))
+    add(
+        results,
+        "3H-a-3: @state_locked على save_teacher_rules_core",
+        "PASS" if core_decorated else "FAIL",
+        "@state_locked موجود على core." if core_decorated else "@state_locked غير موجود على core.",
+    )
+
+    wrapper_start_lines = line_numbers_for_pattern(app_text, r"^def\s+save_teacher_rules\s*\(")
+    wrapper_has_decorator = False
+    if wrapper_start_lines:
+        lines = app_text.splitlines()
+        line_no = wrapper_start_lines[0]
+        prev_line = lines[line_no - 2].strip() if line_no >= 2 else ""
+        wrapper_has_decorator = prev_line == "@state_locked"
+    add(
+        results,
+        "3H-a-3: wrapper بلا @state_locked",
+        "PASS" if wrapper_exists and not wrapper_has_decorator else "FAIL",
+        "wrapper في app.py بلا @state_locked." if wrapper_exists and not wrapper_has_decorator else "wrapper ما زال عليه @state_locked أو غير موجود.",
+    )
+
+    core_body = function_body(exemptions_text, "save_teacher_rules_core")
+    wrapper_body = function_body(app_text, "save_teacher_rules")
+
+    core_no_gradio = (
+        "gr.update" not in core_body
+        and "gr.Warning" not in core_body
+        and "gr.Info" not in core_body
+        and "import gradio" not in core_body
+        and "from gradio" not in core_body
+    )
+    add(
+        results,
+        "3H-a-3: core بلا Gradio",
+        "PASS" if core_exists and core_no_gradio else "FAIL",
+        "save_teacher_rules_core لا يحتوي gr.update/gr.Warning/gr.Info/import gradio." if core_exists and core_no_gradio else "ظهر Gradio داخل core.",
+    )
+
+    no_reverse_import = "import app" not in exemptions_text and "from app import" not in exemptions_text
+    add(
+        results,
+        "3H-a-3: exemptions.py لا يستورد app.py",
+        "PASS" if no_reverse_import else "FAIL",
+        "لا يوجد import app داخل exemptions.py." if no_reverse_import else "ظهر import app أو from app import داخل exemptions.py.",
+    )
+
+    wrapper_calls_core = "save_teacher_rules_core" in wrapper_body
+    wrapper_updates_log = "gr.update(value=render_exemptions_log_html())" in wrapper_body
+    add(
+        results,
+        "3H-a-3: wrapper يستدعي core ويحدث سجل الإعفاءات",
+        "PASS" if wrapper_calls_core and wrapper_updates_log else "FAIL",
+        "wrapper يستدعي save_teacher_rules_core ويرجع gr.update لسجل الإعفاءات." if wrapper_calls_core and wrapper_updates_log else f"calls_core={wrapper_calls_core}, updates_log={wrapper_updates_log}",
+    )
+
+    # فحص AST: core يرجع رسالة واحدة فقط في كل فرع، والـwrapper يرجع tuple من عنصرين.
+    try:
+        import ast
+        tree = ast.parse(exemptions_text)
+        core_node = next((n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "save_teacher_rules_core"), None)
+        returns = [n for n in ast.walk(core_node) if isinstance(n, ast.Return)] if core_node else []
+        raw_returns_only = bool(returns) and all(not isinstance(r.value, (ast.Tuple, ast.List)) for r in returns)
+        add(
+            results,
+            "3H-a-3: core يرجع رسالة خام فقط",
+            "PASS" if raw_returns_only else "FAIL",
+            f"عدد return في core: {len(returns)}، وكلها ليست tuple/list." if raw_returns_only else "core يرجع tuple/list أو لا يحتوي return واضح.",
+        )
+    except Exception as exc:
+        add(results, "3H-a-3: فحص AST لإرجاع core", "FAIL", f"تعذر فحص AST: {exc}")
+
+    try:
+        import ast
+        tree = ast.parse(app_text)
+        wrapper_node = next((n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "save_teacher_rules"), None)
+        returns = [n for n in ast.walk(wrapper_node) if isinstance(n, ast.Return)] if wrapper_node else []
+        wrapper_two_outputs = len(returns) == 1 and isinstance(returns[0].value, ast.Tuple) and len(returns[0].value.elts) == 2
+        add(
+            results,
+            "3H-a-3: wrapper يرجع عنصرين فقط",
+            "PASS" if wrapper_two_outputs else "FAIL",
+            "wrapper يحتوي return واحدًا من عنصرين." if wrapper_two_outputs else f"عدد returns={len(returns)} أو عدد عناصر الإرجاع غير مطابق.",
+        )
+    except Exception as exc:
+        add(results, "3H-a-3: فحص AST لإرجاع wrapper", "FAIL", f"تعذر فحص AST: {exc}")
+
+
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
     warn = sum(r.status == "WARN" for r in results)
@@ -1842,6 +1954,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_process_uploaded_excel_phase3eb4(path, app_text, results)
     check_audit_logging_phase3ha1(path, app_text, results)
     check_exemptions_phase3ha2(path, app_text, results)
+    check_save_teacher_rules_phase3ha3(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
