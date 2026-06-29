@@ -14,7 +14,7 @@ import html as html_lib
 import pandas as pd
 
 from config import PAGE_SIZE, ADMIN_ROLES
-from storage import teachers_db, MAX_PERIODS, OFFICIAL_DEPTS
+from storage import teachers_db, MAX_PERIODS, OFFICIAL_DEPTS, load_db
 
 
 def clean_teacher_name(val):
@@ -235,3 +235,50 @@ def render_day_table_html(df, page=0, page_size=PAGE_SIZE):
     </div>
     """
     return table_html, safe_page, total_pages, total_rows
+
+
+def get_day_table_updates_core(day_name, dept_filter, page=0):
+    """Core logic for day-table updates without Gradio objects.
+
+    Returns 7 raw slots:
+    (dataframe, table_html, pager_visible, prev_interactive,
+     next_interactive, page_html, current_page)
+    """
+    effective_dept = resolve_effective_dept(dept_filter)
+
+    if effective_dept == "الكل":
+        df = get_day_overview(day_name, effective_dept)
+        if df is None or df.empty:
+            load_db()
+            df = get_day_overview(day_name, effective_dept)
+        table_html, total_rows = render_day_all_departments_html(day_name)
+        page_html = f"<div style='text-align:center; color:#0f766e; font-weight:bold; padding:8px 0;'>إجمالي المعلمين المعروضين: {total_rows}</div>"
+        return (
+            df,
+            table_html,
+            False,
+            False,
+            False,
+            page_html,
+            0,
+        )
+
+    df = get_day_overview(day_name, effective_dept)
+
+    if df is None or df.empty:
+        load_db()
+        df = get_day_overview(day_name, effective_dept)
+
+    table_html, safe_page, total_pages, total_rows = render_day_table_html(df, page, PAGE_SIZE)
+    label = f"إجمالي معلمي {effective_dept}"
+    page_html = f"<div style='text-align:center; color:#0f766e; font-weight:bold; padding:8px 0;'>{label}: {total_rows} | صفحة {safe_page + 1} من {total_pages}</div>"
+
+    return (
+        df,
+        table_html,
+        True,
+        safe_page > 0,
+        safe_page < total_pages - 1,
+        page_html,
+        safe_page,
+    )
