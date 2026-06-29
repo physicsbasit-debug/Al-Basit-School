@@ -8,7 +8,14 @@ Phase 3I-a-1: نقل دوال العرض/التحليل النصي النظيف�
 
 import urllib.parse
 
-from storage import teachers_db
+from storage import (
+    state_locked,
+    teachers_db,
+    swap_db,
+    save_swap_db,
+    get_now_oman,
+    write_audit_log,
+)
 
 
 def build_swap_button_html(candidate_name, message_text):
@@ -104,4 +111,126 @@ def render_swap_table_html(state):
     </div>
     """
 
+def extract_clean_period_number(period_value):
+    raw = str(period_value).split("-")[0]
+    raw = raw.replace("✅", "").replace("الحصة", "").strip()
+    return raw if raw.isdigit() else ""
+
+
+def format_elegant_class(raw_class):
+    raw_class = str(raw_class).strip()
+    if not raw_class:
+        return "الصف غير محدد"
+    words = raw_class.split()
+    if len(words) < 2:
+        return raw_class
+    grade_part = ""
+    subject_part = ""
+    for i, word in enumerate(reversed(words)):
+        if any(g in word for g in ["ثامن", "تاسع", "عاشر", "حادي", "ثاني", "1", "2", "3", "4", "5", "6", "7", "8", "9"]):
+            grade_part = word
+            subject_part = " ".join(words[:len(words) - 1 - i])
+            break
+    if grade_part and subject_part:
+        return f"{grade_part} - مادة {subject_part}"
+    return raw_class
+
+
+@state_locked
+def confirm_swap_core(t, period_value, choice, d, msg_text, state, actor_name="", actor_role=""):
+    """يعتمد تبادلًا وديًا ويُرجع الحالة الحالية ورسالة تحذير خام إن وجدت."""
+    t = str(t or "").split(" (")[0].strip()
+    current_state = dict(state) if isinstance(state, dict) else {}
+
+    if not t or not period_value or not choice or "❌" in str(choice):
+        return current_state, ""
+
+    p_clean = extract_clean_period_number(period_value)
+
+    req_class_raw = teachers_db.get(t, {}).get(
+        d, {}
+    ).get(
+        p_clean,
+        teachers_db.get(t, {}).get(d, {}).get(int(p_clean) if p_clean.isdigit() else p_clean, "")
+    )
+
+    elegant_class = format_elegant_class(req_class_raw)
+    candidate, comp_day, comp_period = extract_swap_choice_details(choice)
+
+    # ── فحص محلي (داخل الحالة الحالية للمعلم) ──
+    for p_ex, info_ex in current_state.items():
+        if (
+            info_ex.get("comp_day") == comp_day
+            and info_ex.get("comp_period") == comp_period
+            and p_ex != p_clean
+        ):
+            return (
+                current_state,
+                f"<div style='color:red; padding:10px; text-align:center;'>⚠️ موعد التعويض ({comp_day} - {comp_period}) محجوز مسبقاً لهذا المعلم.</div>"
+            )
+
+    # ── فحص عالمي (على جميع التبادلات المعتمدة) ──
+    current_key = f"{t}|{d}|{p_clean}"
+    for key, info in swap_db.items():
+        same_comp = (
+            info.get("comp_day") == comp_day
+            and info.get("comp_period") == comp_period
+        )
+        if not same_comp:
+            continue
+
+        if info.get("requester") == t and key != current_key:
+            return (
+                current_state,
+                f"<div style='color:red; padding:10px; text-align:center;'>⚠️ موعد التعويض ({comp_day} - {comp_period}) محجوز مسبقاً لهذا المعلم.</div>"
+            )
+
+        if info.get("candidate") == candidate and key != current_key:
+            return (
+                current_state,
+                f"<div style='color:red; padding:10px; text-align:center;'>⚠️ موعد التعويض ({comp_day} - {comp_period}) محجوز مسبقاً على المعلم البديل.</div>"
+            )
+
+    current_state[p_clean] = {
+        "requester": t,
+        "class": elegant_class,
+        "candidate": candidate,
+        "choice": choice,
+        "message": msg_text,
+        "comp_day": comp_day,
+        "comp_period": comp_period,
+    }
+
+    swap_db[current_key] = {
+        "requester": t,
+        "day": d,
+        "period": p_clean,
+        "class": elegant_class,
+        "candidate": candidate,
+        "choice": choice,
+        "message": msg_text,
+        "comp_day": comp_day,
+        "comp_period": comp_period,
+        "updated_at": get_now_oman().strftime("%Y-%m-%d %H:%M"),
+    }
+    save_swap_db()
+
+    write_audit_log(
+        "اعتماد تبادل ودي",
+        target_teacher=t,
+        old_value="",
+        new_value={
+            "day": d,
+            "period": p_clean,
+            "class": elegant_class,
+            "candidate": candidate,
+            "comp_day": comp_day,
+            "comp_period": comp_period,
+        },
+        details=f"اعتماد تبادل ودي بين {t} و {candidate}",
+        actor_name=actor_name,
+        actor_role=actor_role,
+    )
+
+    return current_state, ""
 
