@@ -690,6 +690,122 @@ def check_auth_phase3d(app_path: Path, app_text: str, results: list[CheckResult]
         "ربط Gradio لتسجيل الدخول ما زال داخل app.py." if login_binding_preserved else "لم تظهر روابط login_btn/pin_input/attempt_login كما ينبغي.",
     )
 
+
+def check_state_phase3e_pre(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3E-pre: نقل الحالة العامة إلى storage.py مع الحفاظ على مراجع الكائنات."""
+    storage_path = app_path.with_name("storage.py")
+    if not storage_path.exists():
+        add(results, "3E-pre: وجود storage.py", "FAIL", f"غير موجود: {storage_path}")
+        return
+
+    storage_text = storage_path.read_text(encoding="utf-8")
+    state_names = ["teachers_db", "daily_db", "processed_absences", "swap_db", "exemptions_log"]
+
+    missing_state = [name for name in state_names if not re.search(rf"^{name}\s*=", storage_text, re.MULTILINE)]
+    add(
+        results,
+        "3E-pre: الحالة العامة معرفة في storage.py",
+        "PASS" if not missing_state else "FAIL",
+        "teachers_db/daily_db/processed_absences/swap_db/exemptions_log معرفة في storage.py." if not missing_state else f"ناقص: {missing_state}",
+    )
+
+    missing_app_state_imports = [name for name in state_names if name not in app_text]
+    add(
+        results,
+        "3E-pre: app.py يستخدم الحالة المستوردة من storage.py",
+        "PASS" if not missing_app_state_imports and "from storage import" in app_text else "FAIL",
+        "app.py يحتوي استيراد الحالة العامة من storage.py." if not missing_app_state_imports and "from storage import" in app_text else f"ناقص أو غير واضح: {missing_app_state_imports}",
+    )
+
+    moved_storage_functions = [
+        "save_db",
+        "load_db",
+        "save_daily_db",
+        "load_daily_db",
+        "save_swap_db",
+        "load_swap_db",
+        "save_exemptions_log",
+        "load_exemptions_log",
+    ]
+    missing_storage_funcs = [fn for fn in moved_storage_functions if f"def {fn}" not in storage_text]
+    add(
+        results,
+        "3E-pre: دوال الحفظ والتحميل موجودة في storage.py",
+        "PASS" if not missing_storage_funcs else "FAIL",
+        "دوال save/load الأساسية موجودة في storage.py." if not missing_storage_funcs else f"ناقص: {missing_storage_funcs}",
+    )
+
+    app_moved_func_lines = []
+    for fn in moved_storage_functions:
+        app_moved_func_lines.extend(line_numbers_for_pattern(app_text, rf"^def\s+{re.escape(fn)}\s*\("))
+    add(
+        results,
+        "3E-pre: app.py لا يحتوي دوال التخزين المنقولة",
+        "PASS" if not app_moved_func_lines else "FAIL",
+        "دوال save/load المنقولة غير معرفة داخل app.py." if not app_moved_func_lines else f"وجدت في الأسطر: {app_moved_func_lines[:10]}",
+    )
+
+    app_state_reassign = []
+    for name in state_names:
+        app_state_reassign.extend(line_numbers_for_pattern(app_text, rf"^\s*{name}\s*="))
+    add(
+        results,
+        "3E-pre: منع إعادة تعريف الحالة داخل app.py",
+        "PASS" if not app_state_reassign else "FAIL",
+        "لا توجد إعادة تعيين مباشرة للحالة العامة داخل app.py." if not app_state_reassign else f"وجدت في الأسطر: {app_state_reassign[:10]}",
+    )
+
+    storage_state_reassign = []
+    for name in state_names:
+        # يسمح بالتعريف الأولي top-level فقط، ويمنع أي assignment داخل دالة/كتلة بعد مسافة بادئة.
+        storage_state_reassign.extend(line_numbers_for_pattern(storage_text, rf"^\s+{name}\s*="))
+    add(
+        results,
+        "3E-pre: منع إعادة تعيين الحالة داخل دوال storage.py",
+        "PASS" if not storage_state_reassign else "FAIL",
+        "لا توجد إعادة تعيين مباشرة للحالة داخل دوال storage.py." if not storage_state_reassign else f"وجدت في الأسطر: {storage_state_reassign[:10]}",
+    )
+
+    loaders_requirements = {
+        "load_db": ["teachers_db.clear()", "teachers_db.update("],
+        "load_daily_db": ["daily_db.clear()", "daily_db.extend(", "processed_absences.clear()", "processed_absences.update("],
+        "load_swap_db": ["swap_db.clear()", "swap_db.update("],
+        "load_exemptions_log": ["exemptions_log.clear()", "exemptions_log.extend("],
+    }
+    missing_loader_patterns = []
+    for fn, markers in loaders_requirements.items():
+        body = function_body(storage_text, fn)
+        if not body:
+            missing_loader_patterns.append(f"{fn}: الدالة غير موجودة")
+            continue
+        for marker in markers:
+            if marker not in body:
+                missing_loader_patterns.append(f"{fn}: ناقص {marker}")
+    add(
+        results,
+        "3E-pre: دوال load تستخدم in-place mutation",
+        "PASS" if not missing_loader_patterns else "FAIL",
+        "load_db/load_daily_db/load_swap_db/load_exemptions_log تحافظ على هوية الكائنات." if not missing_loader_patterns else "; ".join(missing_loader_patterns[:8]),
+    )
+
+    clear_body = function_body(app_text, "clear_all_data")
+    clear_markers = ["teachers_db.clear()", "daily_db.clear()", "processed_absences.clear()"]
+    missing_clear = [marker for marker in clear_markers if marker not in clear_body]
+    add(
+        results,
+        "3E-pre: clear_all_data يستخدم clear بدل reassignment",
+        "PASS" if clear_body and not missing_clear else "FAIL",
+        "clear_all_data يحافظ على مراجع teachers_db/daily_db/processed_absences." if clear_body and not missing_clear else f"ناقص: {missing_clear or ['clear_all_data غير موجودة']}",
+    )
+
+    no_reverse_import = all(marker not in storage_text for marker in ["import app", "from app import"])
+    add(
+        results,
+        "3E-pre: storage.py لا يستورد app.py",
+        "PASS" if no_reverse_import else "FAIL",
+        "لا يوجد اعتماد عكسي من storage.py إلى app.py." if no_reverse_import else "ظهر import app أو from app import داخل storage.py.",
+    )
+
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
     warn = sum(r.status == "WARN" for r in results)
@@ -772,6 +888,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_config_phase3a(path, app_text, results)
     check_storage_phase3b(path, app_text, results)
     check_auth_phase3d(path, app_text, results)
+    check_state_phase3e_pre(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
