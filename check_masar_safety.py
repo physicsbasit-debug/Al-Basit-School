@@ -1651,6 +1651,96 @@ def check_audit_logging_phase3ha1(app_path: Path, app_text: str, results: list[C
         add(results, "3H-a-1: py_compile storage.py", "FAIL", f"فشل py_compile: {exc}")
 
 
+def check_exemptions_phase3ha2(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3H-a-2: إنشاء exemptions.py ونقل دوال الإعفاءات النظيفة إليه."""
+    exemptions_path = app_path.with_name("exemptions.py")
+    if not exemptions_path.exists():
+        add(results, "3H-a-2: وجود exemptions.py", "FAIL", f"غير موجود: {exemptions_path}")
+        return
+
+    exemptions_text = exemptions_path.read_text(encoding="utf-8")
+    add(results, "3H-a-2: وجود exemptions.py", "PASS", f"موجود: {exemptions_path}")
+
+    required_functions = [
+        "is_teacher_exempt_for_slot",
+        "normalize_exempt_slots",
+        "build_exempt_slots_from_days_periods",
+        "format_exempt_slots_for_display",
+        "render_exemptions_log_html",
+        "resolve_teacher_key_from_ui",
+        "clean_teacher_name_from_ui",
+    ]
+    missing = [fn for fn in required_functions if not re.search(rf"^def\s+{re.escape(fn)}\s*\(", exemptions_text, re.MULTILINE)]
+    add(
+        results,
+        "3H-a-2: دوال الإعفاءات النظيفة موجودة في exemptions.py",
+        "PASS" if not missing else "FAIL",
+        "الدوال السبع موجودة في exemptions.py." if not missing else f"ناقص: {missing}",
+    )
+
+    app_local_defs = []
+    for fn in required_functions:
+        app_local_defs.extend(line_numbers_for_pattern(app_text, rf"^def\s+{re.escape(fn)}\s*\("))
+    add(
+        results,
+        "3H-a-2: app.py لا يحتوي تعريفات دوال الإعفاءات المنقولة",
+        "PASS" if not app_local_defs else "FAIL",
+        "الدوال المنقولة غير معرفة داخل app.py." if not app_local_defs else f"وجدت في الأسطر: {app_local_defs[:10]}",
+    )
+
+    no_reverse_import = "import app" not in exemptions_text and "from app import" not in exemptions_text
+    add(
+        results,
+        "3H-a-2: exemptions.py لا يستورد app.py",
+        "PASS" if no_reverse_import else "FAIL",
+        "لا يوجد اعتماد عكسي من exemptions.py إلى app.py." if no_reverse_import else "ظهر import app أو from app import داخل exemptions.py.",
+    )
+
+    no_gradio = "gr.update" not in exemptions_text and "import gradio" not in exemptions_text and "from gradio" not in exemptions_text
+    add(
+        results,
+        "3H-a-2: exemptions.py بلا Gradio",
+        "PASS" if no_gradio else "FAIL",
+        "لا يوجد gr.update أو import gradio داخل exemptions.py." if no_gradio else "ظهر اعتماد مباشر على Gradio داخل exemptions.py.",
+    )
+
+    app_import_ok = "from exemptions import" in app_text
+    add(
+        results,
+        "3H-a-2: app.py يستورد exemptions.py",
+        "PASS" if app_import_ok else "FAIL",
+        "app.py يستورد دوال الإعفاءات من exemptions.py." if app_import_ok else "لم يظهر from exemptions import داخل app.py.",
+    )
+
+    save_teacher_rules_still_app = bool(re.search(r"^def\s+save_teacher_rules\s*\(", app_text, re.MULTILINE))
+    save_teacher_rules_wrongly_moved = bool(re.search(r"^def\s+save_teacher_rules\s*\(", exemptions_text, re.MULTILINE))
+    add(
+        results,
+        "3H-a-2: save_teacher_rules بقيت في app.py مؤقتًا",
+        "PASS" if save_teacher_rules_still_app and not save_teacher_rules_wrongly_moved else "FAIL",
+        "save_teacher_rules باقية في app.py ولم تنتقل قبل 3H-a-3." if save_teacher_rules_still_app and not save_teacher_rules_wrongly_moved else f"in_app={save_teacher_rules_still_app}, in_exemptions={save_teacher_rules_wrongly_moved}",
+    )
+
+    critical_callers = ["assign_logic", "update_available_subs_smart", "get_falcon_eye_candidates"]
+    missing_calls = []
+    for fn in critical_callers:
+        body = function_body(app_text, fn)
+        if not body or "is_teacher_exempt_for_slot" not in body:
+            missing_calls.append(fn)
+    add(
+        results,
+        "3H-a-2: دوال الترشيح ما زالت تستخدم is_teacher_exempt_for_slot",
+        "PASS" if not missing_calls else "FAIL",
+        "assign_logic/update_available_subs_smart/get_falcon_eye_candidates تستدعي دالة الإعفاء المركزية." if not missing_calls else f"ناقص أو غير واضح: {missing_calls}",
+    )
+
+    try:
+        py_compile.compile(str(exemptions_path), doraise=True)
+        add(results, "3H-a-2: py_compile exemptions.py", "PASS", "exemptions.py لا يحتوي أخطاء نحوية.")
+    except Exception as exc:  # pragma: no cover
+        add(results, "3H-a-2: py_compile exemptions.py", "FAIL", f"فشل py_compile: {exc}")
+
+
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
     warn = sum(r.status == "WARN" for r in results)
@@ -1711,7 +1801,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     app_text = read_text(path)
     style_text = collect_style_text(path)
     extra_module_texts = []
-    for module_name in ("school_data.py", "schedules.py", "balances.py", "storage.py", "auth.py"):
+    for module_name in ("school_data.py", "schedules.py", "balances.py", "exemptions.py", "storage.py", "auth.py"):
         module_path = path.with_name(module_name)
         if module_path.exists():
             try:
@@ -1734,7 +1824,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_symbol_counts(code_text, results, expected_symbols)
     check_excel_and_periods(code_text, results)
     check_error_updates(app_text, results)
-    check_exemption_centralization(app_text, results)
+    check_exemption_centralization(code_text, results)
     check_day_filter_isolation(app_text, results)
     check_shared_pin(app_text, results)
     check_css_markers(combined_text, results)
@@ -1751,6 +1841,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_gradio_bound_helpers_phase3eb3(path, app_text, results)
     check_process_uploaded_excel_phase3eb4(path, app_text, results)
     check_audit_logging_phase3ha1(path, app_text, results)
+    check_exemptions_phase3ha2(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
