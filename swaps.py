@@ -20,6 +20,8 @@ from storage import (
 )
 
 
+SWAP_EMPTY_MSG = "💡 يرجى اختيار أحد المعلمين من القائمة بالأعلى لتوليد مسودة رسالة الواتساب هنا..."
+
 def get_current_day_oman():
     weekday = get_now_oman().weekday()
     days_map = {6: "الأحد", 0: "الإثنين", 1: "الثلاثاء", 2: "الأربعاء", 3: "الخميس", 4: "الأحد", 5: "الأحد"}
@@ -141,9 +143,8 @@ def run_radar_safe_core(t, p, d):
 
 def generate_wa_msg_core(choice, t_req, p_req, d_req):
     """يبني مسودة رسالة واتساب وزرها كقيم خام دون أي اعتماد على Gradio."""
-    default_msg = "💡 يرجى اختيار أحد المعلمين من القائمة بالأعلى لتوليد مسودة رسالة الواتساب هنا..."
     if not choice or "❌" in str(choice) or "خطأ" in str(choice):
-        return default_msg, ""
+        return SWAP_EMPTY_MSG, ""
     try:
         parts = str(choice).split("|")
         t_target = parts[1].split(":")[1].strip()
@@ -212,12 +213,21 @@ def generate_wa_msg_core(choice, t_req, p_req, d_req):
         return msg, btn_html
 
     except Exception:
-        return default_msg, ""
+        return SWAP_EMPTY_MSG, ""
+
+
+def on_swap_option_selected_core(choice, t, period_value, d):
+    """يرجع: (msg_value, btn_value, is_interactive) دون أي اعتماد على Gradio."""
+    if not choice or "❌" in str(choice):
+        return SWAP_EMPTY_MSG, "", False
+
+    msg_value, btn_value = generate_wa_msg_core(choice, t, period_value, d)
+    return msg_value, btn_value, True
 
 
 def get_swap_candidates_for_period_core(t, period_value, d, confirmed_state):
     """يرجع بيانات مرشحي التبادل الخام لحصة محددة دون أي اعتماد على Gradio."""
-    empty_msg = "💡 يرجى اختيار أحد المعلمين من القائمة بالأعلى لتوليد مسودة رسالة الواتساب هنا..."
+    empty_msg = SWAP_EMPTY_MSG
 
     if not t or not period_value:
         return [], None, empty_msg, "", False
