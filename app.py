@@ -183,6 +183,7 @@ from swaps import (
     get_class_dna,
     check_teacher_load,
     run_radar_safe_core,
+    generate_wa_msg_core,
 )
 
 
@@ -206,6 +207,8 @@ tz_oman = datetime.timezone(datetime.timedelta(hours=4))
 # دوال التبادل الودي النظيفة انتقلت إلى swaps.py.
 # v1.8.5r / Phase 3I-a-3
 # confirm_swap أصبحت core/wrapper، والمنطق في swaps.py.
+# v1.8.5s / Phase 3I-a-4a/4b
+# run_radar_safe و generate_wa_msg أصبحتا core/wrapper، والمنطق في swaps.py.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -5617,56 +5620,8 @@ def run_radar_safe(t, p, d):
     return gr.update(choices=candidates, value=None), gr.update(value=default_msg), gr.update(value="")
 
 def generate_wa_msg(choice, t_req, p_req, d_req):
-    default_msg = "💡 يرجى اختيار أحد المعلمين من القائمة بالأعلى لتوليد مسودة رسالة الواتساب هنا..."
-    if not choice or "❌" in choice or "خطأ" in choice: return gr.update(value=default_msg), gr.update(value="")
-    try:
-        parts = choice.split("|")
-        t_target = parts[1].split(":")[1].strip()
-        details = parts[2].strip()
-        
-        p_req_clean = extract_clean_period_number(p_req)
-        t_req_clean = str(t_req or "").split(" (")[0].strip()
-        req_class_raw = teachers_db.get(t_req_clean, {}).get(d_req, {}).get(p_req_clean, teachers_db.get(t_req_clean, {}).get(d_req, {}).get(int(p_req_clean) if p_req_clean.isdigit() else p_req_clean, ""))
-        req_class_elegant = format_elegant_class(req_class_raw)
-        
-        msg = f"السلام عليكم ورحمة الله وبركاته أستاذي العزيز ({t_target})\n\n"
-        msg += f"يرغب الأستاذ ({t_req}) بالتبادل الودي معك (بعد إذنك وموافقتك طبعاً لظرف طارئ).\n"
-        msg += f"ستقوم أنت مشكوراً بتغطية الصف ({req_class_elegant}) في الحصة ({p_req_clean}) يوم ({d_req}).\n"
-        
-        if "مثالي" in choice:
-            rep_part = details.split("وتغطيه ")[1].split(")")[0].replace("(", "")
-            rep_day, rep_period = rep_part.split(" ح")
-            
-            clean_rep_day = rep_day.replace(" القادم", "").strip()
-            target_class_raw = teachers_db.get(t_target, {}).get(clean_rep_day, {}).get(str(rep_period), teachers_db.get(t_target, {}).get(clean_rep_day, {}).get(int(rep_period) if str(rep_period).isdigit() else rep_period, ""))
-            target_class_elegant = format_elegant_class(target_class_raw)
-            
-            msg += f"وسيقوم الأستاذ ({t_req}) بتغطية الصف ({target_class_elegant}) في الحصة ({rep_period}) يوم ({rep_day}) بدلاً عنك.\n\n"
-        else:
-            msg += f"ونظراً لانشغال الأستاذ ({t_req}) وقت حصتك، سيتم التنسيق لرد الحصة لاحقاً.\n\n"
-            
-        msg += "هل يناسبك هذا التبادل ليتم اعتماده؟ شاكرين ومقدرين تعاونك 🤝"
-        
-        phone = teachers_db.get(t_target, {}).get("phone", "")
-        btn_color = "#25D366" 
-        
-        if phone:
-            phone = "".join(filter(str.isdigit, str(phone)))
-            if len(phone) == 8: phone = "968" + phone
-            btn_text = f"✅ إرسال للأستاذ {t_target}"
-        else:
-            phone = ""
-            btn_text = f"⚠️ إرسال (لا يوجد رقم)"
-            
-        encoded_msg = urllib.parse.quote(msg)
-        wa_link = f"https://api.whatsapp.com/send?phone={phone}&text={encoded_msg}"
-        
-        btn_html = f'<div style="margin-top: 10px; border: 2px solid {btn_color}; border-radius: 8px; padding: 2px;"><a href="{wa_link}" target="_blank" style="display: block; width: 100%; text-align: center; background-color: {btn_color}; color: white; padding: 12px; border-radius: 6px; font-weight: bold; text-decoration: none; font-size: 16px;">{btn_text}</a></div>'
-        
-        return gr.update(value=msg), gr.update(value=btn_html)
-
-    except Exception as e:
-        return gr.update(value=default_msg), gr.update(value="")
+    msg, btn_html = generate_wa_msg_core(choice, t_req, p_req, d_req)
+    return gr.update(value=msg), gr.update(value=btn_html)
 
 def _get_update_value(obj, fallback=""):
     try:
