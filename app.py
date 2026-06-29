@@ -128,6 +128,7 @@ from school_data import (
     render_schedule_precheck_error_html,
     validate_reference_filename,
     refresh_schedule_from_reference_core,
+    delete_department_data_core,
     _normalize_schedule_header_text,
     _excel_column_label_zero_based,
 )
@@ -145,6 +146,7 @@ from schedules import (
     render_day_department_section_html,
     render_day_all_departments_html,
     render_day_table_html,
+    get_day_table_updates_core,
     DAY_DEPT_STYLE_MAP,
     DAY_DEPT_FALLBACK_STYLES,
 )
@@ -3768,55 +3770,53 @@ def process_uploaded_excel(file, selected_dept, current_day):
     except Exception as e: return (gr.update(), gr.update(), gr.update(), gr.update(), gr.update(value=get_updated_balance("الكل")), gr.update(value=get_updated_absences("الكل")), gr.update(value=get_day_overview(current_day, "الكل")), f"<div style='color:red; font-weight:bold;'>❌ خطأ أثناء الرفع: {str(e)}</div>", gr.update(), gr.update())
 
 def delete_department_data(dept_to_delete, current_day):
-    global teachers_db
-    if not dept_to_delete: return (gr.update(), gr.update(), gr.update(), gr.update(), gr.update(value=get_updated_balance("الكل")), gr.update(value=get_updated_absences("الكل")), gr.update(value=get_day_overview(current_day, "الكل")), "<div style='color:red; font-weight:bold;'>❌ الرجاء تحديد القسم أولاً.</div>", gr.update(), gr.update())
-    teachers_to_delete = [t for t, d in teachers_db.items() if d.get("dept") == dept_to_delete]
-    for t in teachers_to_delete: del teachers_db[t]
-    save_db()
-    t_names_all = sorted(list(teachers_db.keys()))
-    msg = f"<div style='color:#c62828; background:#ffebee; padding:15px; border-radius:10px; border-right: 5px solid #c62828;'><b style='font-size:1.2em;'>🗑️ تمت عملية المسح بنجاح!</b><br>تم حذف جميع بيانات وسجلات معلمي قسم ({dept_to_delete}).</div>"
-    return (gr.update(choices=["الكل"] + OFFICIAL_DEPTS), gr.update(choices=get_absentee_choices("الكل")), gr.update(choices=get_teacher_choices("الكل"), value=None), gr.update(choices=get_teacher_choices("الكل"), value=None), gr.update(value=get_updated_balance("الكل")), gr.update(value=get_updated_absences("الكل")), gr.update(value=get_day_overview(current_day, "الكل")), msg, gr.update(choices=t_names_all, value=None), gr.update(value=None))
+    (
+        dept_choices,
+        abs_choices,
+        teacher_choices_a,
+        teacher_choices_b,
+        balance_html,
+        absences_html,
+        day_overview,
+        message_html,
+        teacher_names_all,
+        reset_upload,
+    ) = delete_department_data_core(dept_to_delete, current_day)
+
+    return (
+        gr.update() if dept_choices is None else gr.update(choices=dept_choices),
+        gr.update() if abs_choices is None else gr.update(choices=abs_choices),
+        gr.update() if teacher_choices_a is None else gr.update(choices=teacher_choices_a, value=None),
+        gr.update() if teacher_choices_b is None else gr.update(choices=teacher_choices_b, value=None),
+        gr.update() if balance_html is None else gr.update(value=balance_html),
+        gr.update() if absences_html is None else gr.update(value=absences_html),
+        gr.update() if day_overview is None else gr.update(value=day_overview),
+        message_html,
+        gr.update() if teacher_names_all is None else gr.update(choices=teacher_names_all, value=None),
+        gr.update(value=None) if reset_upload else gr.update(),
+    )
 
 
 
 
 
 def get_day_table_updates(day_name, dept_filter, page=0):
-    effective_dept = resolve_effective_dept(dept_filter)
-
-    if effective_dept == "الكل":
-        df = get_day_overview(day_name, effective_dept)
-        if df is None or df.empty:
-            load_db()
-            df = get_day_overview(day_name, effective_dept)
-        table_html, total_rows = render_day_all_departments_html(day_name)
-        page_html = f"<div style='text-align:center; color:#0f766e; font-weight:bold; padding:8px 0;'>إجمالي المعلمين المعروضين: {total_rows}</div>"
-        return (
-            gr.update(value=df, visible=False),
-            gr.update(value=table_html, visible=True),
-            gr.update(visible=False),
-            gr.update(interactive=False),
-            gr.update(interactive=False),
-            gr.update(value=page_html, visible=True),
-            0,
-        )
-
-    df = get_day_overview(day_name, effective_dept)
-
-    if df is None or df.empty:
-        load_db()
-        df = get_day_overview(day_name, effective_dept)
-
-    table_html, safe_page, total_pages, total_rows = render_day_table_html(df, page, PAGE_SIZE)
-    label = f"إجمالي معلمي {effective_dept}"
-    page_html = f"<div style='text-align:center; color:#0f766e; font-weight:bold; padding:8px 0;'>{label}: {total_rows} | صفحة {safe_page + 1} من {total_pages}</div>"
+    (
+        df,
+        table_html,
+        pager_visible,
+        prev_interactive,
+        next_interactive,
+        page_html,
+        safe_page,
+    ) = get_day_table_updates_core(day_name, dept_filter, page)
 
     return (
         gr.update(value=df, visible=False),
         gr.update(value=table_html, visible=True),
-        gr.update(visible=True),
-        gr.update(interactive=safe_page > 0),
-        gr.update(interactive=safe_page < total_pages - 1),
+        gr.update(visible=pager_visible),
+        gr.update(interactive=prev_interactive),
+        gr.update(interactive=next_interactive),
         gr.update(value=page_html, visible=True),
         safe_page,
     )
