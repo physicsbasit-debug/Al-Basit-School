@@ -1853,6 +1853,94 @@ def check_save_teacher_rules_phase3ha3(app_path: Path, app_text: str, results: l
         add(results, "3H-a-3: فحص AST لإرجاع wrapper", "FAIL", f"تعذر فحص AST: {exc}")
 
 
+
+def check_swaps_phase3ia1(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3I-a-1: نقل دوال التبادل الودي النظيفة إلى swaps.py."""
+    swaps_path = app_path.with_name("swaps.py")
+    if not swaps_path.exists():
+        add(results, "3I-a-1: وجود swaps.py", "FAIL", f"غير موجود: {swaps_path}")
+        return
+
+    swaps_text = swaps_path.read_text(encoding="utf-8")
+    add(results, "3I-a-1: وجود swaps.py", "PASS", f"موجود: {swaps_path}")
+
+    required_functions = [
+        "build_swap_button_html",
+        "extract_swap_choice_details",
+        "render_swap_table_html",
+    ]
+    missing = [fn for fn in required_functions if not re.search(rf"^def\s+{re.escape(fn)}\s*\(", swaps_text, re.MULTILINE)]
+    add(
+        results,
+        "3I-a-1: دوال التبادل النظيفة موجودة في swaps.py",
+        "PASS" if not missing else "FAIL",
+        "الدوال الثلاث موجودة في swaps.py." if not missing else f"ناقص: {missing}",
+    )
+
+    duplicated_in_app = [fn for fn in required_functions if re.search(rf"^def\s+{re.escape(fn)}\s*\(", app_text, re.MULTILINE)]
+    add(
+        results,
+        "3I-a-1: لا توجد تعريفات مكررة في app.py",
+        "PASS" if not duplicated_in_app else "FAIL",
+        "الدوال المنقولة غير معرفة محليًا في app.py." if not duplicated_in_app else f"ما زالت معرفة في app.py: {duplicated_in_app}",
+    )
+
+    app_import_ok = "from swaps import" in app_text
+    add(
+        results,
+        "3I-a-1: app.py يستورد swaps.py",
+        "PASS" if app_import_ok else "FAIL",
+        "app.py يستورد دوال التبادل النظيفة من swaps.py." if app_import_ok else "لم يظهر from swaps import داخل app.py.",
+    )
+
+    no_reverse_import = "import app" not in swaps_text and "from app import" not in swaps_text
+    add(
+        results,
+        "3I-a-1: swaps.py لا يستورد app.py",
+        "PASS" if no_reverse_import else "FAIL",
+        "لا يوجد اعتماد عكسي من swaps.py إلى app.py." if no_reverse_import else "ظهر import app أو from app import داخل swaps.py.",
+    )
+
+    no_gradio = "gr.update" not in swaps_text and "import gradio" not in swaps_text and "from gradio" not in swaps_text and "gr.SelectData" not in swaps_text
+    add(
+        results,
+        "3I-a-1: swaps.py بلا Gradio",
+        "PASS" if no_gradio else "FAIL",
+        "لا يوجد gr.update أو import gradio أو gr.SelectData داخل swaps.py." if no_gradio else "ظهر اعتماد مباشر على Gradio داخل swaps.py.",
+    )
+
+    storage_import_ok = "from storage import teachers_db" in swaps_text
+    add(
+        results,
+        "3I-a-1: swaps.py يعتمد على storage.py فقط للحالة",
+        "PASS" if storage_import_ok else "FAIL",
+        "swaps.py يستورد teachers_db من storage.py." if storage_import_ok else "لم يظهر استيراد teachers_db من storage.py.",
+    )
+
+    confirm_swap_still_app = bool(re.search(r"^def\s+confirm_swap\s*\(", app_text, re.MULTILINE))
+    confirm_swap_not_moved = not bool(re.search(r"^def\s+confirm_swap\s*\(", swaps_text, re.MULTILINE))
+    add(
+        results,
+        "3I-a-1: confirm_swap مؤجلة في app.py",
+        "PASS" if confirm_swap_still_app and confirm_swap_not_moved else "FAIL",
+        "confirm_swap باقية في app.py ولم تنتقل قبل مرحلة core/wrapper الخاصة بها." if confirm_swap_still_app and confirm_swap_not_moved else f"in_app={confirm_swap_still_app}, in_swaps={not confirm_swap_not_moved}",
+    )
+
+    event_handler_still_app = bool(re.search(r"^def\s+on_swap_option_selected_from_event\s*\(", app_text, re.MULTILINE))
+    event_handler_not_moved = not bool(re.search(r"^def\s+on_swap_option_selected_from_event\s*\(", swaps_text, re.MULTILINE))
+    add(
+        results,
+        "3I-a-1: gr.SelectData handler مؤجل في app.py",
+        "PASS" if event_handler_still_app and event_handler_not_moved else "FAIL",
+        "on_swap_option_selected_from_event باقية في app.py لأنها تتعامل مع gr.SelectData." if event_handler_still_app and event_handler_not_moved else f"in_app={event_handler_still_app}, in_swaps={not event_handler_not_moved}",
+    )
+
+    try:
+        py_compile.compile(str(swaps_path), doraise=True)
+        add(results, "3I-a-1: py_compile swaps.py", "PASS", "swaps.py لا يحتوي أخطاء نحوية.")
+    except Exception as exc:
+        add(results, "3I-a-1: py_compile swaps.py", "FAIL", f"فشل py_compile: {exc}")
+
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
     warn = sum(r.status == "WARN" for r in results)
@@ -1913,7 +2001,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     app_text = read_text(path)
     style_text = collect_style_text(path)
     extra_module_texts = []
-    for module_name in ("school_data.py", "schedules.py", "balances.py", "exemptions.py", "storage.py", "auth.py"):
+    for module_name in ("school_data.py", "schedules.py", "balances.py", "exemptions.py", "swaps.py", "storage.py", "auth.py"):
         module_path = path.with_name(module_name)
         if module_path.exists():
             try:
@@ -1955,6 +2043,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_audit_logging_phase3ha1(path, app_text, results)
     check_exemptions_phase3ha2(path, app_text, results)
     check_save_teacher_rules_phase3ha3(path, app_text, results)
+    check_swaps_phase3ia1(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
