@@ -374,6 +374,78 @@ def format_elegant_class(raw_class):
     return raw_class
 
 
+def load_confirmed_swaps_for_context_core(t, d):
+    """يرجع حالة التبادلات المعتمدة للمعلم/اليوم دون أي اعتماد على Gradio."""
+    t = str(t or "").split(" (")[0].strip()
+    state = {}
+
+    if not t or not d:
+        return state
+
+    for _, info in swap_db.items():
+        if info.get("requester") == t and info.get("day") == d:
+            p = str(info.get("period", "")).strip()
+            if not p:
+                continue
+
+            state[p] = {
+                "requester": info.get("requester", ""),
+                "class": info.get("class", ""),
+                "candidate": info.get("candidate", ""),
+                "choice": info.get("choice", ""),
+                "message": info.get("message", ""),
+                "comp_day": info.get("comp_day", "يحدد لاحقاً"),
+                "comp_period": info.get("comp_period", "يحدد لاحقاً"),
+            }
+
+    return state
+
+
+def clear_swap_detail_ui_core():
+    """تُرجع: (choices, selected_value, message_value, button_html, confirm_interactive)."""
+    return [], None, SWAP_EMPTY_MSG, "", False
+
+
+def get_teacher_periods_marked_core(t, d, confirmed_state, current_value=None):
+    """يرجع اختيارات حصص المعلم مع تعليم الحصص المعتمدة دون أي اعتماد على Gradio."""
+    t = str(t or "").split(" (")[0].strip()
+    try:
+        if not t or t not in teachers_db or t == "لا يوجد معلمون":
+            return ["اختر معلماً أولاً"], None
+
+        confirmed_keys = set()
+        if isinstance(confirmed_state, dict):
+            confirmed_keys = {str(k) for k in confirmed_state.keys()}
+
+        choices = []
+        selected_value = None
+        current_clean = extract_clean_period_number(current_value)
+
+        for k, v in teachers_db[t].get(d, {}).items():
+            if str(k).isdigit() and str(v).strip() != "" and str(v).lower() != "nan":
+                elegant_c = format_elegant_class(v)
+                prefix = "✅ " if str(k) in confirmed_keys else ""
+                display_text = f"{prefix}الحصة {k} - ({elegant_c})"
+                choices.append((int(k), display_text))
+
+        choices.sort(key=lambda x: x[0])
+        final_choices = [text for _, text in choices]
+
+        if current_clean:
+            for k, text in choices:
+                if str(k) == current_clean:
+                    selected_value = text
+                    break
+
+        if not final_choices:
+            return ["لا توجد حصص"], None
+
+        return final_choices, selected_value
+
+    except Exception:
+        return ["خطأ داخلي"], None
+
+
 @state_locked
 def confirm_swap_core(t, period_value, choice, d, msg_text, state, actor_name="", actor_role=""):
     """يعتمد تبادلًا وديًا ويُرجع الحالة الحالية ورسالة تحذير خام إن وجدت."""
