@@ -9,6 +9,8 @@ Phase 3I-a-1: نقل دوال العرض/التحليل النصي النظيف�
 import re
 import urllib.parse
 
+from schedules import get_teacher_choices
+
 from storage import (
     state_locked,
     teachers_db,
@@ -405,6 +407,36 @@ def clear_swap_detail_ui_core():
     """تُرجع: (choices, selected_value, message_value, button_html, confirm_interactive)."""
     return [], None, SWAP_EMPTY_MSG, "", False
 
+
+
+def filter_swap_teachers_safe_core(dept):
+    """يرجع اختيارات معلمي التبادل كقيم خام دون أي اعتماد على Gradio."""
+    try:
+        choices = get_teacher_choices(dept if dept != "الكل" else "الكل")
+        if not choices:
+            return ["لا يوجد معلمون"], None
+        return choices, None
+    except Exception:
+        return [], None
+
+
+def get_teacher_periods_safe_core(t, d):
+    """يرجع حصص المعلم كقيم خام دون أي اعتماد على Gradio."""
+    try:
+        if t and t in teachers_db and t != "لا يوجد معلمون":
+            periods_elegant = []
+            for k, v in teachers_db[t].get(d, {}).items():
+                if str(k).isdigit() and str(v).strip() != "" and str(v).lower() != "nan":
+                    elegant_c = format_elegant_class(v)
+                    display_text = f"الحصة {k} - ({elegant_c})"
+                    periods_elegant.append(display_text)
+            periods_elegant.sort(key=lambda x: int(x.split("-")[0].replace("الحصة", "").strip()))
+            if not periods_elegant:
+                return ["لا توجد حصص"], None
+            return periods_elegant, None
+        return ["اختر معلماً أولاً"], None
+    except Exception:
+        return ["خطأ داخلي"], None
 
 def get_teacher_periods_marked_core(t, d, confirmed_state, current_value=None):
     """يرجع اختيارات حصص المعلم مع تعليم الحصص المعتمدة دون أي اعتماد على Gradio."""
