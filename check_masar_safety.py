@@ -16,6 +16,7 @@ check_masar_safety.py
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import py_compile
 import re
@@ -864,20 +865,19 @@ def check_school_data_phase3ea(app_path: Path, app_text: str, results: list[Chec
         "الدوال المنقولة غير معرفة داخل app.py." if not app_local_defs else f"وجدت في الأسطر: {app_local_defs[:10]}",
     )
 
+    # بعد 3F-a و3G-a أصبحت دوال الاختيارات/جدول اليوم/الأرصدة في وحدات نظيفة،
+    # لذلك يبقى المنع موجهاً فقط للدوال Gradio-bound التي ما زالت في app.py.
     dangerous = [
-        "get_absentee_choices",
-        "get_teacher_choices",
-        "get_day_overview",
-        "get_updated_absences",
-        "get_updated_balance",
-        "resolve_effective_dept",
+        "delete_department_data",
+        "get_day_table_updates",
+        "process_uploaded_excel",
     ]
     found_dangerous = [name for name in dangerous if name in school_text]
     add(
         results,
-        "3E-a: school_data.py لا يستدعي دوال app الخطرة",
+        "3E-a/3E-b: school_data.py لا يستدعي دوال app المتبقية",
         "PASS" if not found_dangerous else "FAIL",
-        "لا توجد دوال واجهة/توزيع خطرة داخل school_data.py." if not found_dangerous else f"وجد: {found_dangerous}",
+        "لا توجد دوال app المتبقية داخل school_data.py." if not found_dangerous else f"وجد: {found_dangerous}",
     )
 
     no_reverse_import = all(marker not in school_text for marker in ["import app", "from app import"])
@@ -1172,6 +1172,143 @@ def check_time_helper_phase3eb1(app_path: Path, app_text: str, results: list[Che
     except Exception as exc:  # pragma: no cover
         add(results, "3E-b-1: py_compile storage.py", "FAIL", f"فشل py_compile: {exc}")
 
+
+def _function_return_tuple_lengths(source_text: str, func_name: str) -> list[int | str]:
+    try:
+        module = ast.parse(source_text)
+    except SyntaxError:
+        return ["syntax_error"]
+    for node in module.body:
+        if isinstance(node, ast.FunctionDef) and node.name == func_name:
+            lengths: list[int | str] = []
+            for item in ast.walk(node):
+                if isinstance(item, ast.Return):
+                    if isinstance(item.value, ast.Tuple):
+                        lengths.append(len(item.value.elts))
+                    else:
+                        lengths.append(type(item.value).__name__)
+            return lengths
+    return ["missing"]
+
+
+def _function_decorators(source_text: str, func_name: str) -> list[str]:
+    try:
+        module = ast.parse(source_text)
+    except SyntaxError:
+        return []
+    for node in module.body:
+        if isinstance(node, ast.FunctionDef) and node.name == func_name:
+            return [ast.unparse(decorator) for decorator in node.decorator_list]
+    return []
+
+
+def check_refresh_schedule_core_phase3eb2(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3E-b-2: تقسيم refresh_schedule_from_reference إلى core/wrapper بعقد إرجاع ثابت."""
+    school_path = app_path.with_name("school_data.py")
+    if not school_path.exists():
+        add(results, "3E-b-2: وجود school_data.py", "FAIL", f"غير موجود: {school_path}")
+        return
+
+    school_text = school_path.read_text(encoding="utf-8")
+    core_body = function_body(school_text, "refresh_schedule_from_reference_core")
+    wrapper_body = function_body(app_text, "refresh_schedule_from_reference")
+
+    add(
+        results,
+        "3E-b-2: core موجودة في school_data.py",
+        "PASS" if core_body else "FAIL",
+        "refresh_schedule_from_reference_core موجودة." if core_body else "refresh_schedule_from_reference_core غير موجودة.",
+    )
+    add(
+        results,
+        "3E-b-2: wrapper موجودة في app.py",
+        "PASS" if wrapper_body else "FAIL",
+        "refresh_schedule_from_reference موجودة في app.py كـwrapper." if wrapper_body else "refresh_schedule_from_reference غير موجودة في app.py.",
+    )
+
+    if not core_body or not wrapper_body:
+        return
+
+    core_decorators = _function_decorators(school_text, "refresh_schedule_from_reference_core")
+    wrapper_decorators = _function_decorators(app_text, "refresh_schedule_from_reference")
+    add(
+        results,
+        "3E-b-2: @state_locked على core",
+        "PASS" if "state_locked" in core_decorators else "FAIL",
+        f"decorators: {core_decorators}",
+    )
+    add(
+        results,
+        "3E-b-2: wrapper بلا state_locked",
+        "PASS" if "state_locked" not in wrapper_decorators else "FAIL",
+        f"decorators: {wrapper_decorators}",
+    )
+
+    forbidden_core_tokens = ["gr.update", "gr.Warning", "gr.Info", "import gradio"]
+    found_core_tokens = [token for token in forbidden_core_tokens if token in core_body]
+    add(
+        results,
+        "3E-b-2: core لا يحتوي Gradio مباشر",
+        "PASS" if not found_core_tokens else "FAIL",
+        "core خام بلا gr.update/gr.Warning/gr.Info." if not found_core_tokens else f"وجد: {found_core_tokens}",
+    )
+
+    core_lengths = _function_return_tuple_lengths(school_text, "refresh_schedule_from_reference_core")
+    wrapper_lengths = _function_return_tuple_lengths(app_text, "refresh_schedule_from_reference")
+    add(
+        results,
+        "3E-b-2: core يرجع 8 قيم خام",
+        "PASS" if core_lengths and all(length == 8 for length in core_lengths) else "FAIL",
+        f"أطوال return داخل core: {core_lengths}",
+    )
+    add(
+        results,
+        "3E-b-2: wrapper يرجع 9 مخرجات Gradio",
+        "PASS" if wrapper_lengths and all(length == 9 for length in wrapper_lengths) else "FAIL",
+        f"أطوال return داخل wrapper: {wrapper_lengths}",
+    )
+
+    wrapper_calls_core = "refresh_schedule_from_reference_core" in wrapper_body
+    wrapper_has_gr = "gr.update" in wrapper_body
+    add(
+        results,
+        "3E-b-2: wrapper يستدعي core ويغلف بـgr.update",
+        "PASS" if wrapper_calls_core and wrapper_has_gr else "FAIL",
+        "wrapper يستدعي core ويحتوي gr.update." if wrapper_calls_core and wrapper_has_gr else f"calls_core={wrapper_calls_core}, has_gr_update={wrapper_has_gr}",
+    )
+
+    forbidden_wrapper_logic = ["pd.read_excel", "pd.read_csv", "teachers_db", "save_db", "update_reference_file_status"]
+    found_wrapper_logic = [token for token in forbidden_wrapper_logic if token in wrapper_body]
+    add(
+        results,
+        "3E-b-2: wrapper رفيع بلا منطق قراءة/حفظ",
+        "PASS" if not found_wrapper_logic else "FAIL",
+        "wrapper لا يحتوي قراءة Excel أو تعديل قاعدة البيانات." if not found_wrapper_logic else f"وجد: {found_wrapper_logic}",
+    )
+
+    no_reverse_import = all(marker not in school_text for marker in ["import app", "from app import"])
+    add(
+        results,
+        "3E-b-2: school_data.py لا يستورد app.py",
+        "PASS" if no_reverse_import else "FAIL",
+        "لا يوجد اعتماد عكسي." if no_reverse_import else "ظهر import app أو from app import داخل school_data.py.",
+    )
+
+    process_still_app = re.search(r"^def\s+process_uploaded_excel\s*\(", app_text, re.MULTILINE) is not None
+    process_not_school = re.search(r"^def\s+process_uploaded_excel\s*\(", school_text, re.MULTILINE) is None
+    add(
+        results,
+        "3E-b-2: process_uploaded_excel بقيت مؤجلة في app.py",
+        "PASS" if process_still_app and process_not_school else "FAIL",
+        "process_uploaded_excel باقية في app.py ولم تُنقل بعد." if process_still_app and process_not_school else f"in_app={process_still_app}, in_school={not process_not_school}",
+    )
+
+    try:
+        py_compile.compile(str(school_path), doraise=True)
+        add(results, "3E-b-2: py_compile school_data.py", "PASS", "school_data.py لا يحتوي أخطاء نحوية.")
+    except Exception as exc:  # pragma: no cover
+        add(results, "3E-b-2: py_compile school_data.py", "FAIL", f"فشل py_compile: {exc}")
+
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
     warn = sum(r.status == "WARN" for r in results)
@@ -1268,6 +1405,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_schedules_phase3fa(path, app_text, results)
     check_balances_phase3ga(path, app_text, results)
     check_time_helper_phase3eb1(path, app_text, results)
+    check_refresh_schedule_core_phase3eb2(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
