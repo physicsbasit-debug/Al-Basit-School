@@ -1909,10 +1909,10 @@ def check_swaps_phase3ia1(app_path: Path, app_text: str, results: list[CheckResu
         "لا يوجد gr.update أو import gradio أو gr.SelectData داخل swaps.py." if no_gradio else "ظهر اعتماد مباشر على Gradio داخل swaps.py.",
     )
 
-    storage_import_ok = "from storage import teachers_db" in swaps_text
+    storage_import_ok = "teachers_db" in swaps_text and "from storage import" in swaps_text
     add(
         results,
-        "3I-a-1: swaps.py يعتمد على storage.py فقط للحالة",
+        "3I-a-1: swaps.py يعتمد على storage.py للحالة",
         "PASS" if storage_import_ok else "FAIL",
         "swaps.py يستورد teachers_db من storage.py." if storage_import_ok else "لم يظهر استيراد teachers_db من storage.py.",
     )
@@ -1940,6 +1940,141 @@ def check_swaps_phase3ia1(app_path: Path, app_text: str, results: list[CheckResu
         add(results, "3I-a-1: py_compile swaps.py", "PASS", "swaps.py لا يحتوي أخطاء نحوية.")
     except Exception as exc:
         add(results, "3I-a-1: py_compile swaps.py", "FAIL", f"فشل py_compile: {exc}")
+
+
+def check_confirm_swap_phase3ia3(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3I-a-3: تقسيم confirm_swap إلى core/wrapper داخل swaps.py/app.py."""
+    swaps_path = app_path.with_name("swaps.py")
+    if not swaps_path.exists():
+        add(results, "3I-a-3: وجود swaps.py", "FAIL", f"غير موجود: {swaps_path}")
+        return
+
+    swaps_text = swaps_path.read_text(encoding="utf-8")
+    core_body = function_body(swaps_text, "confirm_swap_core")
+    wrapper_body = function_body(app_text, "confirm_swap")
+
+    core_exists = bool(re.search(r"^def\s+confirm_swap_core\s*\(", swaps_text, re.MULTILINE))
+    wrapper_exists = bool(re.search(r"^def\s+confirm_swap\s*\(", app_text, re.MULTILINE))
+    add(
+        results,
+        "3I-a-3: confirm_swap_core موجودة في swaps.py",
+        "PASS" if core_exists else "FAIL",
+        "confirm_swap_core موجودة في swaps.py." if core_exists else "لم يتم العثور على confirm_swap_core داخل swaps.py.",
+    )
+    add(
+        results,
+        "3I-a-3: confirm_swap wrapper باقية في app.py",
+        "PASS" if wrapper_exists else "FAIL",
+        "confirm_swap موجودة في app.py كـwrapper." if wrapper_exists else "لم يتم العثور على confirm_swap في app.py.",
+    )
+
+    helper_names = ["extract_clean_period_number", "format_elegant_class"]
+    helpers_in_swaps = [fn for fn in helper_names if re.search(rf"^def\s+{re.escape(fn)}\s*\(", swaps_text, re.MULTILINE)]
+    helpers_in_app = [fn for fn in helper_names if re.search(rf"^def\s+{re.escape(fn)}\s*\(", app_text, re.MULTILINE)]
+    add(
+        results,
+        "3I-a-3: دوال confirm_swap المساعدة في swaps.py",
+        "PASS" if len(helpers_in_swaps) == len(helper_names) else "FAIL",
+        "الدالتان المساعدتان موجودتان في swaps.py." if len(helpers_in_swaps) == len(helper_names) else f"ناقص: {[fn for fn in helper_names if fn not in helpers_in_swaps]}",
+    )
+    add(
+        results,
+        "3I-a-3: لا تكرار لدوال confirm_swap المساعدة في app.py",
+        "PASS" if not helpers_in_app else "FAIL",
+        "لا توجد تعريفات مكررة للدالتين المساعدتين في app.py." if not helpers_in_app else f"تعريفات مكررة: {helpers_in_app}",
+    )
+
+    core_decorated = bool(re.search(r"@state_locked\s*\ndef\s+confirm_swap_core\s*\(", swaps_text))
+    add(
+        results,
+        "3I-a-3: @state_locked على confirm_swap_core فقط",
+        "PASS" if core_decorated else "FAIL",
+        "@state_locked موجودة على confirm_swap_core." if core_decorated else "@state_locked غير موجودة على confirm_swap_core.",
+    )
+
+    wrapper_decorated = bool(re.search(r"@state_locked\s*\ndef\s+confirm_swap\s*\(", app_text))
+    add(
+        results,
+        "3I-a-3: confirm_swap wrapper بلا @state_locked",
+        "PASS" if wrapper_exists and not wrapper_decorated else "FAIL",
+        "wrapper بلا @state_locked." if wrapper_exists and not wrapper_decorated else "ما زالت @state_locked موجودة على wrapper.",
+    )
+
+    no_reverse_import = "import app" not in swaps_text and "from app import" not in swaps_text
+    add(
+        results,
+        "3I-a-3: swaps.py لا يستورد app.py",
+        "PASS" if no_reverse_import else "FAIL",
+        "لا يوجد import app داخل swaps.py." if no_reverse_import else "ظهر import app أو from app import داخل swaps.py.",
+    )
+
+    swaps_no_gradio = "gr.update" not in swaps_text and "import gradio" not in swaps_text and "from gradio" not in swaps_text and "gr.SelectData" not in swaps_text
+    add(
+        results,
+        "3I-a-3: swaps.py بلا Gradio بعد confirm_swap_core",
+        "PASS" if swaps_no_gradio else "FAIL",
+        "لا يوجد gr.update أو import gradio أو gr.SelectData داخل swaps.py." if swaps_no_gradio else "ظهر اعتماد مباشر على Gradio داخل swaps.py.",
+    )
+
+    core_no_gradio = bool(core_body) and "gr.update" not in core_body and "render_swap_table_html(" not in core_body
+    add(
+        results,
+        "3I-a-3: confirm_swap_core يرجع خامًا ولا يبني Gradio HTML",
+        "PASS" if core_no_gradio else "FAIL",
+        "core بلا gr.update ولا render_swap_table_html؛ يرجع الحالة والتحذير الخام." if core_no_gradio else "core يحتوي Gradio أو بناء جدول HTML.",
+    )
+
+    wrapper_ok = (
+        bool(wrapper_body)
+        and "confirm_swap_core(" in wrapper_body
+        and "gr.update(value=render_swap_table_html(current_state) + warning)" in wrapper_body
+    )
+    add(
+        results,
+        "3I-a-3: wrapper يحوّل الحالة والتحذير إلى مخرجات Gradio",
+        "PASS" if wrapper_ok else "FAIL",
+        "wrapper يستدعي confirm_swap_core ثم يرجع current_state و gr.update لجدول التبادل." if wrapper_ok else "wrapper لا يطابق العقد المتوقع.",
+    )
+
+    try:
+        app_tree = ast.parse(app_text)
+        wrapper_returns = []
+        for node in ast.walk(app_tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "confirm_swap":
+                wrapper_returns = [r for r in ast.walk(node) if isinstance(r, ast.Return)]
+                break
+        wrapper_two_outputs = bool(wrapper_returns) and all(isinstance(r.value, ast.Tuple) and len(r.value.elts) == 2 for r in wrapper_returns)
+        add(
+            results,
+            "3I-a-3: confirm_swap wrapper يرجع عنصرين فقط",
+            "PASS" if wrapper_two_outputs else "FAIL",
+            "كل فروع wrapper ترجع عنصرين." if wrapper_two_outputs else "wrapper لا يرجع عنصرين في كل الفروع.",
+        )
+    except SyntaxError as exc:
+        add(results, "3I-a-3: تحليل AST للـwrapper", "FAIL", f"تعذر تحليل app.py: {exc}")
+
+    try:
+        swaps_tree = ast.parse(swaps_text)
+        core_returns = []
+        for node in ast.walk(swaps_tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "confirm_swap_core":
+                core_returns = [r for r in ast.walk(node) if isinstance(r, ast.Return)]
+                break
+        core_two_raw_outputs = bool(core_returns) and all(isinstance(r.value, ast.Tuple) and len(r.value.elts) == 2 for r in core_returns)
+        add(
+            results,
+            "3I-a-3: confirm_swap_core يرجع حالتين خامتين",
+            "PASS" if core_two_raw_outputs else "FAIL",
+            "core يرجع tuple من عنصرين: current_state و warning." if core_two_raw_outputs else "core لا يرجع tuple من عنصرين في كل الفروع.",
+        )
+    except SyntaxError as exc:
+        add(results, "3I-a-3: تحليل AST للـcore", "FAIL", f"تعذر تحليل swaps.py: {exc}")
+
+    try:
+        py_compile.compile(str(swaps_path), doraise=True)
+        add(results, "3I-a-3: py_compile swaps.py", "PASS", "swaps.py لا يحتوي أخطاء نحوية بعد confirm_swap_core.")
+    except Exception as exc:
+        add(results, "3I-a-3: py_compile swaps.py", "FAIL", f"فشل py_compile: {exc}")
 
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
@@ -2044,6 +2179,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_exemptions_phase3ha2(path, app_text, results)
     check_save_teacher_rules_phase3ha3(path, app_text, results)
     check_swaps_phase3ia1(path, app_text, results)
+    check_confirm_swap_phase3ia3(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
