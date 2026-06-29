@@ -911,6 +911,113 @@ def check_school_data_phase3ea(app_path: Path, app_text: str, results: list[Chec
         "app.py يستورد دوال مركز البيانات من school_data.py." if import_ok else "لم يظهر from school_data import داخل app.py.",
     )
 
+
+def check_schedules_phase3fa(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3F-a: فصل دوال الجداول والاختيارات النظيفة إلى schedules.py دون Gradio أو اعتماد عكسي."""
+    schedules_path = app_path.with_name("schedules.py")
+    if not schedules_path.exists():
+        add(results, "3F-a: وجود schedules.py", "FAIL", f"غير موجود: {schedules_path}")
+        return
+
+    schedules_text = schedules_path.read_text(encoding="utf-8")
+    add(results, "3F-a: وجود schedules.py", "PASS", f"موجود: {schedules_path}")
+
+    required_functions = [
+        "get_teacher_choices",
+        "get_absentee_choices",
+        "resolve_effective_dept",
+        "clean_teacher_name",
+        "get_name_fingerprint",
+        "extract_class_info",
+        "get_day_overview",
+        "format_teacher_name",
+        "get_day_dept_style",
+        "render_day_department_section_html",
+        "render_day_all_departments_html",
+        "render_day_table_html",
+    ]
+    missing = [fn for fn in required_functions if not re.search(rf"^def\s+{re.escape(fn)}\s*\(", schedules_text, re.MULTILINE)]
+    add(
+        results,
+        "3F-a: الدوال النظيفة موجودة في schedules.py",
+        "PASS" if not missing else "FAIL",
+        "الدوال الـ12 موجودة في schedules.py." if not missing else f"ناقص: {missing}",
+    )
+
+    required_constants = ["DAY_DEPT_STYLE_MAP", "DAY_DEPT_FALLBACK_STYLES"]
+    missing_constants = [name for name in required_constants if not re.search(rf"^{re.escape(name)}\s*=", schedules_text, re.MULTILINE)]
+    add(
+        results,
+        "3F-a: ثوابت تلوين جدول اليوم موجودة في schedules.py",
+        "PASS" if not missing_constants else "FAIL",
+        "الثابتان موجودان في schedules.py." if not missing_constants else f"ناقص: {missing_constants}",
+    )
+
+    app_local_defs = []
+    for fn in required_functions:
+        app_local_defs.extend(line_numbers_for_pattern(app_text, rf"^def\s+{re.escape(fn)}\s*\("))
+    add(
+        results,
+        "3F-a: app.py لا يحتوي تعريفات دوال schedules المنقولة",
+        "PASS" if not app_local_defs else "FAIL",
+        "الدوال المنقولة غير معرفة داخل app.py." if not app_local_defs else f"وجدت في الأسطر: {app_local_defs[:10]}",
+    )
+
+    app_local_constants = []
+    for name in required_constants:
+        app_local_constants.extend(line_numbers_for_pattern(app_text, rf"^{re.escape(name)}\s*="))
+    add(
+        results,
+        "3F-a: app.py لا يحتوي ثوابت جدول اليوم المنقولة",
+        "PASS" if not app_local_constants else "FAIL",
+        "الثوابت المنقولة غير معرفة داخل app.py." if not app_local_constants else f"وجدت في الأسطر: {app_local_constants[:10]}",
+    )
+
+    no_reverse_import = all(marker not in schedules_text for marker in ["import app", "from app import"])
+    add(
+        results,
+        "3F-a: schedules.py لا يستورد app.py",
+        "PASS" if no_reverse_import else "FAIL",
+        "لا يوجد اعتماد عكسي من schedules.py إلى app.py." if no_reverse_import else "ظهر import app أو from app import داخل schedules.py.",
+    )
+
+    no_gradio = "gr.update" not in schedules_text and "import gradio" not in schedules_text and "from gradio" not in schedules_text
+    add(
+        results,
+        "3F-a: schedules.py بلا Gradio",
+        "PASS" if no_gradio else "FAIL",
+        "لا يوجد gr.update أو import gradio داخل schedules.py." if no_gradio else "ظهر اعتماد مباشر على Gradio داخل schedules.py.",
+    )
+
+    deferred_functions = [
+        "refresh_schedule_from_reference",
+        "process_uploaded_excel",
+        "get_updated_absences",
+        "get_updated_balance",
+    ]
+    missing_in_app = [fn for fn in deferred_functions if not re.search(rf"^def\s+{re.escape(fn)}\s*\(", app_text, re.MULTILINE)]
+    wrongly_in_schedules = [fn for fn in deferred_functions if re.search(rf"^def\s+{re.escape(fn)}\s*\(", schedules_text, re.MULTILINE)]
+    add(
+        results,
+        "3F-a: الدوال الثقيلة المؤجلة بقيت في app.py",
+        "PASS" if not missing_in_app and not wrongly_in_schedules else "FAIL",
+        "refresh/process ودوال الأرصدة بقيت في app.py كما هو مخطط." if not missing_in_app and not wrongly_in_schedules else f"ناقص في app: {missing_in_app}; موجود خطأ في schedules: {wrongly_in_schedules}",
+    )
+
+    app_import_ok = "from schedules import" in app_text
+    add(
+        results,
+        "3F-a: app.py يستورد schedules.py",
+        "PASS" if app_import_ok else "FAIL",
+        "app.py يستورد دوال الجداول والاختيارات من schedules.py." if app_import_ok else "لم يظهر from schedules import داخل app.py.",
+    )
+
+    try:
+        py_compile.compile(str(schedules_path), doraise=True)
+        add(results, "3F-a: py_compile schedules.py", "PASS", "schedules.py لا يحتوي أخطاء نحوية.")
+    except Exception as exc:  # pragma: no cover
+        add(results, "3F-a: py_compile schedules.py", "FAIL", f"فشل py_compile: {exc}")
+
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
     warn = sum(r.status == "WARN" for r in results)
@@ -971,7 +1078,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     app_text = read_text(path)
     style_text = collect_style_text(path)
     extra_module_texts = []
-    for module_name in ("school_data.py", "storage.py", "auth.py"):
+    for module_name in ("school_data.py", "schedules.py", "storage.py", "auth.py"):
         module_path = path.with_name(module_name)
         if module_path.exists():
             try:
@@ -1004,6 +1111,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_auth_phase3d(path, app_text, results)
     check_state_phase3e_pre(path, app_text, results)
     check_school_data_phase3ea(path, app_text, results)
+    check_schedules_phase3fa(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
