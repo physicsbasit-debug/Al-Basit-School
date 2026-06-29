@@ -176,10 +176,10 @@ from swaps import (
     build_swap_button_html,
     extract_swap_choice_details,
     render_swap_table_html,
+    confirm_swap_core,
+    extract_clean_period_number,
+    format_elegant_class,
 )
-
-
-
 
 
 # --- 1. الإعدادات والوقت ---
@@ -200,6 +200,8 @@ tz_oman = datetime.timezone(datetime.timedelta(hours=4))
 # save_teacher_rules أصبحت core/wrapper، والمنطق في exemptions.py.
 # v1.8.5q / Phase 3I-a-1
 # دوال التبادل الودي النظيفة انتقلت إلى swaps.py.
+# v1.8.5r / Phase 3I-a-3
+# confirm_swap أصبحت core/wrapper، والمنطق في swaps.py.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -414,13 +416,6 @@ def render_persistent_storage_status_html():
         {error_html}
     </div>
     """
-
-
-
-
-
-
-
 
 
 # Phase 3C: load_school_config وSCHOOL_CONFIG انتقلت إلى storage.py.
@@ -1400,8 +1395,6 @@ def get_current_day_oman():
     
 
 
-
-
     
 def get_date_of_weekday(target_day_name):
     days_map = {"الأحد": 6, "الإثنين": 0, "الثلاثاء": 1, "الأربعاء": 2, "الخميس": 3}
@@ -1444,14 +1437,6 @@ def fix_arabic(text):
     bidi = get_display(reshaped)
     for c in ['\u202a', '\u202b', '\u202c', '\u200e', '\u200f']: bidi = bidi.replace(c, '')
     return bidi
-
-
-
-
-
-
-
-
 
 
 def _queue_audit_change(entries, action, target_teacher, old_value, new_value, details):
@@ -1543,7 +1528,6 @@ def _parse_audit_date(value, label):
         return None, f"صيغة {label} غير صحيحة. اختر التاريخ من التقويم."
 
 
-
 def get_audit_date_range(preset):
     """إرجاع نطاق تاريخ جاهز وفق توقيت سلطنة عمان."""
     today = datetime.datetime.now(tz_oman).date()
@@ -1564,7 +1548,6 @@ def get_audit_date_range(preset):
         return None, None
 
     return start_date.isoformat(), end_date.isoformat()
-
 
 
 def filter_audit_records(records, action_filter="الكل", actor_filter="الكل", teacher_filter="الكل", date_from="", date_to=""):
@@ -1977,7 +1960,6 @@ def refresh_owner_tools_dashboard(action_filter, actor_filter, teacher_filter, d
     )
     backup_upd = refresh_backup_status(is_owner)
     return action_upd, actor_upd, teacher_upd, audit_upd, backup_upd
-
 
 
 def refresh_school_data_center_cards(is_owner=False):
@@ -2759,13 +2741,8 @@ def reset_school_identity_settings(is_owner=False):
     )
 
 
-
-
-
-
         
 SWAP_EMPTY_MSG = "💡 يرجى اختيار أحد المعلمين من القائمة بالأعلى لتوليد مسودة رسالة الواتساب هنا..."
-
 
 
 os.makedirs(SWAP_IMG_DIR, exist_ok=True)
@@ -2773,8 +2750,6 @@ os.makedirs(SWAP_IMG_DIR, exist_ok=True)
 def sync_current_school_days():
     current_day = get_current_day_oman()
     return gr.update(value=current_day), gr.update(value=current_day)
-
-
 
 
 def generate_swap_table_image(state, teacher_name, day_name):
@@ -3077,111 +3052,13 @@ def clear_swap_detail_ui():
     )
 
 
-
-
-
-
-
-
-
         
 
-@state_locked
 def confirm_swap(t, period_value, choice, d, msg_text, state, actor_name="", actor_role=""):
-    t = str(t or "").split(" (")[0].strip()
-    current_state = dict(state) if isinstance(state, dict) else {}
-
-    if not t or not period_value or not choice or "❌" in str(choice):
-        return current_state, gr.update(value=render_swap_table_html(current_state))
-
-    p_clean = extract_clean_period_number(period_value)
-
-    req_class_raw = teachers_db.get(t, {}).get(
-        d, {}
-    ).get(
-        p_clean,
-        teachers_db.get(t, {}).get(d, {}).get(int(p_clean) if p_clean.isdigit() else p_clean, "")
+    current_state, warning = confirm_swap_core(
+        t, period_value, choice, d, msg_text, state, actor_name, actor_role
     )
-
-    elegant_class = format_elegant_class(req_class_raw)
-    candidate, comp_day, comp_period = extract_swap_choice_details(choice)
-
-    # ── فحص محلي (داخل الحالة الحالية للمعلم) ──
-    for p_ex, info_ex in current_state.items():
-        if (
-            info_ex.get("comp_day") == comp_day
-            and info_ex.get("comp_period") == comp_period
-            and p_ex != p_clean
-        ):
-            return current_state, gr.update(
-                value=render_swap_table_html(current_state)
-                + f"<div style='color:red; padding:10px; text-align:center;'>⚠️ موعد التعويض ({comp_day} - {comp_period}) محجوز مسبقاً لهذا المعلم.</div>"
-            )
-
-    # ── فحص عالمي (على جميع التبادلات المعتمدة) ──
-    current_key = f"{t}|{d}|{p_clean}"
-    for key, info in swap_db.items():
-        same_comp = (
-            info.get("comp_day") == comp_day
-            and info.get("comp_period") == comp_period
-        )
-        if not same_comp:
-            continue
-
-        if info.get("requester") == t and key != current_key:
-            return current_state, gr.update(
-                value=render_swap_table_html(current_state)
-                + f"<div style='color:red; padding:10px; text-align:center;'>⚠️ موعد التعويض ({comp_day} - {comp_period}) محجوز مسبقاً لهذا المعلم.</div>"
-            )
-
-        if info.get("candidate") == candidate and key != current_key:
-            return current_state, gr.update(
-                value=render_swap_table_html(current_state)
-                + f"<div style='color:red; padding:10px; text-align:center;'>⚠️ موعد التعويض ({comp_day} - {comp_period}) محجوز مسبقاً على المعلم البديل.</div>"
-            )
-
-    current_state[p_clean] = {
-        "requester": t,
-        "class": elegant_class,
-        "candidate": candidate,
-        "choice": choice,
-        "message": msg_text,
-        "comp_day": comp_day,
-        "comp_period": comp_period
-    }
-
-    swap_db[current_key] = {
-        "requester": t,
-        "day": d,
-        "period": p_clean,
-        "class": elegant_class,
-        "candidate": candidate,
-        "choice": choice,
-        "message": msg_text,
-        "comp_day": comp_day,
-        "comp_period": comp_period,
-        "updated_at": get_now_oman().strftime("%Y-%m-%d %H:%M")
-    }
-    save_swap_db()
-
-    write_audit_log(
-        "اعتماد تبادل ودي",
-        target_teacher=t,
-        old_value="",
-        new_value={
-            "day": d,
-            "period": p_clean,
-            "class": elegant_class,
-            "candidate": candidate,
-            "comp_day": comp_day,
-            "comp_period": comp_period
-        },
-        details=f"اعتماد تبادل ودي بين {t} و {candidate}",
-        actor_name=actor_name,
-        actor_role=actor_role
-    )
-
-    return current_state, gr.update(value=render_swap_table_html(current_state))
+    return current_state, gr.update(value=render_swap_table_html(current_state) + warning)
 
 def resolve_teacher_display_value(raw_name, choices):
     if not raw_name:
@@ -3506,9 +3383,6 @@ def delete_department_data(dept_to_delete, current_day):
         gr.update() if teacher_names_all is None else gr.update(choices=teacher_names_all, value=None),
         gr.update(value=None) if reset_upload else gr.update(),
     )
-
-
-
 
 
 def get_day_table_updates(day_name, dept_filter, page=0):
@@ -3911,21 +3785,6 @@ def generate_image_only(dept, day_name):
     return gr.update(value=None)
 
 # ✂️ المقص الرياضي الحاسم
-def format_elegant_class(raw_class):
-    raw_class = str(raw_class).strip()
-    if not raw_class: return "الصف غير محدد"
-    words = raw_class.split()
-    if len(words) < 2: return raw_class 
-    grade_part = ""
-    subject_part = ""
-    for i, word in enumerate(reversed(words)):
-        if any(g in word for g in ["ثامن", "تاسع", "عاشر", "حادي", "ثاني", "1", "2", "3", "4", "5", "6", "7", "8", "9"]):
-            grade_part = word
-            subject_part = " ".join(words[:len(words) - 1 - i])
-            break
-    if grade_part and subject_part:
-        return f"{grade_part} - مادة {subject_part}"
-    return raw_class
 
 def generate_whatsapp_html(df_state, day_name, absent_list):
     if df_state is None or df_state.empty: return "", "<div style='text-align:center; color:gray; padding:20px;'>لا توجد تكليفات لعرضها</div>"
@@ -4092,8 +3951,6 @@ def clear_generated_image():
     return gr.update(value=None)
 
 
-
-
 def school_data_panel_js(panel_name):
     """
     v1.8.3 Fix 13b — direct DOM visibility for school data panels.
@@ -4250,7 +4107,6 @@ def build_absence_conflict_warning_html(conflicts, day_name):
         "لضمان صحة جميع الإسنادات، استخدم <b>\"لوحة القيادة\"</b> أو <b>\"إعادة توليد من جديد\"</b>."
         "</div>"
     )
-
 
 
 def detect_conflicted_absence_slots(display_records):
@@ -5240,7 +5096,6 @@ def delete_single_teacher(name, dept_filter, day_val, is_owner=False):
     return (gr.update(), gr.update(), gr.update(), gr.update(), "<div style='color:red;'>❌ المعلم غير موجود</div>", gr.update(), gr.update(), gr.update(), gr.update())
 
 
-
 def load_teacher_rules(t_name):
     t_key = resolve_teacher_key_from_ui(t_name)
     if t_key and t_key in teachers_db:
@@ -5733,10 +5588,6 @@ setTimeout(setupMainLogoTouchInteraction, 2500);
 document.addEventListener('DOMContentLoaded', setupMainLogoTouchInteraction);
 
 
-
-
-
-
 """
 
 header_html = build_header_html()
@@ -5765,10 +5616,6 @@ def get_teacher_periods_safe(t, d):
         return gr.update(choices=["اختر معلماً أولاً"], value=None)
     except Exception as e:
         return gr.update(choices=["خطأ داخلي"], value=None)
-def extract_clean_period_number(period_value):
-    raw = str(period_value).split("-")[0]
-    raw = raw.replace("✅", "").replace("الحصة", "").strip()
-    return raw if raw.isdigit() else ""
 
 def get_teacher_periods_marked(t, d, confirmed_state, current_value=None):
     t = str(t or "").split(" (")[0].strip()
@@ -6036,8 +5883,6 @@ def get_leader_action_button_updates(abs_teacher, period_value=None, substitute_
         gr.update(interactive=has_absent and has_period),   # رصد تقصير في التكليف
         gr.update(interactive=has_absent),                  # التراجع عن غياب اليوم بالكامل
     )
-
-
 
 
 def show_home_dashboard_js():
@@ -6707,7 +6552,6 @@ with gr.Blocks() as app:
                                     DIRECTORATE_REGION,
                                 )
                             )
-
 
 
                     with gr.Column(visible=False, elem_id="school_data_panel_periods", elem_classes="school-data-panel-box") as school_data_periods_panel:
