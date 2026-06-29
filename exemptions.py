@@ -7,7 +7,16 @@
 import re
 
 from config import ADMIN_ROLES
-from storage import MAX_PERIODS, SCHOOL_WEEK_DAYS, teachers_db
+from storage import (
+    MAX_PERIODS,
+    SCHOOL_WEEK_DAYS,
+    teachers_db,
+    save_db,
+    state_locked,
+    get_now_oman,
+    write_audit_log,
+)
+from auth import get_permissions
 from schedules import format_teacher_name, get_name_fingerprint
 
 
@@ -212,3 +221,82 @@ def render_exemptions_log_html():
         </div>
     </div>
     """
+
+
+@state_locked
+def save_teacher_rules_core(t_name, days, periods, actor_name="", actor_role="", is_admin=False, is_owner=False):
+    """حفظ قواعد إعفاء المعلم وإرجاع رسالة HTML خام فقط، بلا Gradio."""
+    permissions = get_permissions(role=actor_role, is_owner=is_owner, is_admin_flag=is_admin)
+    if not permissions["can_manage_exemptions"]:
+        return "<div style='color:#b91c1c; font-weight:bold; background:#fee2e2; padding:10px; border-radius:5px; text-align:center;'>❌ لا تملك صلاحية تعديل حالات الإعفاء.</div>"
+
+    t_key = resolve_teacher_key_from_ui(t_name)
+    if t_key and t_key in teachers_db:
+        if teachers_db[t_key].get("dept") == "الهيئة الإدارية" or teachers_db[t_key].get("role", "معلم") in ADMIN_ROLES:
+            return "<div style='color:#b91c1c; font-weight:bold; background:#fee2e2; padding:10px; border-radius:5px; text-align:center;'>❌ لا يمكن تسجيل حالات إعفاء للهيئة الإدارية أو الإداريين.</div>"
+        clean_days = [str(d).strip() for d in (days or []) if str(d).strip() in SCHOOL_WEEK_DAYS]
+        clean_periods = []
+        for p in (periods or []):
+            try:
+                p_int = int(p)
+                if 1 <= p_int <= MAX_PERIODS and p_int not in clean_periods:
+                    clean_periods.append(p_int)
+            except Exception:
+                continue
+
+        old_days = list(teachers_db[t_key].get("exempt_days", []) or [])
+        old_periods = list(teachers_db[t_key].get("exempt_periods", []) or [])
+        old_slots = normalize_exempt_slots(teachers_db[t_key].get("exempt_slots", []) or [])
+
+        if clean_days and clean_periods:
+            # الاختيار المشترك يعني إعفاءات محددة: كل الأيام المختارة × كل الحصص المختارة.
+            new_days = []
+            new_periods = []
+            new_slots = build_exempt_slots_from_days_periods(clean_days, clean_periods)
+            exemption_mode = "إعفاء محدد"
+            mode_details = f"إعفاءات محددة: {format_exempt_slots_for_display(new_slots)}"
+        elif clean_days:
+            new_days = clean_days
+            new_periods = []
+            new_slots = []
+            exemption_mode = "إعفاء يوم كامل"
+            mode_details = f"أيام كاملة: {'، '.join(new_days)}"
+        elif clean_periods:
+            new_days = []
+            new_periods = clean_periods
+            new_slots = []
+            exemption_mode = "إعفاء حصة أسبوعية"
+            mode_details = "حصص أسبوعية: " + "، ".join([f"ح{p}" for p in new_periods])
+        else:
+            new_days = []
+            new_periods = []
+            new_slots = []
+            exemption_mode = "إلغاء الإعفاء"
+            mode_details = "لا توجد أيام أو حصص محددة"
+
+        teachers_db[t_key]["exempt_days"] = new_days
+        teachers_db[t_key]["exempt_periods"] = new_periods
+        teachers_db[t_key]["exempt_slots"] = new_slots
+
+        if old_days != new_days or old_periods != new_periods or old_slots != new_slots:
+            write_audit_log(
+                "تعديل حالات الإعفاء",
+                target_teacher=t_key,
+                old_value={"days": old_days, "periods": old_periods, "slots": old_slots},
+                new_value={"days": new_days, "periods": new_periods, "slots": new_slots},
+                details=f"{exemption_mode} - {mode_details}",
+                actor_name=actor_name,
+                actor_role=actor_role
+            )
+
+        if new_days or new_periods or new_slots:
+            teachers_db[t_key]["exemption_updated_at"] = get_now_oman().strftime("%Y-%m-%d %H:%M")
+            status_html = f"<div style='color:#2e7d32; font-weight:bold; background:#e8f5e9; padding:10px; border-radius:5px; text-align:center;'>✅ تم تثبيت قوانين الإعفاء للأستاذ ({format_teacher_name(t_key)}) بنجاح!<br><span style='font-weight:600; color:#166534;'>{mode_details}</span></div>"
+        else:
+            teachers_db[t_key]["exemption_updated_at"] = ""
+            status_html = f"<div style='color:#b45309; font-weight:bold; background:#fff7ed; padding:10px; border-radius:5px; text-align:center;'>ℹ️ تم إلغاء إعفاءات الأستاذ ({format_teacher_name(t_key)}) لأنه لا توجد أيام أو حصص محددة.</div>"
+
+        save_db()
+        return status_html
+
+    return "<div style='color:#b91c1c; font-weight:bold; background:#fee2e2; padding:10px; border-radius:5px; text-align:center;'>❌ اختر معلمًا أولًا قبل حفظ الإعفاء.</div>"
