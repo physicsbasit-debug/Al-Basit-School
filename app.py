@@ -179,6 +179,10 @@ from swaps import (
     confirm_swap_core,
     extract_clean_period_number,
     format_elegant_class,
+    get_current_day_oman,
+    get_class_dna,
+    check_teacher_load,
+    run_radar_safe_core,
 )
 
 
@@ -1388,10 +1392,6 @@ def refresh_schedule_from_reference(dept_name, current_day, is_owner=False):
         gr.update(value=None),
     )
 
-def get_current_day_oman():
-    weekday = get_now_oman().weekday()
-    days_map = {6: "الأحد", 0: "الإثنين", 1: "الثلاثاء", 2: "الأربعاء", 3: "الخميس", 4: "الأحد", 5: "الأحد"}
-    return days_map.get(weekday, "الأحد")
     
 
 
@@ -3095,51 +3095,7 @@ def get_teacher_schedule_choices(dept_filter="الكل"):
         choices.append(f"{t} ({role})" if role != "معلم" else t)
     return choices
 
-def get_class_dna(class_string):
-    s = str(class_string).strip()
-    s = s.translate(str.maketrans('٠١٢٣٤٥٦٧٨٩', '0123456789')) 
-    s = s.replace("ـ", "") 
-    if not s: return ""
-    
-    nums = re.findall(r'\d+', s)
-    section = nums[-1] if nums else ""
-    
-    grade = ""
-    if any(x in s for x in ["عاشر", "10", "١٠"]): grade = "10"
-    elif any(x in s for x in ["تاسع", "9", "٩"]): grade = "9"
-    elif any(x in s for x in ["ثامن", "8", "٨"]): grade = "8"
-    elif any(x in s for x in ["سابع", "7", "٧"]): grade = "7"
-    elif any(x in s for x in ["حادي", "11", "١١"]): grade = "11"
-    elif any(x in s for x in ["ثاني", "12", "١٢"]): grade = "12"
-    
-    if grade and section: return f"G{grade}-{section}"
-    return re.sub(r'[^\w\dأ-ي]', '', s) 
 
-def check_teacher_load(teacher_name, day_name, period_to_add):
-    try:
-        if teacher_name not in teachers_db: return ""
-        info = teachers_db[teacher_name]
-        base_p = {int(k) for k in info.get(day_name, {}).keys() if str(k).isdigit()}
-        
-        if str(period_to_add).isdigit():
-            all_slots = sorted(list(base_p | {int(period_to_add)}))
-        else:
-            all_slots = sorted(list(base_p))
-            
-        consecutive = max_con = 1
-        for i in range(len(all_slots)-1):
-            if all_slots[i+1] == all_slots[i] + 1:
-                consecutive += 1
-                max_con = max(max_con, consecutive)  # ← داخل الحلقة
-            else:
-                consecutive = 1
-            
-        warns = []
-        if max_con >= 3: warns.append("⚠️ إجهاد بدني")
-        if len(all_slots) >= 6: warns.append("⚠️ كثافة عالية")
-        return " | ".join(warns)
-    except Exception:
-        return ""
 
 def get_falcon_eye_candidates(absent_t, period, day_name):
     try:
@@ -5656,56 +5612,9 @@ def get_teacher_periods_marked(t, d, confirmed_state, current_value=None):
         return gr.update(choices=["خطأ داخلي"], value=None)
         
 def run_radar_safe(t, p, d):
-    t = str(t or "").split(" (")[0].strip()
     default_msg = "💡 يرجى اختيار أحد المعلمين من القائمة بالأعلى لتوليد مسودة رسالة الواتساب هنا..."
-    try:
-        if not t or not p or "لا يوجد" in t or "اختر" in p: return gr.update(choices=[], value=None), gr.update(value=default_msg), gr.update(value="")
-        
-        p_str_clean = extract_clean_period_number(p)
-        if not p_str_clean.isdigit(): return gr.update(choices=[], value=None), gr.update(value=default_msg), gr.update(value="")
-        p_int = int(p_str_clean)
-        
-        t_cls = teachers_db.get(t, {}).get(d, {}).get(str(p_int), teachers_db.get(t, {}).get(d, {}).get(p_int, ""))
-        if not t_cls: return gr.update(choices=["❌ لا توجد حصة مسجلة لك"], value=None), gr.update(value=default_msg), gr.update(value="")
-        
-        dna = get_class_dna(t_cls)
-        perf, flex = [], []
-        
-        day_weights = {"الأحد": 1, "الإثنين": 2, "الثلاثاء": 3, "الأربعاء": 4, "الخميس": 5}
-        current_day_str = get_current_day_oman()
-        current_weight = day_weights.get(current_day_str, 1)
-        
-        for tb, info in teachers_db.items():
-            if tb == t or info.get("dept") == "الهيئة الإدارية" or info.get("role") == "إداري": continue
-            if str(p_int) in info.get(d, {}) or p_int in info.get(d, {}): continue
-            
-            for db in SCHOOL_WEEK_DAYS:
-                db_weight = day_weights.get(db, 1)
-                db_display = f"{db} القادم" if db_weight < current_weight else db
-                
-                for pb, cb in info.get(db, {}).items():
-                    if dna == get_class_dna(cb) and dna != "":
-                        w_b = check_teacher_load(tb, d, p_int)
-                        is_t_free = True
-                        if str(pb) in teachers_db.get(t, {}).get(db, {}): is_t_free = False
-                        elif str(pb).isdigit() and int(str(pb)) in teachers_db.get(t, {}).get(db, {}): is_t_free = False
-                        
-                        if is_t_free:
-                            w_a = check_teacher_load(t, db, pb)
-                            warns = []
-                            if w_b: warns.append(f"إجهاد لـ {tb}: {w_b}")
-                            if w_a: warns.append(f"إجهاد لك: {w_a}")
-                            w_str = f" ⚠️ ({' | '.join(warns)})" if warns else ""
-                            perf.append(f"🟢 تبادل مثالي | البديل: {tb} | يغطيك ({d} ح{p_int}) وتغطيه ({db_display} ح{pb}){w_str}")
-                        else:
-                            w_str = f" ⚠️ (إجهاد لـ {tb}: {w_b})" if w_b else ""
-                            flex.append(f"🟠 إنقاذ مرن | البديل: {tb} | يغطيك ({d} ح{p_int}) لكنك مشغول وقت حصته ({db_display} ح{pb}){w_str}")
-                            
-        res = sorted(list(set(perf))) + sorted(list(set(flex)))
-        if not res: return gr.update(choices=[f"❌ لا يوجد بديل متفرغ (بصمة: {dna})"], value=None), gr.update(value=default_msg), gr.update(value="")
-        return gr.update(choices=res, value=None), gr.update(value=default_msg), gr.update(value="")
-    except Exception as e:
-        return gr.update(choices=["خطأ داخلي"], value=None), gr.update(value=default_msg), gr.update(value="")
+    candidates = run_radar_safe_core(t, p, d)
+    return gr.update(choices=candidates, value=None), gr.update(value=default_msg), gr.update(value="")
 
 def generate_wa_msg(choice, t_req, p_req, d_req):
     default_msg = "💡 يرجى اختيار أحد المعلمين من القائمة بالأعلى لتوليد مسودة رسالة الواتساب هنا..."
