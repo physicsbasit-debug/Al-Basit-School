@@ -2754,6 +2754,129 @@ def check_swap_context_phase3ia5a(app_path: Path, app_text: str, results: list[C
         add(results, "3I-a-5a: py_compile app.py و swaps.py", "FAIL", f"فشل py_compile: {exc}")
 
 
+
+def check_swap_filter_periods_phase3ia5b(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3I-a-5b: تقسيم فلترة معلمي التبادل وحصص المعلم إلى core/wrapper."""
+    swaps_path = app_path.with_name("swaps.py")
+    schedules_path = app_path.with_name("schedules.py")
+    if not swaps_path.exists():
+        add(results, "3I-a-5b: وجود swaps.py", "FAIL", f"غير موجود: {swaps_path}")
+        return
+
+    swaps_text = swaps_path.read_text(encoding="utf-8")
+    schedules_text = schedules_path.read_text(encoding="utf-8") if schedules_path.exists() else ""
+
+    required_cores = [
+        "filter_swap_teachers_safe_core",
+        "get_teacher_periods_safe_core",
+    ]
+    missing = [fn for fn in required_cores if not re.search(rf"^def\s+{re.escape(fn)}\s*\(", swaps_text, re.MULTILINE)]
+    duplicated = [fn for fn in required_cores if re.search(rf"^def\s+{re.escape(fn)}\s*\(", app_text, re.MULTILINE)]
+    add(
+        results,
+        "3I-a-5b: cores موجودة في swaps.py فقط",
+        "PASS" if not missing and not duplicated else "FAIL",
+        "cores موجودة في swaps.py ولا توجد نسخ مكررة في app.py." if not missing and not duplicated else f"missing={missing}, duplicated={duplicated}",
+    )
+
+    wrappers = [
+        "filter_swap_teachers_safe",
+        "get_teacher_periods_safe",
+    ]
+    missing_wrappers = [fn for fn in wrappers if not re.search(rf"^def\s+{re.escape(fn)}\s*\(", app_text, re.MULTILINE)]
+    add(
+        results,
+        "3I-a-5b: wrappers باقية في app.py",
+        "PASS" if not missing_wrappers else "FAIL",
+        "wrappers باقية بنفس أسمائها داخل app.py." if not missing_wrappers else f"ناقص: {missing_wrappers}",
+    )
+
+    filter_body = function_body(app_text, "filter_swap_teachers_safe")
+    periods_body = function_body(app_text, "get_teacher_periods_safe")
+    wrappers_call_core = (
+        "filter_swap_teachers_safe_core(" in filter_body
+        and "get_teacher_periods_safe_core(" in periods_body
+    )
+    wrappers_return_single_update = (
+        "return gr.update(choices=choices, value=value)" in filter_body
+        and "return gr.update(choices=choices, value=value)" in periods_body
+    )
+    add(
+        results,
+        "3I-a-5b: wrappers خفيفة وتحافظ على عقد gr.update المفرد",
+        "PASS" if wrappers_call_core and wrappers_return_single_update else "FAIL",
+        "كل wrapper يستدعي core ويرجع gr.update واحدًا." if wrappers_call_core and wrappers_return_single_update else f"calls_core={wrappers_call_core}, single_update={wrappers_return_single_update}",
+    )
+
+    schedules_import_ok = "from schedules import get_teacher_choices" in swaps_text
+    schedules_no_reverse = "import swaps" not in schedules_text and "from swaps import" not in schedules_text
+    add(
+        results,
+        "3I-a-5b: اعتماد schedules.py آمن",
+        "PASS" if schedules_import_ok and schedules_no_reverse else "FAIL",
+        "swaps.py يستورد get_teacher_choices من schedules.py ولا يوجد اعتماد عكسي." if schedules_import_ok and schedules_no_reverse else f"schedules_import_ok={schedules_import_ok}, schedules_no_reverse={schedules_no_reverse}",
+    )
+
+    no_state_locks = not any(bool(re.search(rf"@state_locked\s*\ndef\s+{re.escape(fn)}\s*\(", swaps_text)) for fn in required_cores)
+    no_reverse_import = "import app" not in swaps_text and "from app import" not in swaps_text
+    swaps_no_gradio = "gr.update" not in swaps_text and "import gradio" not in swaps_text and "from gradio" not in swaps_text and "gr.SelectData" not in swaps_text
+    add(
+        results,
+        "3I-a-5b: cores بلا @state_locked و swaps.py بلا Gradio/import app",
+        "PASS" if no_state_locks and no_reverse_import and swaps_no_gradio else "FAIL",
+        "لا توجد @state_locked ولا اعتماد Gradio أو app داخل swaps.py." if no_state_locks and no_reverse_import and swaps_no_gradio else f"no_state_locks={no_state_locks}, no_reverse_import={no_reverse_import}, swaps_no_gradio={swaps_no_gradio}",
+    )
+
+    deps_ok = all(name in swaps_text for name in ["teachers_db", "format_elegant_class", "get_teacher_choices"])
+    add(
+        results,
+        "3I-a-5b: اعتماديات cores متوفرة",
+        "PASS" if deps_ok else "FAIL",
+        "teachers_db و format_elegant_class و get_teacher_choices متوفرة للـcores." if deps_ok else "تنقص إحدى الاعتماديات المطلوبة.",
+    )
+
+    try:
+        app_tree = ast.parse(app_text)
+        returns_by_func = {}
+        for node in ast.walk(app_tree):
+            if isinstance(node, ast.FunctionDef) and node.name in wrappers:
+                returns_by_func[node.name] = [r for r in ast.walk(node) if isinstance(r, ast.Return)]
+        filter_single = all(not isinstance(r.value, ast.Tuple) for r in returns_by_func.get("filter_swap_teachers_safe", []))
+        periods_single = all(not isinstance(r.value, ast.Tuple) for r in returns_by_func.get("get_teacher_periods_safe", []))
+        add(
+            results,
+            "3I-a-5b: wrappers ترجع عنصرًا واحدًا",
+            "PASS" if filter_single and periods_single else "FAIL",
+            "filter و periods يرجعان gr.update مفردًا." if filter_single and periods_single else f"filter={filter_single}, periods={periods_single}",
+        )
+    except SyntaxError as exc:
+        add(results, "3I-a-5b: تحليل AST للـwrappers", "FAIL", f"تعذر تحليل app.py: {exc}")
+
+    try:
+        swaps_tree = ast.parse(swaps_text)
+        returns_by_func = {}
+        for node in ast.walk(swaps_tree):
+            if isinstance(node, ast.FunctionDef) and node.name in required_cores:
+                returns_by_func[node.name] = [r for r in ast.walk(node) if isinstance(r, ast.Return)]
+        filter_two_raw = all(isinstance(r.value, ast.Tuple) and len(r.value.elts) == 2 for r in returns_by_func.get("filter_swap_teachers_safe_core", []))
+        periods_two_raw = all(isinstance(r.value, ast.Tuple) and len(r.value.elts) == 2 for r in returns_by_func.get("get_teacher_periods_safe_core", []))
+        add(
+            results,
+            "3I-a-5b: cores ترجع قيمتين خامًا",
+            "PASS" if filter_two_raw and periods_two_raw else "FAIL",
+            "filter_core و periods_core يرجعان (choices, value)." if filter_two_raw and periods_two_raw else f"filter={filter_two_raw}, periods={periods_two_raw}",
+        )
+    except SyntaxError as exc:
+        add(results, "3I-a-5b: تحليل AST للـcores", "FAIL", f"تعذر تحليل swaps.py: {exc}")
+
+    try:
+        py_compile.compile(str(app_path), doraise=True)
+        py_compile.compile(str(swaps_path), doraise=True)
+        add(results, "3I-a-5b: py_compile app.py و swaps.py", "PASS", "app.py و swaps.py بلا أخطاء نحوية بعد 3I-a-5b.")
+    except Exception as exc:
+        add(results, "3I-a-5b: py_compile app.py و swaps.py", "FAIL", f"فشل py_compile: {exc}")
+
+
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
     warn = sum(r.status == "WARN" for r in results)
@@ -2863,6 +2986,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_get_swap_candidates_phase3ia4c(path, app_text, results)
     check_on_swap_option_selected_phase3ia4d(path, app_text, results)
     check_swap_context_phase3ia5a(path, app_text, results)
+    check_swap_filter_periods_phase3ia5b(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
