@@ -186,6 +186,9 @@ from swaps import (
     generate_wa_msg_core,
     get_swap_candidates_for_period_core,
     on_swap_option_selected_core,
+    load_confirmed_swaps_for_context_core,
+    clear_swap_detail_ui_core,
+    get_teacher_periods_marked_core,
     SWAP_EMPTY_MSG,
 )
 
@@ -3023,40 +3026,17 @@ def export_confirmed_swaps_excel():
     return gr.update(value=filename)
         
 def load_confirmed_swaps_for_context(t, d):
-    t = str(t or "").split(" (")[0].strip()
-    state = {}
-
-    if not t or not d:
-        return state, gr.update(value=render_swap_table_html(state))
-
-    for _, info in swap_db.items():
-        if info.get("requester") == t and info.get("day") == d:
-            p = str(info.get("period", "")).strip()
-            if not p:
-                continue
-
-            state[p] = {
-                "requester": info.get("requester", ""),
-                "class": info.get("class", ""),
-                "candidate": info.get("candidate", ""),
-                "choice": info.get("choice", ""),
-                "message": info.get("message", ""),
-                "comp_day": info.get("comp_day", "يحدد لاحقاً"),
-                "comp_period": info.get("comp_period", "يحدد لاحقاً"),
-            }
-
+    state = load_confirmed_swaps_for_context_core(t, d)
     return state, gr.update(value=render_swap_table_html(state))
 
 def clear_swap_detail_ui():
+    choices, selected_value, message_value, button_html, confirm_interactive = clear_swap_detail_ui_core()
     return (
-        gr.update(choices=[], value=None, visible=True),
-        gr.update(value=SWAP_EMPTY_MSG, visible=True),
-        gr.update(value="", visible=True),
-        gr.update(visible=True, interactive=False)
+        gr.update(choices=choices, value=selected_value, visible=True),
+        gr.update(value=message_value, visible=True),
+        gr.update(value=button_html, visible=True),
+        gr.update(visible=True, interactive=confirm_interactive)
     )
-
-
-        
 
 def confirm_swap(t, period_value, choice, d, msg_text, state, actor_name="", actor_role=""):
     current_state, warning = confirm_swap_core(
@@ -5578,43 +5558,9 @@ def get_teacher_periods_safe(t, d):
         return gr.update(choices=["خطأ داخلي"], value=None)
 
 def get_teacher_periods_marked(t, d, confirmed_state, current_value=None):
-    t = str(t or "").split(" (")[0].strip()
-    try:
-        if not t or t not in teachers_db or t == "لا يوجد معلمون":
-            return gr.update(choices=["اختر معلماً أولاً"], value=None)
+    choices, selected_value = get_teacher_periods_marked_core(t, d, confirmed_state, current_value)
+    return gr.update(choices=choices, value=selected_value)
 
-        confirmed_keys = set()
-        if isinstance(confirmed_state, dict):
-            confirmed_keys = {str(k) for k in confirmed_state.keys()}
-
-        choices = []
-        selected_value = None
-        current_clean = extract_clean_period_number(current_value)
-
-        for k, v in teachers_db[t].get(d, {}).items():
-            if str(k).isdigit() and str(v).strip() != "" and str(v).lower() != "nan":
-                elegant_c = format_elegant_class(v)
-                prefix = "✅ " if str(k) in confirmed_keys else ""
-                display_text = f"{prefix}الحصة {k} - ({elegant_c})"
-                choices.append((int(k), display_text))
-
-        choices.sort(key=lambda x: x[0])
-        final_choices = [text for _, text in choices]
-
-        if current_clean:
-            for k, text in choices:
-                if str(k) == current_clean:
-                    selected_value = text
-                    break
-
-        if not final_choices:
-            return gr.update(choices=["لا توجد حصص"], value=None)
-
-        return gr.update(choices=final_choices, value=selected_value)
-
-    except Exception:
-        return gr.update(choices=["خطأ داخلي"], value=None)
-        
 def run_radar_safe(t, p, d):
     default_msg = "💡 يرجى اختيار أحد المعلمين من القائمة بالأعلى لتوليد مسودة رسالة الواتساب هنا..."
     candidates = run_radar_safe_core(t, p, d)
