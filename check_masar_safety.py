@@ -1124,6 +1124,54 @@ def check_balances_phase3ga(app_path: Path, app_text: str, results: list[CheckRe
     except Exception as exc:  # pragma: no cover
         add(results, "3G-a: py_compile balances.py", "FAIL", f"فشل py_compile: {exc}")
 
+
+def check_time_helper_phase3eb1(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3E-b-1: نقل get_now_oman إلى storage.py كدالة وقت عامة."""
+    storage_path = app_path.with_name("storage.py")
+    if not storage_path.exists():
+        add(results, "3E-b-1: وجود storage.py", "FAIL", f"غير موجود: {storage_path}")
+        return
+
+    storage_text = storage_path.read_text(encoding="utf-8")
+
+    in_storage = bool(re.search(r"^def\s+get_now_oman\s*\(", storage_text, re.MULTILINE))
+    add(
+        results,
+        "3E-b-1: get_now_oman موجودة في storage.py",
+        "PASS" if in_storage else "FAIL",
+        "تم نقل get_now_oman إلى storage.py." if in_storage else "لم يتم العثور على get_now_oman في storage.py.",
+    )
+
+    local_in_app = bool(re.search(r"^def\s+get_now_oman\s*\(", app_text, re.MULTILINE))
+    add(
+        results,
+        "3E-b-1: app.py لا يعرّف get_now_oman محليًا",
+        "PASS" if not local_in_app else "FAIL",
+        "لا يوجد تعريف محلي للدالة داخل app.py." if not local_in_app else "ما زال app.py يحتوي def get_now_oman.",
+    )
+
+    imported_in_app = "get_now_oman" in app_text and "from storage import" in app_text
+    add(
+        results,
+        "3E-b-1: app.py يستورد get_now_oman من storage.py",
+        "PASS" if imported_in_app else "FAIL",
+        "app.py يستخدم get_now_oman المستوردة من storage.py." if imported_in_app else "لم يظهر استيراد get_now_oman من storage.py بوضوح.",
+    )
+
+    no_reverse_import = "import app" not in storage_text and "from app import" not in storage_text
+    add(
+        results,
+        "3E-b-1: storage.py لا يستورد app.py",
+        "PASS" if no_reverse_import else "FAIL",
+        "لا يوجد اعتماد عكسي من storage.py إلى app.py." if no_reverse_import else "ظهر import app أو from app import داخل storage.py.",
+    )
+
+    try:
+        py_compile.compile(str(storage_path), doraise=True)
+        add(results, "3E-b-1: py_compile storage.py", "PASS", "storage.py لا يحتوي أخطاء نحوية.")
+    except Exception as exc:  # pragma: no cover
+        add(results, "3E-b-1: py_compile storage.py", "FAIL", f"فشل py_compile: {exc}")
+
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
     warn = sum(r.status == "WARN" for r in results)
@@ -1219,6 +1267,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_school_data_phase3ea(path, app_text, results)
     check_schedules_phase3fa(path, app_text, results)
     check_balances_phase3ga(path, app_text, results)
+    check_time_helper_phase3eb1(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
