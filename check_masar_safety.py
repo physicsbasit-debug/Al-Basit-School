@@ -2620,6 +2620,139 @@ def check_on_swap_option_selected_phase3ia4d(app_path: Path, app_text: str, resu
     except Exception as exc:
         add(results, "3I-a-4d: py_compile app.py و swaps.py", "FAIL", f"فشل py_compile: {exc}")
 
+def check_swap_context_phase3ia5a(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3I-a-5a: تقسيم دوال سياق التبادل وحصص المعلم إلى core/wrapper."""
+    swaps_path = app_path.with_name("swaps.py")
+    if not swaps_path.exists():
+        add(results, "3I-a-5a: وجود swaps.py", "FAIL", f"غير موجود: {swaps_path}")
+        return
+
+    swaps_text = swaps_path.read_text(encoding="utf-8")
+    required_cores = [
+        "load_confirmed_swaps_for_context_core",
+        "clear_swap_detail_ui_core",
+        "get_teacher_periods_marked_core",
+    ]
+    missing = [fn for fn in required_cores if not re.search(rf"^def\s+{re.escape(fn)}\s*\(", swaps_text, re.MULTILINE)]
+    duplicated = [fn for fn in required_cores if re.search(rf"^def\s+{re.escape(fn)}\s*\(", app_text, re.MULTILINE)]
+    add(
+        results,
+        "3I-a-5a: cores الثلاثة موجودة في swaps.py فقط",
+        "PASS" if not missing and not duplicated else "FAIL",
+        "cores موجودة في swaps.py ولا توجد نسخ مكررة في app.py." if not missing and not duplicated else f"missing={missing}, duplicated={duplicated}",
+    )
+
+    wrappers = [
+        "load_confirmed_swaps_for_context",
+        "clear_swap_detail_ui",
+        "get_teacher_periods_marked",
+    ]
+    missing_wrappers = [fn for fn in wrappers if not re.search(rf"^def\s+{re.escape(fn)}\s*\(", app_text, re.MULTILINE)]
+    add(
+        results,
+        "3I-a-5a: wrappers الثلاثة باقية في app.py",
+        "PASS" if not missing_wrappers else "FAIL",
+        "wrappers باقية بنفس أسمائها داخل app.py." if not missing_wrappers else f"ناقص: {missing_wrappers}",
+    )
+
+    load_body = function_body(app_text, "load_confirmed_swaps_for_context")
+    clear_body = function_body(app_text, "clear_swap_detail_ui")
+    marked_body = function_body(app_text, "get_teacher_periods_marked")
+    wrappers_call_core = (
+        "load_confirmed_swaps_for_context_core(" in load_body
+        and "clear_swap_detail_ui_core(" in clear_body
+        and "get_teacher_periods_marked_core(" in marked_body
+    )
+    add(
+        results,
+        "3I-a-5a: wrappers تستدعي cores مباشرة",
+        "PASS" if wrappers_call_core else "FAIL",
+        "كل wrapper يستدعي core المقابل مباشرة." if wrappers_call_core else f"load={ 'load_confirmed_swaps_for_context_core(' in load_body }, clear={ 'clear_swap_detail_ui_core(' in clear_body }, marked={ 'get_teacher_periods_marked_core(' in marked_body }",
+    )
+
+    load_updates_ok = "render_swap_table_html(state)" in load_body and "gr.update(value=" in load_body
+    clear_updates_ok = (
+        "gr.update(choices=choices, value=selected_value, visible=True)" in clear_body
+        and "gr.update(value=message_value, visible=True)" in clear_body
+        and "gr.update(value=button_html, visible=True)" in clear_body
+        and "interactive=confirm_interactive" in clear_body
+    )
+    marked_updates_ok = "return gr.update(choices=choices, value=selected_value)" in marked_body
+    add(
+        results,
+        "3I-a-5a: wrappers تحافظ على عقود Gradio القديمة",
+        "PASS" if load_updates_ok and clear_updates_ok and marked_updates_ok else "FAIL",
+        "load يرجع عنصرين، clear يرجع 4 عناصر، marked يرجع gr.update مفرد." if load_updates_ok and clear_updates_ok and marked_updates_ok else f"load={load_updates_ok}, clear={clear_updates_ok}, marked={marked_updates_ok}",
+    )
+
+    no_state_locks = not any(bool(re.search(rf"@state_locked\s*\ndef\s+{re.escape(fn)}\s*\(", swaps_text)) for fn in required_cores)
+    add(
+        results,
+        "3I-a-5a: cores الجديدة بلا @state_locked",
+        "PASS" if no_state_locks else "FAIL",
+        "لا توجد @state_locked على cores لأنها لا تعدّل البيانات." if no_state_locks else "ظهرت @state_locked على أحد cores الجديدة.",
+    )
+
+    no_reverse_import = "import app" not in swaps_text and "from app import" not in swaps_text
+    swaps_no_gradio = "gr.update" not in swaps_text and "import gradio" not in swaps_text and "from gradio" not in swaps_text and "gr.SelectData" not in swaps_text
+    add(
+        results,
+        "3I-a-5a: swaps.py بلا Gradio ولا import app",
+        "PASS" if no_reverse_import and swaps_no_gradio else "FAIL",
+        "لا يوجد gr.update أو import gradio أو gr.SelectData أو import app داخل swaps.py." if no_reverse_import and swaps_no_gradio else f"no_reverse_import={no_reverse_import}, swaps_no_gradio={swaps_no_gradio}",
+    )
+
+    deps_ok = all(name in swaps_text for name in ["teachers_db", "swap_db", "extract_clean_period_number", "format_elegant_class"])
+    add(
+        results,
+        "3I-a-5a: اعتماديات cores الجديدة متوفرة",
+        "PASS" if deps_ok else "FAIL",
+        "اعتماديات الحالة والتنسيق متوفرة في swaps.py/storage.py." if deps_ok else "تنقص إحدى الاعتماديات المطلوبة.",
+    )
+
+    try:
+        app_tree = ast.parse(app_text)
+        returns_by_func = {}
+        for node in ast.walk(app_tree):
+            if isinstance(node, ast.FunctionDef) and node.name in wrappers:
+                returns_by_func[node.name] = [r for r in ast.walk(node) if isinstance(r, ast.Return)]
+        load_two_outputs = all(isinstance(r.value, ast.Tuple) and len(r.value.elts) == 2 for r in returns_by_func.get("load_confirmed_swaps_for_context", []))
+        clear_four_outputs = all(isinstance(r.value, ast.Tuple) and len(r.value.elts) == 4 for r in returns_by_func.get("clear_swap_detail_ui", []))
+        marked_single_update = all(not isinstance(r.value, ast.Tuple) for r in returns_by_func.get("get_teacher_periods_marked", []))
+        add(
+            results,
+            "3I-a-5a: عقود wrapper بعدد المخرجات صحيحة",
+            "PASS" if load_two_outputs and clear_four_outputs and marked_single_update else "FAIL",
+            "load=2، clear=4، marked=مفرد." if load_two_outputs and clear_four_outputs and marked_single_update else f"load={load_two_outputs}, clear={clear_four_outputs}, marked={marked_single_update}",
+        )
+    except SyntaxError as exc:
+        add(results, "3I-a-5a: تحليل AST للـwrappers", "FAIL", f"تعذر تحليل app.py: {exc}")
+
+    try:
+        swaps_tree = ast.parse(swaps_text)
+        returns_by_func = {}
+        for node in ast.walk(swaps_tree):
+            if isinstance(node, ast.FunctionDef) and node.name in required_cores:
+                returns_by_func[node.name] = [r for r in ast.walk(node) if isinstance(r, ast.Return)]
+        clear_five_raw = all(isinstance(r.value, ast.Tuple) and len(r.value.elts) == 5 for r in returns_by_func.get("clear_swap_detail_ui_core", []))
+        marked_two_raw = all(isinstance(r.value, ast.Tuple) and len(r.value.elts) == 2 for r in returns_by_func.get("get_teacher_periods_marked_core", []))
+        load_raw_state = all(not isinstance(r.value, ast.Tuple) for r in returns_by_func.get("load_confirmed_swaps_for_context_core", []))
+        add(
+            results,
+            "3I-a-5a: cores ترجع قيمًا خامًا بالعقود الصحيحة",
+            "PASS" if clear_five_raw and marked_two_raw and load_raw_state else "FAIL",
+            "load يرجع state، clear يرجع 5 قيم، marked يرجع قيمتين." if clear_five_raw and marked_two_raw and load_raw_state else f"load={load_raw_state}, clear={clear_five_raw}, marked={marked_two_raw}",
+        )
+    except SyntaxError as exc:
+        add(results, "3I-a-5a: تحليل AST للـcores", "FAIL", f"تعذر تحليل swaps.py: {exc}")
+
+    try:
+        py_compile.compile(str(app_path), doraise=True)
+        py_compile.compile(str(swaps_path), doraise=True)
+        add(results, "3I-a-5a: py_compile app.py و swaps.py", "PASS", "app.py و swaps.py بلا أخطاء نحوية بعد 3I-a-5a.")
+    except Exception as exc:
+        add(results, "3I-a-5a: py_compile app.py و swaps.py", "FAIL", f"فشل py_compile: {exc}")
+
 
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
@@ -2729,6 +2862,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_generate_wa_msg_phase3ia4b(path, app_text, results)
     check_get_swap_candidates_phase3ia4c(path, app_text, results)
     check_on_swap_option_selected_phase3ia4d(path, app_text, results)
+    check_swap_context_phase3ia5a(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
