@@ -15,6 +15,7 @@ import re
 import shutil
 import html as html_lib
 
+import pandas as pd
 import gradio as gr
 
 from config import ADMIN_ROLES
@@ -28,6 +29,20 @@ from storage import (
     ensure_data_directories,
     safe_write_json,
     teachers_db,
+    save_db,
+    state_locked,
+)
+
+from schedules import (
+    clean_teacher_name,
+    extract_class_info,
+    get_absentee_choices,
+    get_day_overview,
+    get_teacher_choices,
+)
+from balances import (
+    get_updated_absences,
+    get_updated_balance,
 )
 
 
@@ -542,3 +557,213 @@ def validate_reference_filename(file_name, expected_keywords):
 
     expected_str = " / ".join(expected_keywords)
     return False, f"❌ اسم الملف لا يطابق المطلوب. يجب أن يحتوي على: {expected_str}"
+
+@state_locked
+def refresh_schedule_from_reference_core(dept_name, current_day, is_owner=False):
+    """
+    منطق تحديث جدول قسم من الملف المرجعي بقيم خام فقط.
+
+    يرجع 8 قيم خام:
+    (message_html, abs_choices_or_None, choices_all_or_None,
+     balance_html_or_None, absences_html_or_None, day_overview_or_None,
+     cards_html, reset_upload=True)
+    """
+    if not bool(is_owner):
+        return (
+            "<div style='color:red; font-weight:bold;'>❌ تحديث الجداول المرجعية متاح لمالك النظام فقط.</div>",
+            None,
+            None,
+            None,
+            None,
+            None,
+            render_schedule_reference_cards(),
+            True,
+        )
+
+    if dept_name not in SCHEDULE_FILES:
+        return (
+            f"<div style='color:red; font-weight:bold;'>❌ القسم غير معتمد: {dept_name}</div>",
+            None,
+            None,
+            None,
+            None,
+            None,
+            render_schedule_reference_cards(),
+            True,
+        )
+
+    schedule_file = SCHEDULE_FILES[dept_name]
+
+    if not os.path.exists(schedule_file):
+        return (
+            f"<div style='color:red; font-weight:bold;'>❌ لا يوجد ملف مرجعي محفوظ لقسم ({dept_name}) حتى الآن.</div>",
+            None,
+            None,
+            None,
+            None,
+            None,
+            render_schedule_reference_cards(),
+            True,
+        )
+
+    try:
+        df = pd.read_excel(schedule_file, header=None) if not schedule_file.endswith(".csv") else pd.read_csv(schedule_file, header=None)
+        df = df.fillna("")
+
+        precheck_ok, precheck_message = precheck_schedule_excel_template(df, dept_name)
+        if not precheck_ok:
+            return (
+                render_schedule_precheck_error_html(precheck_message, dept_name),
+                None,
+                None,
+                None,
+                None,
+                None,
+                render_schedule_reference_cards(),
+                True,
+            )
+
+        found_in_file = []
+        start_row = 0
+
+        for i in range(min(15, len(df))):
+            row_str = " ".join([str(x) for x in df.iloc[i].values])
+            if "اليوم" in row_str and ("الأولى" in row_str or "الاولى" in row_str):
+                start_row = i - 2
+                break
+
+        if start_row < 0:
+            start_row = 0
+
+        for r in range(start_row, len(df), 10):
+            if r + 2 >= len(df):
+                break
+
+            for base_col in [0, MAX_PERIODS + 2]:
+                if base_col + MAX_PERIODS >= len(df.columns):
+                    continue
+
+                t_name_raw = str(df.iloc[r, base_col]).strip()
+                if not t_name_raw or "ALBATINAH" in t_name_raw.upper() or "اليوم" in t_name_raw:
+                    continue
+
+                t_name = clean_teacher_name(t_name_raw)
+                if not t_name or len(t_name) < 3:
+                    continue
+
+                if t_name not in found_in_file:
+                    found_in_file.append(t_name)
+
+                if t_name not in teachers_db:
+                    teachers_db[t_name] = {
+                        "dept": dept_name,
+                        "cover_count": 0,
+                        "absent_count": 0,
+                        "shortcoming_count": 0,
+                        "phone": "",
+                        "specialty": "",
+                        "role": "معلم",
+                        "exempt_days": [],
+                        "exempt_periods": [],
+                        "exempt_slots": [],
+                        "absence_dates": [],
+                        "الأحد": {},
+                        "الإثنين": {},
+                        "الثلاثاء": {},
+                        "الأربعاء": {},
+                        "الخميس": {},
+                    }
+                else:
+                    teachers_db[t_name]["dept"] = dept_name
+                    teachers_db[t_name]["الأحد"] = {}
+                    teachers_db[t_name]["الإثنين"] = {}
+                    teachers_db[t_name]["الثلاثاء"] = {}
+                    teachers_db[t_name]["الأربعاء"] = {}
+                    teachers_db[t_name]["الخميس"] = {}
+
+                col_to_p = {}
+                day_col = -1
+                for c in range(base_col, min(base_col + MAX_PERIODS + 1, len(df.columns))):
+                    val = str(df.iloc[r + 2, c]).strip().replace("أ", "ا").replace("إ", "ا")
+                    if "اليوم" in val:
+                        day_col = c
+                    elif "الاولى" in val:
+                        col_to_p[c] = 1
+                    elif "الثانية" in val:
+                        col_to_p[c] = 2
+                    elif "الثالثة" in val:
+                        col_to_p[c] = 3
+                    elif "الرابعة" in val:
+                        col_to_p[c] = 4
+                    elif "الخامسة" in val:
+                        col_to_p[c] = 5
+                    elif "السادسة" in val:
+                        col_to_p[c] = 6
+                    elif "السابعة" in val:
+                        col_to_p[c] = 7
+                    elif "الثامنة" in val:
+                        col_to_p[c] = 8
+
+                if day_col == -1:
+                    day_col = base_col + MAX_PERIODS
+                if day_col >= len(df.columns):
+                    continue
+
+                for dr in range(r + 3, min(r + 8, len(df))):
+                    day_cell = str(df.iloc[dr, day_col]).replace("أ", "ا").replace("إ", "ا")
+                    current_day_val = next((d for d in ["الاحد", "الاثنين", "الثلاثاء", "الاربعاء", "الخميس"] if d in day_cell), None)
+                    if not current_day_val:
+                        continue
+
+                    current_day_val = current_day_val.replace("الاحد", "الأحد").replace("الاثنين", "الإثنين").replace("الاربعاء", "الأربعاء")
+
+                    for c, pnum in col_to_p.items():
+                        if c < len(df.columns):
+                            val = str(df.iloc[dr, c]).strip()
+                            cls = extract_class_info(val, dept_name)
+                            if cls:
+                                teachers_db[t_name][current_day_val][pnum] = cls
+
+        save_db()
+        update_reference_file_status(
+            _reference_status_key("schedule", dept_name),
+            schedule_file,
+            applied=True,
+            extracted_count=len(found_in_file),
+            department=dept_name,
+        )
+
+        choices_all = get_teacher_choices("الكل")
+        abs_choices = get_absentee_choices("الكل")
+        names_list_str = "، ".join(found_in_file) if found_in_file else "لا توجد أسماء صالحة"
+
+        msg = (
+            f"<div style='color:#2e7d32; font-weight:bold; background:#e8f5e9; padding:10px; border-radius:5px;'>"
+            f"✅ تم تحديث قسم ({dept_name}) من الملف المرجعي بنجاح."
+            f"<br>👥 الأسماء: {names_list_str}"
+            f"</div>"
+        )
+
+        return (
+            msg,
+            abs_choices,
+            choices_all,
+            get_updated_balance("الكل"),
+            get_updated_absences("الكل"),
+            get_day_overview(current_day, "الكل"),
+            render_schedule_reference_cards(),
+            True,
+        )
+
+    except Exception as e:
+        return (
+            f"<div style='color:red; font-weight:bold;'>❌ خطأ أثناء تحديث قسم ({dept_name}) من المرجع: {str(e)}</div>",
+            None,
+            None,
+            None,
+            None,
+            None,
+            render_schedule_reference_cards(),
+            True,
+        )
+
