@@ -185,6 +185,8 @@ from swaps import (
     run_radar_safe_core,
     generate_wa_msg_core,
     get_swap_candidates_for_period_core,
+    on_swap_option_selected_core,
+    SWAP_EMPTY_MSG,
 )
 
 
@@ -2746,8 +2748,6 @@ def reset_school_identity_settings(is_owner=False):
 
 
         
-SWAP_EMPTY_MSG = "💡 يرجى اختيار أحد المعلمين من القائمة بالأعلى لتوليد مسودة رسالة الواتساب هنا..."
-
 
 os.makedirs(SWAP_IMG_DIR, exist_ok=True)
 
@@ -5624,14 +5624,6 @@ def generate_wa_msg(choice, t_req, p_req, d_req):
     msg, btn_html = generate_wa_msg_core(choice, t_req, p_req, d_req)
     return gr.update(value=msg), gr.update(value=btn_html)
 
-def _get_update_value(obj, fallback=""):
-    try:
-        if isinstance(obj, dict):
-            return obj.get("value", fallback)
-        return getattr(obj, "value", fallback)
-    except Exception:
-        return fallback
-
 def get_swap_candidates_for_period(t, period_value, d, confirmed_state):
     candidates, saved_choice, saved_message, btn_value, confirm_interactive = get_swap_candidates_for_period_core(
         t, period_value, d, confirmed_state
@@ -5644,29 +5636,11 @@ def get_swap_candidates_for_period(t, period_value, d, confirmed_state):
     )
 
 def on_swap_option_selected(choice, t, period_value, d):
-    if not choice:
-        return (
-            gr.update(value=SWAP_EMPTY_MSG, visible=True),
-            gr.update(value="", visible=True),
-            gr.update(visible=True, interactive=False)
-        )
-
-    if "❌" in str(choice):
-        return (
-            gr.update(value=SWAP_EMPTY_MSG, visible=True),
-            gr.update(value="", visible=True),
-            gr.update(visible=True, interactive=False)
-        )
-
-    msg_upd, btn_upd = generate_wa_msg(choice, t, period_value, d)
-
-    msg_value = _get_update_value(msg_upd, SWAP_EMPTY_MSG)
-    btn_value = _get_update_value(btn_upd, "")
-
+    msg_value, btn_value, is_interactive = on_swap_option_selected_core(choice, t, period_value, d)
     return (
         gr.update(value=msg_value, visible=True),
         gr.update(value=btn_value, visible=True),
-        gr.update(visible=True, interactive=True)
+        gr.update(visible=True, interactive=is_interactive)
     )
 
 def on_swap_option_selected_from_event(choice_current, t, period_value, d, evt: gr.SelectData):
