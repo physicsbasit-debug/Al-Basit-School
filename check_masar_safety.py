@@ -992,8 +992,6 @@ def check_schedules_phase3fa(app_path: Path, app_text: str, results: list[CheckR
     deferred_functions = [
         "refresh_schedule_from_reference",
         "process_uploaded_excel",
-        "get_updated_absences",
-        "get_updated_balance",
     ]
     missing_in_app = [fn for fn in deferred_functions if not re.search(rf"^def\s+{re.escape(fn)}\s*\(", app_text, re.MULTILINE)]
     wrongly_in_schedules = [fn for fn in deferred_functions if re.search(rf"^def\s+{re.escape(fn)}\s*\(", schedules_text, re.MULTILINE)]
@@ -1001,7 +999,7 @@ def check_schedules_phase3fa(app_path: Path, app_text: str, results: list[CheckR
         results,
         "3F-a: الدوال الثقيلة المؤجلة بقيت في app.py",
         "PASS" if not missing_in_app and not wrongly_in_schedules else "FAIL",
-        "refresh/process ودوال الأرصدة بقيت في app.py كما هو مخطط." if not missing_in_app and not wrongly_in_schedules else f"ناقص في app: {missing_in_app}; موجود خطأ في schedules: {wrongly_in_schedules}",
+        "refresh/process بقيتا في app.py كما هو مخطط." if not missing_in_app and not wrongly_in_schedules else f"ناقص في app: {missing_in_app}; موجود خطأ في schedules: {wrongly_in_schedules}",
     )
 
     app_import_ok = "from schedules import" in app_text
@@ -1017,6 +1015,114 @@ def check_schedules_phase3fa(app_path: Path, app_text: str, results: list[CheckR
         add(results, "3F-a: py_compile schedules.py", "PASS", "schedules.py لا يحتوي أخطاء نحوية.")
     except Exception as exc:  # pragma: no cover
         add(results, "3F-a: py_compile schedules.py", "FAIL", f"فشل py_compile: {exc}")
+
+
+def check_balances_phase3ga(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3G-a: فصل دوال الأرصدة والغياب والتقصير النظيفة إلى balances.py."""
+    balances_path = app_path.with_name("balances.py")
+    if not balances_path.exists():
+        add(results, "3G-a: وجود balances.py", "FAIL", f"غير موجود: {balances_path}")
+        return
+
+    balances_text = balances_path.read_text(encoding="utf-8")
+    add(results, "3G-a: وجود balances.py", "PASS", f"موجود: {balances_path}")
+
+    required_functions = [
+        "get_updated_balance",
+        "get_updated_absences",
+        "get_updated_shortcomings",
+        "render_compact_rtl_table_html",
+    ]
+    missing = [fn for fn in required_functions if not re.search(rf"^def\s+{re.escape(fn)}\s*\(", balances_text, re.MULTILINE)]
+    add(
+        results,
+        "3G-a: دوال الأرصدة موجودة في balances.py",
+        "PASS" if not missing else "FAIL",
+        "الدوال الأربع موجودة في balances.py." if not missing else f"ناقص: {missing}",
+    )
+
+    app_local_defs = []
+    for fn in required_functions:
+        app_local_defs.extend(line_numbers_for_pattern(app_text, rf"^def\s+{re.escape(fn)}\s*\("))
+    add(
+        results,
+        "3G-a: app.py لا يحتوي تعريفات دوال balances المنقولة",
+        "PASS" if not app_local_defs else "FAIL",
+        "الدوال المنقولة غير معرفة داخل app.py." if not app_local_defs else f"وجدت في الأسطر: {app_local_defs[:10]}",
+    )
+
+    no_reverse_import = all(marker not in balances_text for marker in ["import app", "from app import"])
+    add(
+        results,
+        "3G-a: balances.py لا يستورد app.py",
+        "PASS" if no_reverse_import else "FAIL",
+        "لا يوجد اعتماد عكسي من balances.py إلى app.py." if no_reverse_import else "ظهر import app أو from app import داخل balances.py.",
+    )
+
+    no_gradio = "gr.update" not in balances_text and "import gradio" not in balances_text and "from gradio" not in balances_text
+    add(
+        results,
+        "3G-a: balances.py بلا Gradio",
+        "PASS" if no_gradio else "FAIL",
+        "لا يوجد gr.update أو import gradio داخل balances.py." if no_gradio else "ظهر اعتماد مباشر على Gradio داخل balances.py.",
+    )
+
+    required_import_markers = [
+        "from schedules import",
+        "resolve_effective_dept",
+        "format_teacher_name",
+        "from storage import teachers_db",
+        "from config import ADMIN_ROLES",
+    ]
+    missing_import_markers = [marker for marker in required_import_markers if marker not in balances_text]
+    add(
+        results,
+        "3G-a: balances.py يعتمد على schedules/storage/config فقط",
+        "PASS" if not missing_import_markers else "FAIL",
+        "اعتماد balances.py نظيف على schedules/storage/config." if not missing_import_markers else f"مؤشرات ناقصة: {missing_import_markers}",
+    )
+
+    forbidden_calls = [
+        "refresh_schedule_from_reference",
+        "process_uploaded_excel",
+        "get_absentee_choices",
+        "get_teacher_choices",
+        "get_day_overview",
+    ]
+    found_forbidden = [fn for fn in forbidden_calls if fn in balances_text]
+    add(
+        results,
+        "3G-a: balances.py لا يستدعي دوال مؤجلة أو واجهة",
+        "PASS" if not found_forbidden else "FAIL",
+        "لا توجد دوال مؤجلة/واجهة داخل balances.py." if not found_forbidden else f"وجد: {found_forbidden}",
+    )
+
+    deferred_functions = [
+        "refresh_schedule_from_reference",
+        "process_uploaded_excel",
+    ]
+    missing_in_app = [fn for fn in deferred_functions if not re.search(rf"^def\s+{re.escape(fn)}\s*\(", app_text, re.MULTILINE)]
+    wrongly_in_balances = [fn for fn in deferred_functions if re.search(rf"^def\s+{re.escape(fn)}\s*\(", balances_text, re.MULTILINE)]
+    add(
+        results,
+        "3G-a: refresh/process باقيتان في app.py",
+        "PASS" if not missing_in_app and not wrongly_in_balances else "FAIL",
+        "refresh_schedule_from_reference و process_uploaded_excel بقيتا في app.py." if not missing_in_app and not wrongly_in_balances else f"ناقص في app: {missing_in_app}; موجود خطأ في balances: {wrongly_in_balances}",
+    )
+
+    app_import_ok = "from balances import" in app_text
+    add(
+        results,
+        "3G-a: app.py يستورد balances.py",
+        "PASS" if app_import_ok else "FAIL",
+        "app.py يستورد دوال الأرصدة من balances.py." if app_import_ok else "لم يظهر from balances import داخل app.py.",
+    )
+
+    try:
+        py_compile.compile(str(balances_path), doraise=True)
+        add(results, "3G-a: py_compile balances.py", "PASS", "balances.py لا يحتوي أخطاء نحوية.")
+    except Exception as exc:  # pragma: no cover
+        add(results, "3G-a: py_compile balances.py", "FAIL", f"فشل py_compile: {exc}")
 
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
@@ -1078,7 +1184,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     app_text = read_text(path)
     style_text = collect_style_text(path)
     extra_module_texts = []
-    for module_name in ("school_data.py", "schedules.py", "storage.py", "auth.py"):
+    for module_name in ("school_data.py", "schedules.py", "balances.py", "storage.py", "auth.py"):
         module_path = path.with_name(module_name)
         if module_path.exists():
             try:
@@ -1112,6 +1218,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_state_phase3e_pre(path, app_text, results)
     check_school_data_phase3ea(path, app_text, results)
     check_schedules_phase3fa(path, app_text, results)
+    check_balances_phase3ga(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
