@@ -26,6 +26,7 @@ from storage import (
     SCHEDULE_FILES,
     MAX_PERIODS,
     SCHOOL_WEEK_DAYS,
+    OFFICIAL_DEPTS,
     ensure_data_directories,
     safe_write_json,
     teachers_db,
@@ -557,6 +558,56 @@ def validate_reference_filename(file_name, expected_keywords):
 
     expected_str = " / ".join(expected_keywords)
     return False, f"❌ اسم الملف لا يطابق المطلوب. يجب أن يحتوي على: {expected_str}"
+
+
+@state_locked
+def delete_department_data_core(dept_to_delete, current_day):
+    """Core logic for deleting department data without Gradio objects.
+
+    Returns 10 raw slots matching the original Gradio wrapper contract:
+    (dept_choices, abs_choices, teacher_choices_a, teacher_choices_b,
+     balance_html, absences_html, day_overview, message_html,
+     teacher_names_all, reset_upload)
+    """
+    if not dept_to_delete:
+        return (
+            None,
+            None,
+            None,
+            None,
+            get_updated_balance("الكل"),
+            get_updated_absences("الكل"),
+            get_day_overview(current_day, "الكل"),
+            "<div style='color:red; font-weight:bold;'>❌ الرجاء تحديد القسم أولاً.</div>",
+            None,
+            False,
+        )
+
+    teachers_to_delete = [t for t, d in teachers_db.items() if d.get("dept") == dept_to_delete]
+    for teacher_name in teachers_to_delete:
+        del teachers_db[teacher_name]
+    save_db()
+
+    teacher_names_all = sorted(list(teachers_db.keys()))
+    msg = (
+        f"<div style='color:#c62828; background:#ffebee; padding:15px; border-radius:10px; "
+        f"border-right: 5px solid #c62828;'><b style='font-size:1.2em;'>🗑️ تمت عملية المسح بنجاح!</b><br>"
+        f"تم حذف جميع بيانات وسجلات معلمي قسم ({dept_to_delete}).</div>"
+    )
+
+    choices_all = get_teacher_choices("الكل")
+    return (
+        ["الكل"] + OFFICIAL_DEPTS,
+        get_absentee_choices("الكل"),
+        choices_all,
+        choices_all,
+        get_updated_balance("الكل"),
+        get_updated_absences("الكل"),
+        get_day_overview(current_day, "الكل"),
+        msg,
+        teacher_names_all,
+        True,
+    )
 
 @state_locked
 def refresh_schedule_from_reference_core(dept_name, current_day, is_owner=False):
