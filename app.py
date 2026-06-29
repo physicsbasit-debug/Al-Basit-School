@@ -129,6 +129,7 @@ from school_data import (
     validate_reference_filename,
     refresh_schedule_from_reference_core,
     delete_department_data_core,
+    process_uploaded_excel_core,
     _normalize_schedule_header_text,
     _excel_column_label_zero_based,
 )
@@ -3687,87 +3688,31 @@ def process_phone_excel(file):
     except Exception as e: return f"<div style='color:red;'>❌ خطأ: {str(e)}</div>", gr.update()
 
 def process_uploaded_excel(file, selected_dept, current_day):
-    global teachers_db
-    if file is None: return (gr.update(), gr.update(), gr.update(), gr.update(), gr.update(value=get_updated_balance("الكل")), gr.update(value=get_updated_absences("الكل")), gr.update(value=get_day_overview(current_day, "الكل")), "<div style='color:red; font-weight:bold;'>❌ الرجاء رفع ملف الإكسل أولاً.</div>", gr.update(), gr.update())
-    try:
-        df = pd.read_excel(file.name, header=None) if not file.name.endswith('.csv') else pd.read_csv(file.name, header=None)
-        df = df.fillna('')
+    (
+        dept_choices,
+        abs_choices,
+        teacher_choices_a,
+        teacher_choices_b,
+        balance_html,
+        absences_html,
+        day_overview,
+        message_html,
+        teacher_names_all,
+        reset_upload,
+    ) = process_uploaded_excel_core(file, selected_dept, current_day)
 
-        precheck_ok, precheck_message = precheck_schedule_excel_template(df, selected_dept)
-        if not precheck_ok:
-            return (
-                gr.update(),
-                gr.update(),
-                gr.update(),
-                gr.update(),
-                gr.update(value=get_updated_balance("الكل")),
-                gr.update(value=get_updated_absences("الكل")),
-                gr.update(value=get_day_overview(current_day, "الكل")),
-                render_schedule_precheck_error_html(precheck_message, selected_dept),
-                gr.update(),
-                gr.update()
-            )
-
-        found_in_file = []
-        start_row = 0
-        for i in range(min(15, len(df))):
-            row_str = " ".join([str(x) for x in df.iloc[i].values])
-            if "اليوم" in row_str and ("الأولى" in row_str or "الاولى" in row_str):
-                start_row = i - 2 
-                break
-        if start_row < 0: start_row = 0
-
-        for r in range(start_row, len(df), 10):
-            if r + 2 >= len(df): break 
-            for base_col in [0, MAX_PERIODS + 2]:
-                if base_col + MAX_PERIODS >= len(df.columns): continue 
-                t_name_raw = str(df.iloc[r, base_col]).strip()
-                if not t_name_raw or "ALBATINAH" in t_name_raw.upper() or "اليوم" in t_name_raw: continue
-                t_name = clean_teacher_name(t_name_raw)
-                if not t_name or len(t_name) < 3: continue
-                if t_name not in found_in_file: found_in_file.append(t_name)
-                
-                if t_name not in teachers_db:
-                    teachers_db[t_name] = {"dept": selected_dept, "cover_count": 0, "absent_count": 0, "shortcoming_count": 0, "phone": "", "specialty": "", "role": "معلم", "exempt_days": [], "exempt_periods": [], "exempt_slots": [], "absence_dates": [], "الأحد": {}, "الإثنين": {}, "الثلاثاء": {}, "الأربعاء": {}, "الخميس": {}}
-                else: teachers_db[t_name]["dept"] = selected_dept
-
-                col_to_p = {}
-                day_col = -1
-                for c in range(base_col, min(base_col + MAX_PERIODS + 1, len(df.columns))):
-                    val = str(df.iloc[r+2, c]).strip().replace("أ", "ا").replace("إ", "ا")
-                    if "اليوم" in val: day_col = c
-                    elif "الاولى" in val: col_to_p[c] = 1
-                    elif "الثانية" in val: col_to_p[c] = 2
-                    elif "الثالثة" in val: col_to_p[c] = 3
-                    elif "الرابعة" in val: col_to_p[c] = 4
-                    elif "الخامسة" in val: col_to_p[c] = 5
-                    elif "السادسة" in val: col_to_p[c] = 6
-                    elif "السابعة" in val: col_to_p[c] = 7
-                    elif "الثامنة" in val: col_to_p[c] = 8
-                    
-                if day_col == -1: day_col = base_col + MAX_PERIODS
-                if day_col >= len(df.columns): continue
-
-                for dr in range(r+3, min(r+8, len(df))):
-                    day_cell = str(df.iloc[dr, day_col]).replace("أ", "ا").replace("إ", "ا")
-                    current_day_val = next((d for d in ["الاحد", "الاثنين", "الثلاثاء", "الاربعاء", "الخميس"] if d in day_cell), None)
-                    if not current_day_val: continue
-                    current_day_val = current_day_val.replace("الاحد", "الأحد").replace("الاثنين", "الإثنين").replace("الاربعاء", "الأربعاء")
-                    for c, pnum in col_to_p.items():
-                        if c < len(df.columns):
-                            val = str(df.iloc[dr, c]).strip()
-                            cls = extract_class_info(val, selected_dept)
-                            if cls: teachers_db[t_name][current_day_val][pnum] = cls
-                                
-        save_db()
-        t_names_all = sorted(list(teachers_db.keys()))
-        choices_all = get_teacher_choices("الكل")
-        abs_choices = get_absentee_choices("الكل")
-        names_list_str = "، ".join(found_in_file)
-        current_time = get_now_oman().strftime("%H:%M:%S")
-        success_msg = f"<div style='color:#004d40; background:#e0f2f1; padding:15px; border-radius:10px; border-right: 5px solid #004d40;'><b style='font-size:1.2em;'>✅ تمت معالجة مصفوفة ({selected_dept}) بنجاح فائق!</b> 🕒 {current_time}<br>📌 <b>المعلمون المستخرجون:</b> {len(found_in_file)} معلمين<br>👨‍🏫 <b>الأسماء:</b> {names_list_str}<br><hr style='border-top:1px solid #b2dfdb; margin:10px 0;'>📊 إجمالي المعلمين في المنظومة: {len(t_names_all)}</div>"
-        return (gr.update(choices=["الكل"] + OFFICIAL_DEPTS), gr.update(choices=abs_choices), gr.update(choices=choices_all, value=None), gr.update(choices=choices_all, value=None), gr.update(value=get_updated_balance("الكل")), gr.update(value=get_updated_absences("الكل")), gr.update(value=get_day_overview(current_day, "الكل")), success_msg, gr.update(choices=t_names_all), gr.update(value=None))
-    except Exception as e: return (gr.update(), gr.update(), gr.update(), gr.update(), gr.update(value=get_updated_balance("الكل")), gr.update(value=get_updated_absences("الكل")), gr.update(value=get_day_overview(current_day, "الكل")), f"<div style='color:red; font-weight:bold;'>❌ خطأ أثناء الرفع: {str(e)}</div>", gr.update(), gr.update())
+    return (
+        gr.update() if dept_choices is None else gr.update(choices=dept_choices),
+        gr.update() if abs_choices is None else gr.update(choices=abs_choices),
+        gr.update() if teacher_choices_a is None else gr.update(choices=teacher_choices_a, value=None),
+        gr.update() if teacher_choices_b is None else gr.update(choices=teacher_choices_b, value=None),
+        gr.update() if balance_html is None else gr.update(value=balance_html),
+        gr.update() if absences_html is None else gr.update(value=absences_html),
+        gr.update() if day_overview is None else gr.update(value=day_overview),
+        message_html,
+        gr.update() if teacher_names_all is None else gr.update(choices=teacher_names_all),
+        gr.update(value=None) if reset_upload else gr.update(),
+    )
 
 def delete_department_data(dept_to_delete, current_day):
     (
