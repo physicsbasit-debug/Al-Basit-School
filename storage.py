@@ -289,3 +289,182 @@ OFFICIAL_DEPTS = list(
     SCHOOL_CONFIG.get("official_departments", DEFAULT_SCHOOL_CONFIG["official_departments"])
     or DEFAULT_SCHOOL_CONFIG["official_departments"]
 )
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v1.8.5f / Phase 3E-pre — الحالة العامة المشتركة
+# ─────────────────────────────────────────────────────────────────────────────
+# ملاحظة معمارية حرجة:
+# لا تعيد تعيين هذه الكائنات داخل دوال التحميل أو التصفير.
+# استخدم clear/update/extend دائمًا حتى تبقى مراجع app.py وstorage.py مشتركة.
+teachers_db = {}
+daily_db = []
+processed_absences = set()
+exemptions_log = []
+swap_db = {}
+
+
+def _normalize_exempt_slots_for_storage(raw_slots):
+    """تنظيف exempt_slots أثناء تحميل قاعدة المعلمين دون ربط storage.py بـ app.py."""
+    clean_slots = []
+    seen = set()
+    for slot in raw_slots or []:
+        day = None
+        period = None
+        if isinstance(slot, dict):
+            day = slot.get("day") or slot.get("اليوم")
+            period = slot.get("period") or slot.get("الحصة")
+        elif isinstance(slot, (list, tuple)) and len(slot) >= 2:
+            day, period = slot[0], slot[1]
+        else:
+            import re
+            s = str(slot or "").strip()
+            day = next((d for d in SCHOOL_WEEK_DAYS if d in s), None)
+            m = re.search(r"(?:ح|الحصة)?\s*(\d+)", s)
+            period = m.group(1) if m else None
+        day = str(day or "").strip()
+        if day not in SCHOOL_WEEK_DAYS:
+            continue
+        try:
+            period_int = int(period)
+        except Exception:
+            continue
+        if period_int < 1 or period_int > MAX_PERIODS:
+            continue
+        key = (day, period_int)
+        if key in seen:
+            continue
+        seen.add(key)
+        clean_slots.append({"day": day, "period": period_int})
+    return clean_slots
+
+
+def save_db():
+    if not safe_write_json(DB_FILE, teachers_db):
+        print("save_db error: safe_write_json failed")
+
+
+def load_db():
+    """تحميل قاعدة المعلمين مع الحفاظ على هوية teachers_db في الذاكرة."""
+    loaded_db = {}
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                loaded_db = loaded
+        except Exception as e:
+            print("Error loading DB:", e)
+            loaded_db = {}
+
+    teachers_db.clear()
+    teachers_db.update(loaded_db)
+
+    for teacher_name in list(teachers_db.keys()):
+        info = teachers_db.get(teacher_name, {})
+        if not isinstance(info, dict):
+            teachers_db[teacher_name] = {}
+            info = teachers_db[teacher_name]
+        info["phone"] = info.get("phone", "")
+        info["specialty"] = info.get("specialty", "")
+        info["role"] = info.get("role", "معلم")
+        info["exempt_days"] = info.get("exempt_days", [])
+        try:
+            info["exempt_periods"] = [int(p) for p in info.get("exempt_periods", [])]
+        except Exception:
+            info["exempt_periods"] = []
+        info["exempt_slots"] = _normalize_exempt_slots_for_storage(info.get("exempt_slots", []))
+        info["absence_dates"] = info.get("absence_dates", [])
+        info["shortcoming_count"] = info.get("shortcoming_count", 0)
+        info["exemption_updated_at"] = info.get("exemption_updated_at", "")
+
+        for day in SCHOOL_WEEK_DAYS:
+            if day in info and isinstance(info[day], dict):
+                info[day] = {int(k): str(v) for k, v in info[day].items()}
+
+
+def save_exemptions_log():
+    if not safe_write_json(EXEMPTIONS_LOG_FILE, exemptions_log):
+        print("save_exemptions_log error: safe_write_json failed")
+
+
+def load_exemptions_log():
+    """تحميل سجل الإعفاءات مع الحفاظ على هوية القائمة."""
+    loaded_log = []
+    if os.path.exists(EXEMPTIONS_LOG_FILE):
+        try:
+            with open(EXEMPTIONS_LOG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            loaded_log = data if isinstance(data, list) else []
+        except Exception as e:
+            print(f"load_exemptions_log error: {e}")
+            loaded_log = []
+
+    exemptions_log.clear()
+    exemptions_log.extend(loaded_log)
+
+
+def save_daily_db():
+    payload = {
+        "daily": daily_db,
+        "processed": [list(x) if isinstance(x, tuple) else x for x in processed_absences],
+    }
+    if not safe_write_json(DAILY_DB_FILE, payload):
+        print("save_daily_db error: safe_write_json failed")
+
+
+def load_daily_db():
+    """تحميل تكليفات اليوم مع الحفاظ على هوية daily_db وprocessed_absences."""
+    loaded_daily = []
+    loaded_processed = set()
+
+    if os.path.exists(DAILY_DB_FILE):
+        try:
+            with open(DAILY_DB_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            if isinstance(data, list):
+                loaded_daily = data
+                loaded_processed = set()
+            elif isinstance(data, dict):
+                loaded_daily = data.get("daily", []) if isinstance(data.get("daily", []), list) else []
+                processed_raw = data.get("processed", [])
+                loaded_processed = set(
+                    tuple(x) for x in processed_raw if isinstance(x, (list, tuple))
+                )
+        except Exception as e:
+            print(f"load_daily_db error: {e}")
+            loaded_daily = []
+            loaded_processed = set()
+
+    daily_db.clear()
+    daily_db.extend(loaded_daily)
+    processed_absences.clear()
+    processed_absences.update(loaded_processed)
+
+
+def load_swap_db():
+    """تحميل تبادلات الأسبوع مع الحفاظ على هوية swap_db."""
+    loaded_swap = {}
+    if os.path.exists(SWAP_DB_FILE):
+        try:
+            with open(SWAP_DB_FILE, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                loaded_swap = loaded
+        except Exception:
+            loaded_swap = {}
+
+    swap_db.clear()
+    swap_db.update(loaded_swap)
+
+
+def save_swap_db():
+    if not safe_write_json(SWAP_DB_FILE, swap_db):
+        print("save_swap_db error: safe_write_json failed")
+
+
+ensure_data_directories()
+load_db()
+load_exemptions_log()
+load_daily_db()
+load_swap_db()
