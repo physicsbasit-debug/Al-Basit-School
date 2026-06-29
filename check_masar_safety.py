@@ -1486,6 +1486,112 @@ def check_gradio_bound_helpers_phase3eb3(app_path: Path, app_text: str, results:
         except Exception as exc:  # pragma: no cover
             add(results, f"3E-b-3: py_compile {module_label}", "FAIL", f"فشل py_compile: {exc}")
 
+
+def check_process_uploaded_excel_phase3eb4(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3E-b-4: تقسيم process_uploaded_excel إلى core/wrapper."""
+    school_path = app_path.with_name("school_data.py")
+    if not school_path.exists():
+        add(results, "3E-b-4: وجود school_data.py", "FAIL", f"غير موجود: {school_path}")
+        return
+
+    school_text = school_path.read_text(encoding="utf-8")
+    core_body = function_body(school_text, "process_uploaded_excel_core")
+    wrapper_body = function_body(app_text, "process_uploaded_excel")
+
+    add(
+        results,
+        "3E-b-4: process_uploaded_excel_core موجودة في school_data.py",
+        "PASS" if core_body else "FAIL",
+        "process_uploaded_excel_core موجودة." if core_body else "process_uploaded_excel_core غير موجودة.",
+    )
+    add(
+        results,
+        "3E-b-4: process_uploaded_excel wrapper موجودة في app.py",
+        "PASS" if wrapper_body else "FAIL",
+        "process_uploaded_excel باقية في app.py كـwrapper." if wrapper_body else "process_uploaded_excel غير موجودة في app.py.",
+    )
+
+    if not core_body or not wrapper_body:
+        return
+
+    core_decorators = _function_decorators(school_text, "process_uploaded_excel_core")
+    wrapper_decorators = _function_decorators(app_text, "process_uploaded_excel")
+    add(
+        results,
+        "3E-b-4: @state_locked على process core",
+        "PASS" if "state_locked" in core_decorators else "FAIL",
+        f"decorators: {core_decorators}",
+    )
+    add(
+        results,
+        "3E-b-4: process wrapper بلا state_locked",
+        "PASS" if "state_locked" not in wrapper_decorators else "FAIL",
+        f"decorators: {wrapper_decorators}",
+    )
+
+    core_tokens = [token for token in ["gr.update", "gr.Warning", "gr.Info", "import gradio"] if token in core_body]
+    add(
+        results,
+        "3E-b-4: process core بلا Gradio مباشر",
+        "PASS" if not core_tokens else "FAIL",
+        "process core خام بلا gr.update/gr.Warning/gr.Info." if not core_tokens else f"وجد: {core_tokens}",
+    )
+
+    core_lengths = _function_return_tuple_lengths(school_text, "process_uploaded_excel_core")
+    wrapper_lengths = _function_return_tuple_lengths(app_text, "process_uploaded_excel")
+    add(
+        results,
+        "3E-b-4: process core يرجع 10 عناصر خام",
+        "PASS" if core_lengths and all(length == 10 for length in core_lengths) else "FAIL",
+        f"أطوال return داخل process core: {core_lengths}",
+    )
+    add(
+        results,
+        "3E-b-4: process wrapper يرجع 10 مخرجات",
+        "PASS" if wrapper_lengths and all(length == 10 for length in wrapper_lengths) else "FAIL",
+        f"أطوال return داخل process wrapper: {wrapper_lengths}",
+    )
+
+    wrapper_ok = "process_uploaded_excel_core" in wrapper_body and "gr.update" in wrapper_body
+    add(
+        results,
+        "3E-b-4: process wrapper يستدعي core ويغلف بـgr.update",
+        "PASS" if wrapper_ok else "FAIL",
+        f"calls_core={'process_uploaded_excel_core' in wrapper_body}, has_gr_update={'gr.update' in wrapper_body}",
+    )
+
+    forbidden_wrapper_logic = ["pd.read_excel", "pd.read_csv", "precheck_schedule_excel_template", "teachers_db", "save_db", "extract_class_info"]
+    found_wrapper_logic = [token for token in forbidden_wrapper_logic if token in wrapper_body]
+    add(
+        results,
+        "3E-b-4: process wrapper رفيع بلا قراءة/حفظ Excel",
+        "PASS" if not found_wrapper_logic else "FAIL",
+        "process wrapper لا يحتوي قراءة Excel أو تعديل قاعدة البيانات." if not found_wrapper_logic else f"وجد: {found_wrapper_logic}",
+    )
+
+    teacher_names_no_value = "gr.update(choices=teacher_names_all)" in wrapper_body
+    teacher_names_with_value_none = "gr.update(choices=teacher_names_all, value=None)" in wrapper_body
+    add(
+        results,
+        "3E-b-4: موضع teacher_names بلا value=None",
+        "PASS" if teacher_names_no_value and not teacher_names_with_value_none else "FAIL",
+        f"no_value={teacher_names_no_value}, with_value_none={teacher_names_with_value_none}",
+    )
+
+    no_reverse_import = all(marker not in school_text for marker in ["import app", "from app import"])
+    add(
+        results,
+        "3E-b-4: school_data.py لا يستورد app.py",
+        "PASS" if no_reverse_import else "FAIL",
+        "لا يوجد اعتماد عكسي." if no_reverse_import else "ظهر import app أو from app import داخل school_data.py.",
+    )
+
+    try:
+        py_compile.compile(str(school_path), doraise=True)
+        add(results, "3E-b-4: py_compile school_data.py", "PASS", "school_data.py لا يحتوي أخطاء نحوية.")
+    except Exception as exc:  # pragma: no cover
+        add(results, "3E-b-4: py_compile school_data.py", "FAIL", f"فشل py_compile: {exc}")
+
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
     warn = sum(r.status == "WARN" for r in results)
@@ -1567,7 +1673,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_forbidden_patterns(app_text, results)
     check_required_markers(combined_text, app_text, results)
     check_symbol_counts(code_text, results, expected_symbols)
-    check_excel_and_periods(app_text, results)
+    check_excel_and_periods(code_text, results)
     check_error_updates(app_text, results)
     check_exemption_centralization(app_text, results)
     check_day_filter_isolation(app_text, results)
@@ -1584,6 +1690,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_time_helper_phase3eb1(path, app_text, results)
     check_refresh_schedule_core_phase3eb2(path, app_text, results)
     check_gradio_bound_helpers_phase3eb3(path, app_text, results)
+    check_process_uploaded_excel_phase3eb4(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
