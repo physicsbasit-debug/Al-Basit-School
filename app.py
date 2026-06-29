@@ -191,6 +191,7 @@ from swaps import (
     get_teacher_periods_marked_core,
     filter_swap_teachers_safe_core,
     get_teacher_periods_safe_core,
+    export_confirmed_swaps_excel_core,
     SWAP_EMPTY_MSG,
 )
 
@@ -2958,75 +2959,10 @@ def generate_swap_table_image(state, teacher_name, day_name):
         print(f"generate_swap_table_image error: {e}")
         return gr.update(value=None)
 
-def format_period_label(period_value):
-    raw = str(period_value or "").strip()
-    if not raw:
-        return ""
-    if raw.startswith("الحصة"):
-        return raw
-    return f"الحصة {raw}"
-
-
 def export_confirmed_swaps_excel():
-    if not isinstance(swap_db, dict) or not swap_db:
-        return gr.update(value=None)
-
-    rows = []
-    for _, info in sorted(swap_db.items(), key=lambda item: (
-        str(item[1].get("updated_at", "")),
-        str(item[1].get("requester", "")),
-        str(item[1].get("day", "")),
-        str(item[1].get("period", "")),
-    )):
-        updated_at = str(info.get("updated_at", "")).strip()
-        approval_date = updated_at.split(" ")[0] if updated_at else ""
-        rows.append({
-            "المعلم الطالب للتبادل": str(info.get("requester", "")),
-            "المعلم البديل": str(info.get("candidate", "")),
-            "الصف": str(info.get("class", "")),
-            "اليوم الأصلي": str(info.get("day", "")),
-            "الحصة الأصلية": format_period_label(info.get("period", "")),
-            "يوم التعويض": str(info.get("comp_day", "")),
-            "حصة التعويض": str(info.get("comp_period", "")),
-            "التاريخ": approval_date,
-        })
-
-    if not rows:
-        return gr.update(value=None)
-
-    df = pd.DataFrame(rows)
-    filename = f"سجل_التبادلات_الودية_المعتمدة_{get_now_oman().strftime('%Y%m%d_%H%M%S')}.xlsx"
-
-    with pd.ExcelWriter(filename, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='التبادلات المعتمدة')
-        ws = writer.sheets['التبادلات المعتمدة']
-
-        header_fill = PatternFill(fill_type='solid', fgColor='0B6E4F')
-        header_font = Font(color='FFFFFF', bold=True)
-        center_alignment = Alignment(horizontal='center', vertical='center')
-
-        for cell in ws[1]:
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = center_alignment
-
-        for row in ws.iter_rows(min_row=2):
-            for cell in row:
-                cell.alignment = center_alignment
-
-        for column_cells in ws.columns:
-            max_length = 0
-            column_letter = column_cells[0].column_letter
-            for cell in column_cells:
-                cell_value = "" if cell.value is None else str(cell.value)
-                max_length = max(max_length, len(cell_value))
-            ws.column_dimensions[column_letter].width = min(max(max_length + 4, 14), 40)
-
-        ws.freeze_panes = 'A2'
-        ws.sheet_view.rightToLeft = True
-
+    filename = export_confirmed_swaps_excel_core()
     return gr.update(value=filename)
-        
+
 def load_confirmed_swaps_for_context(t, d):
     state = load_confirmed_swaps_for_context_core(t, d)
     return state, gr.update(value=render_swap_table_html(state))
