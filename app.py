@@ -82,6 +82,7 @@ from storage import (
     load_daily_db,
     save_swap_db,
     load_swap_db,
+    get_now_oman,
 )
 
 from auth import (
@@ -1559,9 +1560,6 @@ def refresh_schedule_from_reference(dept_name, current_day, is_owner=False):
             gr.update(value=render_schedule_reference_cards()),
             gr.update(value=None)
         )
-
-def get_now_oman():
-    return datetime.datetime.now(tz_oman)
 
 def get_current_day_oman():
     weekday = get_now_oman().weekday()
