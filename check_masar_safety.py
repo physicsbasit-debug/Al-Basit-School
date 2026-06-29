@@ -2076,6 +2076,141 @@ def check_confirm_swap_phase3ia3(app_path: Path, app_text: str, results: list[Ch
     except Exception as exc:
         add(results, "3I-a-3: py_compile swaps.py", "FAIL", f"فشل py_compile: {exc}")
 
+
+def check_run_radar_safe_phase3ia4a(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3I-a-4a: تقسيم run_radar_safe ونقل دواله النظيفة إلى swaps.py."""
+    swaps_path = app_path.with_name("swaps.py")
+    if not swaps_path.exists():
+        add(results, "3I-a-4a: وجود swaps.py", "FAIL", f"غير موجود: {swaps_path}")
+        return
+
+    swaps_text = swaps_path.read_text(encoding="utf-8")
+    core_body = function_body(swaps_text, "run_radar_safe_core")
+    wrapper_body = function_body(app_text, "run_radar_safe")
+
+    required_in_swaps = [
+        "get_current_day_oman",
+        "get_class_dna",
+        "check_teacher_load",
+        "run_radar_safe_core",
+    ]
+    missing = [fn for fn in required_in_swaps if not re.search(rf"^def\s+{re.escape(fn)}\s*\(", swaps_text, re.MULTILINE)]
+    add(
+        results,
+        "3I-a-4a: دوال run_radar_safe النظيفة موجودة في swaps.py",
+        "PASS" if not missing else "FAIL",
+        "الدوال الأربع موجودة في swaps.py." if not missing else f"ناقص: {missing}",
+    )
+
+    duplicated_in_app = [fn for fn in required_in_swaps if re.search(rf"^def\s+{re.escape(fn)}\s*\(", app_text, re.MULTILINE)]
+    add(
+        results,
+        "3I-a-4a: لا تكرار لدوال run_radar_safe في app.py",
+        "PASS" if not duplicated_in_app else "FAIL",
+        "الدوال المنقولة غير معرفة محليًا في app.py." if not duplicated_in_app else f"ما زالت معرفة في app.py: {duplicated_in_app}",
+    )
+
+    wrapper_exists = bool(re.search(r"^def\s+run_radar_safe\s*\(", app_text, re.MULTILINE))
+    add(
+        results,
+        "3I-a-4a: run_radar_safe wrapper باقية في app.py",
+        "PASS" if wrapper_exists else "FAIL",
+        "run_radar_safe باقية في app.py كـwrapper." if wrapper_exists else "لم يتم العثور على run_radar_safe في app.py.",
+    )
+
+    wrapper_calls_core = bool(wrapper_body) and "run_radar_safe_core(" in wrapper_body
+    wrapper_has_expected_updates = (
+        bool(wrapper_body)
+        and "gr.update(choices=candidates, value=None)" in wrapper_body
+        and "gr.update(value=default_msg)" in wrapper_body
+        and "gr.update(value=\"\")" in wrapper_body
+    )
+    add(
+        results,
+        "3I-a-4a: wrapper يستدعي core ويرجع مخرجات Gradio القديمة",
+        "PASS" if wrapper_calls_core and wrapper_has_expected_updates else "FAIL",
+        "wrapper يستدعي run_radar_safe_core ويرجع 3 gr.update بنفس العقد القديم." if wrapper_calls_core and wrapper_has_expected_updates else f"calls_core={wrapper_calls_core}, updates_ok={wrapper_has_expected_updates}",
+    )
+
+    no_state_lock = not bool(re.search(r"@state_locked\s*\ndef\s+run_radar_safe_core\s*\(", swaps_text))
+    add(
+        results,
+        "3I-a-4a: run_radar_safe_core بلا @state_locked",
+        "PASS" if no_state_lock else "FAIL",
+        "لا توجد @state_locked على run_radar_safe_core لأنها لا تعدل البيانات." if no_state_lock else "ظهرت @state_locked على core بلا حاجة.",
+    )
+
+    no_reverse_import = "import app" not in swaps_text and "from app import" not in swaps_text
+    swaps_no_gradio = "gr.update" not in swaps_text and "import gradio" not in swaps_text and "from gradio" not in swaps_text and "gr.SelectData" not in swaps_text
+    add(
+        results,
+        "3I-a-4a: swaps.py لا يستورد app.py",
+        "PASS" if no_reverse_import else "FAIL",
+        "لا يوجد import app داخل swaps.py." if no_reverse_import else "ظهر import app أو from app import داخل swaps.py.",
+    )
+    add(
+        results,
+        "3I-a-4a: swaps.py بلا Gradio بعد run_radar_safe_core",
+        "PASS" if swaps_no_gradio else "FAIL",
+        "لا يوجد gr.update أو import gradio أو gr.SelectData داخل swaps.py." if swaps_no_gradio else "ظهر اعتماد مباشر على Gradio داخل swaps.py.",
+    )
+
+    storage_deps_ok = all(name in swaps_text for name in ["teachers_db", "SCHOOL_WEEK_DAYS", "get_now_oman"])
+    add(
+        results,
+        "3I-a-4a: اعتماديات run_radar_safe من storage.py",
+        "PASS" if storage_deps_ok and "from storage import" in swaps_text else "FAIL",
+        "swaps.py يستورد teachers_db و SCHOOL_WEEK_DAYS و get_now_oman من storage.py." if storage_deps_ok and "from storage import" in swaps_text else "اعتماديات storage.py غير مكتملة داخل swaps.py.",
+    )
+
+    core_clean = bool(core_body) and "gr.update" not in core_body and "return gr.update" not in core_body
+    add(
+        results,
+        "3I-a-4a: run_radar_safe_core يرجع بيانات خام فقط",
+        "PASS" if core_clean else "FAIL",
+        "core بلا gr.update ويرجع قائمة مرشحين خام." if core_clean else "core يحتوي gr.update أو لا يمكن قراءة جسم الدالة.",
+    )
+
+    try:
+        app_tree = ast.parse(app_text)
+        wrapper_returns = []
+        for node in ast.walk(app_tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "run_radar_safe":
+                wrapper_returns = [r for r in ast.walk(node) if isinstance(r, ast.Return)]
+                break
+        wrapper_three_outputs = bool(wrapper_returns) and all(isinstance(r.value, ast.Tuple) and len(r.value.elts) == 3 for r in wrapper_returns)
+        add(
+            results,
+            "3I-a-4a: run_radar_safe wrapper يرجع 3 عناصر",
+            "PASS" if wrapper_three_outputs else "FAIL",
+            "كل فروع wrapper ترجع 3 عناصر." if wrapper_three_outputs else "wrapper لا يرجع 3 عناصر في كل الفروع.",
+        )
+    except SyntaxError as exc:
+        add(results, "3I-a-4a: تحليل AST للـwrapper", "FAIL", f"تعذر تحليل app.py: {exc}")
+
+    try:
+        swaps_tree = ast.parse(swaps_text)
+        core_returns = []
+        for node in ast.walk(swaps_tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "run_radar_safe_core":
+                core_returns = [r for r in ast.walk(node) if isinstance(r, ast.Return)]
+                break
+        core_no_tuple_returns = bool(core_returns) and all(not isinstance(r.value, ast.Tuple) for r in core_returns)
+        add(
+            results,
+            "3I-a-4a: run_radar_safe_core لا يرجع tuple",
+            "PASS" if core_no_tuple_returns else "FAIL",
+            "core يرجع قائمة واحدة في كل الفروع، لا tuple." if core_no_tuple_returns else "core يرجع tuple أو لا يحتوي return واضح.",
+        )
+    except SyntaxError as exc:
+        add(results, "3I-a-4a: تحليل AST للـcore", "FAIL", f"تعذر تحليل swaps.py: {exc}")
+
+    try:
+        py_compile.compile(str(swaps_path), doraise=True)
+        add(results, "3I-a-4a: py_compile swaps.py", "PASS", "swaps.py لا يحتوي أخطاء نحوية بعد run_radar_safe_core.")
+    except Exception as exc:
+        add(results, "3I-a-4a: py_compile swaps.py", "FAIL", f"فشل py_compile: {exc}")
+
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
     warn = sum(r.status == "WARN" for r in results)
@@ -2180,6 +2315,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_save_teacher_rules_phase3ha3(path, app_text, results)
     check_swaps_phase3ia1(path, app_text, results)
     check_confirm_swap_phase3ia3(path, app_text, results)
+    check_run_radar_safe_phase3ia4a(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
