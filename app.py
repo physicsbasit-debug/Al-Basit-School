@@ -67,6 +67,19 @@ from storage import (
     OFFICIAL_DEPTS,
     ensure_data_directories,
     safe_write_json,
+    teachers_db,
+    daily_db,
+    processed_absences,
+    exemptions_log,
+    swap_db,
+    save_db,
+    load_db,
+    save_exemptions_log,
+    load_exemptions_log,
+    save_daily_db,
+    load_daily_db,
+    save_swap_db,
+    load_swap_db,
 )
 
 from auth import (
@@ -98,9 +111,9 @@ from auth import (
 # --- 1. الإعدادات والوقت ---
 tz_oman = datetime.timezone(datetime.timedelta(hours=4))
 
-# v1.8.5d / Phase 3C
-# دوال ومسارات التخزين الأساسية وإعدادات التشغيل الديناميكية انتقلت إلى storage.py.
-# تبقى واجهة Gradio وربط الأحداث والمنطق التشغيلي الرئيسي داخل app.py مؤقتًا.
+# v1.8.5f / Phase 3E-pre
+# الحالة العامة المشتركة ودوال الحفظ/التحميل انتقلت إلى storage.py.
+# التحديثات تتم in-place للحفاظ على مراجع الكائنات بين الوحدات.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1192,7 +1205,6 @@ WELCOME_MESSAGES = {
 }
 
 last_assigned_teachers = []
-processed_absences = set()
 
 def dept_has_loaded_schedule_data(dept_name):
     weekdays = SCHOOL_WEEK_DAYS
@@ -1985,13 +1997,7 @@ def fix_arabic(text):
     for c in ['\u202a', '\u202b', '\u202c', '\u200e', '\u200f']: bidi = bidi.replace(c, '')
     return bidi
 
-teachers_db = {}
-daily_db = []
-exemptions_log = []
 
-def save_db():
-    if not safe_write_json(DB_FILE, teachers_db):
-        print("save_db error: safe_write_json failed")
 
 def normalize_exempt_slots(raw_slots):
     """Return clean [{"day": day, "period": int}] pairs for specific day-period exemptions."""
@@ -2046,35 +2052,7 @@ def format_exempt_slots_for_display(slots):
         return "—"
     return "، ".join([f"{slot['day']} ح{slot['period']}" for slot in clean_slots])
 
-def load_db():
-    global teachers_db
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, "r", encoding="utf-8") as f:
-                teachers_db = json.load(f)
-        
-                for t in teachers_db:
-                    teachers_db[t]["phone"] = teachers_db[t].get("phone", "") 
-                    teachers_db[t]["specialty"] = teachers_db[t].get("specialty", "") 
-                    teachers_db[t]["role"] = teachers_db[t].get("role", "معلم") 
-                 
-                    teachers_db[t]["exempt_days"] = teachers_db[t].get("exempt_days", [])
-                    teachers_db[t]["exempt_periods"] = [int(p) for p in teachers_db[t].get("exempt_periods", [])]
-                    teachers_db[t]["exempt_slots"] = normalize_exempt_slots(teachers_db[t].get("exempt_slots", []))
-                    teachers_db[t]["absence_dates"] = teachers_db[t].get("absence_dates", [])
-                    teachers_db[t]["shortcoming_count"] = teachers_db[t].get("shortcoming_count", 0) 
-                    teachers_db[t]["exemption_updated_at"] = teachers_db[t].get("exemption_updated_at", "")
-                    
-                    for day in SCHOOL_WEEK_DAYS:
-                        if day in teachers_db[t]:
-                            teachers_db[t][day] = {int(k): str(v) for k, v in teachers_db[t][day].items()}
-        except Exception as e: print("Error loading DB:", e)
-ensure_data_directories()
-load_db()
 
-def save_exemptions_log():
-    if not safe_write_json(EXEMPTIONS_LOG_FILE, exemptions_log):
-        print("save_exemptions_log error: safe_write_json failed")
 
 def _audit_json_safe(value):
     try:
@@ -3427,18 +3405,6 @@ def reset_school_identity_settings(is_owner=False):
     )
 
 
-def load_exemptions_log():
-    global exemptions_log
-    if os.path.exists(EXEMPTIONS_LOG_FILE):
-        try:
-            with open(EXEMPTIONS_LOG_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                exemptions_log = data if isinstance(data, list) else []
-        except Exception as e:
-            print(f"load_exemptions_log error: {e}")
-            exemptions_log = []
-    else:
-        exemptions_log = []
 
 def render_exemptions_log_html():
     active_rows = []
@@ -3519,64 +3485,13 @@ def render_exemptions_log_html():
     </div>
     """
 
-load_exemptions_log()
 
 
-def save_daily_db():
-    payload = {
-        "daily": daily_db,
-        "processed": [list(x) if isinstance(x, tuple) else x for x in processed_absences]
-    }
-    if not safe_write_json(DAILY_DB_FILE, payload):
-        print("save_daily_db error: safe_write_json failed")
         
-def load_daily_db():
-    global daily_db, processed_absences
-
-    daily_db = []
-    processed_absences = set()
-
-    if not os.path.exists(DAILY_DB_FILE):
-        return
-
-    try:
-        with open(DAILY_DB_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        if isinstance(data, list):
-            daily_db = data
-            processed_absences = set()
-        else:
-            daily_db = data.get("daily", [])
-            processed_raw = data.get("processed", [])
-            processed_absences = set(
-                tuple(x) for x in processed_raw if isinstance(x, (list, tuple))
-            )
-
-    except Exception as e:
-        print(f"load_daily_db error: {e}")
-        daily_db = []
-        processed_absences = set()
-load_daily_db()
 SWAP_EMPTY_MSG = "💡 يرجى اختيار أحد المعلمين من القائمة بالأعلى لتوليد مسودة رسالة الواتساب هنا..."
-swap_db = {}
 
-def load_swap_db():
-    global swap_db
-    if os.path.exists(SWAP_DB_FILE):
-        try:
-            with open(SWAP_DB_FILE, "r", encoding="utf-8") as f:
-                swap_db = json.load(f)
-        except Exception:
-            swap_db = {}
-    else:
-        swap_db = {}
 
-def save_swap_db():
-    if not safe_write_json(SWAP_DB_FILE, swap_db):
-        print("save_swap_db error: safe_write_json failed")
 
-load_swap_db()
 os.makedirs(SWAP_IMG_DIR, exist_ok=True)
 
 def sync_current_school_days():
@@ -5325,7 +5240,6 @@ def get_generation_button_updates(absent_list, day_name, dept_filter, generation
 
 @state_locked
 def rollback_auto_assignments_for_absentees(absent_list, day_name, actor_name="", actor_role=""):
-    global daily_db
 
     cleaned = set(normalize_absent_names(absent_list))
     if not cleaned or not day_name:
@@ -5356,7 +5270,8 @@ def rollback_auto_assignments_for_absentees(absent_list, day_name, actor_name=""
 
         kept_rows.append(row)
 
-    daily_db = kept_rows
+    daily_db.clear()
+    daily_db.extend(kept_rows)
     save_db()
     save_daily_db()
     _flush_audit_changes(audit_entries, actor_name, actor_role)
@@ -5838,7 +5753,8 @@ def assign_logic(absent_list, day_name, dept_filter, max_reserves, is_alt, is_ad
             else:
                 records_to_keep.append(row)
 
-        daily_db = records_to_keep
+        daily_db.clear()
+        daily_db.extend(records_to_keep)
 
         for row in records_to_delete:
             old_sub = clean_teacher_name_from_ui(row.get("المعلم البديل", ""))
@@ -5973,7 +5889,6 @@ def assign_logic(absent_list, day_name, dept_filter, max_reserves, is_alt, is_ad
     
 @state_locked
 def cancel_teacher_absence(abs_t, day_name, dept_filter, is_admin_logged_in, current_abs, actor_name="", actor_role=""):
-    global daily_db, processed_absences, teachers_db
     if not abs_t or not day_name:
         return refresh_ui_on_change(dept_filter, day_name, is_admin_logged_in, current_abs=current_abs)
 
@@ -5993,7 +5908,8 @@ def cancel_teacher_absence(abs_t, day_name, dept_filter, is_admin_logged_in, cur
         else:
             records_to_keep.append(r)
 
-    daily_db = records_to_keep
+    daily_db.clear()
+    daily_db.extend(records_to_keep)
 
     for r in records_to_delete:
         sub = str(r.get("المعلم البديل", "")).replace(" 🔄", "").replace("🔄", "").strip()
@@ -6719,7 +6635,7 @@ def export_excel_report(dept_filter):
 
 @state_locked
 def reset_monthly_balances(dept_filter, day_val, is_admin=False, is_owner=False, actor_name="", actor_role=""):
-    global daily_db, processed_absences, last_assigned_teachers
+    global last_assigned_teachers
 
     permissions = get_permissions(role=actor_role, is_owner=is_owner, is_admin_flag=is_admin)
     if not permissions["can_close_month"]:
@@ -6743,8 +6659,8 @@ def reset_monthly_balances(dept_filter, day_val, is_admin=False, is_owner=False,
 
     save_db()
 
-    daily_db = []
-    processed_absences = set()
+    daily_db.clear()
+    processed_absences.clear()
     last_assigned_teachers = []
     save_daily_db()
 
@@ -6767,7 +6683,7 @@ def reset_monthly_balances(dept_filter, day_val, is_admin=False, is_owner=False,
     
 @state_locked
 def clear_all_data(is_owner_logged_in):
-    global teachers_db, daily_db, processed_absences, last_assigned_teachers
+    global last_assigned_teachers
 
     empty_balance_df = pd.DataFrame(columns=["المعلم", "الرصيد"])
     empty_absence_df = pd.DataFrame(columns=["المعلم", "مرات الغياب"])
@@ -6814,9 +6730,9 @@ def clear_all_data(is_owner_logged_in):
             gr.update()
         )
 
-    teachers_db = {}
-    daily_db = []
-    processed_absences = set()
+    teachers_db.clear()
+    daily_db.clear()
+    processed_absences.clear()
     last_assigned_teachers = []
 
     # الحفظ الآمن ينشئ نسخة احتياطية قبل كتابة الحالة الفارغة.
