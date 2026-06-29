@@ -872,7 +872,10 @@ def check_school_data_phase3ea(app_path: Path, app_text: str, results: list[Chec
         "get_day_table_updates",
         "process_uploaded_excel",
     ]
-    found_dangerous = [name for name in dangerous if name in school_text]
+    found_dangerous = [
+        name for name in dangerous
+        if re.search(rf"\b{re.escape(name)}\s*\(", school_text)
+    ]
     add(
         results,
         "3E-a/3E-b: school_data.py لا يستدعي دوال app المتبقية",
@@ -1309,6 +1312,180 @@ def check_refresh_schedule_core_phase3eb2(app_path: Path, app_text: str, results
     except Exception as exc:  # pragma: no cover
         add(results, "3E-b-2: py_compile school_data.py", "FAIL", f"فشل py_compile: {exc}")
 
+
+def check_gradio_bound_helpers_phase3eb3(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3E-b-3: تقسيم delete_department_data و get_day_table_updates إلى core/wrapper."""
+    school_path = app_path.with_name("school_data.py")
+    schedules_path = app_path.with_name("schedules.py")
+    if not school_path.exists() or not schedules_path.exists():
+        add(results, "3E-b-3: وجود school_data.py و schedules.py", "FAIL", "أحد الملفين غير موجود.")
+        return
+
+    school_text = school_path.read_text(encoding="utf-8")
+    schedules_text = schedules_path.read_text(encoding="utf-8")
+
+    delete_core_body = function_body(school_text, "delete_department_data_core")
+    delete_wrapper_body = function_body(app_text, "delete_department_data")
+    day_core_body = function_body(schedules_text, "get_day_table_updates_core")
+    day_wrapper_body = function_body(app_text, "get_day_table_updates")
+
+    add(
+        results,
+        "3E-b-3: delete_department_data_core موجودة في school_data.py",
+        "PASS" if delete_core_body else "FAIL",
+        "delete_department_data_core موجودة." if delete_core_body else "delete_department_data_core غير موجودة.",
+    )
+    add(
+        results,
+        "3E-b-3: delete_department_data wrapper موجودة في app.py",
+        "PASS" if delete_wrapper_body else "FAIL",
+        "delete_department_data باقية في app.py كـwrapper." if delete_wrapper_body else "delete_department_data غير موجودة في app.py.",
+    )
+    add(
+        results,
+        "3E-b-3: get_day_table_updates_core موجودة في schedules.py",
+        "PASS" if day_core_body else "FAIL",
+        "get_day_table_updates_core موجودة." if day_core_body else "get_day_table_updates_core غير موجودة.",
+    )
+    add(
+        results,
+        "3E-b-3: get_day_table_updates wrapper موجودة في app.py",
+        "PASS" if day_wrapper_body else "FAIL",
+        "get_day_table_updates باقية في app.py كـwrapper." if day_wrapper_body else "get_day_table_updates غير موجودة في app.py.",
+    )
+
+    if delete_core_body:
+        delete_core_decorators = _function_decorators(school_text, "delete_department_data_core")
+        add(
+            results,
+            "3E-b-3: @state_locked على delete core",
+            "PASS" if "state_locked" in delete_core_decorators else "FAIL",
+            f"decorators: {delete_core_decorators}",
+        )
+        delete_core_tokens = [token for token in ["gr.update", "gr.Warning", "gr.Info", "import gradio"] if token in delete_core_body]
+        add(
+            results,
+            "3E-b-3: delete core بلا Gradio مباشر",
+            "PASS" if not delete_core_tokens else "FAIL",
+            "delete core خام بلا gr.update/gr.Warning/gr.Info." if not delete_core_tokens else f"وجد: {delete_core_tokens}",
+        )
+        delete_core_lengths = _function_return_tuple_lengths(school_text, "delete_department_data_core")
+        add(
+            results,
+            "3E-b-3: delete core يرجع 10 عناصر خام",
+            "PASS" if delete_core_lengths and all(length == 10 for length in delete_core_lengths) else "FAIL",
+            f"أطوال return داخل delete core: {delete_core_lengths}",
+        )
+
+    if delete_wrapper_body:
+        delete_wrapper_decorators = _function_decorators(app_text, "delete_department_data")
+        delete_wrapper_lengths = _function_return_tuple_lengths(app_text, "delete_department_data")
+        add(
+            results,
+            "3E-b-3: delete wrapper بلا state_locked",
+            "PASS" if "state_locked" not in delete_wrapper_decorators else "FAIL",
+            f"decorators: {delete_wrapper_decorators}",
+        )
+        add(
+            results,
+            "3E-b-3: delete wrapper يرجع 10 مخرجات",
+            "PASS" if delete_wrapper_lengths and all(length == 10 for length in delete_wrapper_lengths) else "FAIL",
+            f"أطوال return داخل delete wrapper: {delete_wrapper_lengths}",
+        )
+        delete_wrapper_ok = "delete_department_data_core" in delete_wrapper_body and "gr.update" in delete_wrapper_body
+        add(
+            results,
+            "3E-b-3: delete wrapper يستدعي core ويغلف بـgr.update",
+            "PASS" if delete_wrapper_ok else "FAIL",
+            f"calls_core={'delete_department_data_core' in delete_wrapper_body}, has_gr_update={'gr.update' in delete_wrapper_body}",
+        )
+        forbidden_delete_wrapper_logic = ["del teachers_db", "save_db", "teachers_to_delete"]
+        found_delete_wrapper_logic = [token for token in forbidden_delete_wrapper_logic if token in delete_wrapper_body]
+        add(
+            results,
+            "3E-b-3: delete wrapper رفيع بلا حذف/حفظ",
+            "PASS" if not found_delete_wrapper_logic else "FAIL",
+            "delete wrapper لا يحتوي حذف teachers_db أو save_db." if not found_delete_wrapper_logic else f"وجد: {found_delete_wrapper_logic}",
+        )
+
+    if day_core_body:
+        day_core_decorators = _function_decorators(schedules_text, "get_day_table_updates_core")
+        day_core_tokens = [token for token in ["gr.update", "gr.Warning", "gr.Info", "import gradio"] if token in day_core_body]
+        add(
+            results,
+            "3E-b-3: day core بلا state_locked",
+            "PASS" if "state_locked" not in day_core_decorators else "FAIL",
+            f"decorators: {day_core_decorators}",
+        )
+        add(
+            results,
+            "3E-b-3: day core بلا Gradio مباشر",
+            "PASS" if not day_core_tokens else "FAIL",
+            "day core خام بلا gr.update/gr.Warning/gr.Info." if not day_core_tokens else f"وجد: {day_core_tokens}",
+        )
+        day_core_lengths = _function_return_tuple_lengths(schedules_text, "get_day_table_updates_core")
+        add(
+            results,
+            "3E-b-3: day core يرجع 7 عناصر خام",
+            "PASS" if day_core_lengths and all(length == 7 for length in day_core_lengths) else "FAIL",
+            f"أطوال return داخل day core: {day_core_lengths}",
+        )
+        day_core_no_write = all(token not in day_core_body for token in ["save_db", "teachers_db[", "del teachers_db"])
+        add(
+            results,
+            "3E-b-3: day core بلا كتابة حالة",
+            "PASS" if day_core_no_write else "FAIL",
+            "day core لا يحذف ولا يحفظ حالة عامة." if day_core_no_write else "ظهر save_db أو تعديل teachers_db داخل day core.",
+        )
+
+    if day_wrapper_body:
+        day_wrapper_lengths = _function_return_tuple_lengths(app_text, "get_day_table_updates")
+        day_wrapper_ok = "get_day_table_updates_core" in day_wrapper_body and "gr.update" in day_wrapper_body
+        add(
+            results,
+            "3E-b-3: day wrapper يرجع 7 مخرجات",
+            "PASS" if day_wrapper_lengths and all(length == 7 for length in day_wrapper_lengths) else "FAIL",
+            f"أطوال return داخل day wrapper: {day_wrapper_lengths}",
+        )
+        add(
+            results,
+            "3E-b-3: day wrapper يستدعي core ويغلف بـgr.update",
+            "PASS" if day_wrapper_ok else "FAIL",
+            f"calls_core={'get_day_table_updates_core' in day_wrapper_body}, has_gr_update={'gr.update' in day_wrapper_body}",
+        )
+        forbidden_day_wrapper_logic = ["get_day_overview", "render_day_all_departments_html", "render_day_table_html", "load_db"]
+        found_day_wrapper_logic = [token for token in forbidden_day_wrapper_logic if token in day_wrapper_body]
+        add(
+            results,
+            "3E-b-3: day wrapper رفيع بلا منطق جدول",
+            "PASS" if not found_day_wrapper_logic else "FAIL",
+            "day wrapper لا يحتوي منطق جدول اليوم." if not found_day_wrapper_logic else f"وجد: {found_day_wrapper_logic}",
+        )
+
+    no_school_reverse_import = all(marker not in school_text for marker in ["import app", "from app import"])
+    no_schedules_reverse_import = all(marker not in schedules_text for marker in ["import app", "from app import"])
+    add(
+        results,
+        "3E-b-3: الوحدات النظيفة لا تستورد app.py",
+        "PASS" if no_school_reverse_import and no_schedules_reverse_import else "FAIL",
+        f"school_data_no_app={no_school_reverse_import}, schedules_no_app={no_schedules_reverse_import}",
+    )
+
+    process_still_app = re.search(r"^def\s+process_uploaded_excel\s*\(", app_text, re.MULTILINE) is not None
+    add(
+        results,
+        "3E-b-3: process_uploaded_excel باقية مؤجلة في app.py",
+        "PASS" if process_still_app else "FAIL",
+        "process_uploaded_excel باقية في app.py تمهيدًا لـ3E-b-4." if process_still_app else "process_uploaded_excel غير موجودة في app.py.",
+    )
+
+    for module_label, module_path in [("school_data.py", school_path), ("schedules.py", schedules_path)]:
+        try:
+            py_compile.compile(str(module_path), doraise=True)
+            add(results, f"3E-b-3: py_compile {module_label}", "PASS", f"{module_label} لا يحتوي أخطاء نحوية.")
+        except Exception as exc:  # pragma: no cover
+            add(results, f"3E-b-3: py_compile {module_label}", "FAIL", f"فشل py_compile: {exc}")
+
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
     warn = sum(r.status == "WARN" for r in results)
@@ -1406,6 +1583,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_balances_phase3ga(path, app_text, results)
     check_time_helper_phase3eb1(path, app_text, results)
     check_refresh_schedule_core_phase3eb2(path, app_text, results)
+    check_gradio_bound_helpers_phase3eb3(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
