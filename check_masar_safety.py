@@ -2420,16 +2420,19 @@ def check_get_swap_candidates_phase3ia4c(app_path: Path, app_text: str, results:
         "_get_update_choices غير موجودة بعد أن أصبحت كودًا ميتًا." if update_choices_removed else "_get_update_choices ما زالت موجودة.",
     )
 
-    update_value_kept_for_next = (
+    update_value_is_safe = (
+        "_get_update_value" not in app_text
+        and "_get_update_value" not in swaps_text
+    ) or (
         bool(re.search(r"^def\s+_get_update_value\s*\(", app_text, re.MULTILINE))
         and bool(on_select_body)
         and "_get_update_value" in on_select_body
     )
     add(
         results,
-        "3I-a-4c: إبقاء _get_update_value مؤقتًا لـ on_swap_option_selected",
-        "PASS" if update_value_kept_for_next else "FAIL",
-        "_get_update_value باقية لأنها ما زالت مطلوبة في on_swap_option_selected." if update_value_kept_for_next else "_get_update_value حُذفت مبكرًا أو لم تعد ظاهرة في on_swap_option_selected.",
+        "3I-a-4c/4d: حالة _get_update_value آمنة",
+        "PASS" if update_value_is_safe else "FAIL",
+        "_get_update_value إما باقية مؤقتًا لـ on_swap_option_selected أو حُذفت بعد 3I-a-4d." if update_value_is_safe else "_get_update_value موجودة في موضع غير متوقع أو لم تعد متوافقة مع 3I-a-4c/4d.",
     )
 
     core_clean = bool(core_body) and "gr.update" not in core_body and "return gr.update" not in core_body
@@ -2479,6 +2482,144 @@ def check_get_swap_candidates_phase3ia4c(app_path: Path, app_text: str, results:
         add(results, "3I-a-4c: py_compile swaps.py", "PASS", "swaps.py لا يحتوي أخطاء نحوية بعد get_swap_candidates_for_period_core.")
     except Exception as exc:
         add(results, "3I-a-4c: py_compile swaps.py", "FAIL", f"فشل py_compile: {exc}")
+
+def check_on_swap_option_selected_phase3ia4d(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3I-a-4d: تقسيم on_swap_option_selected إلى core/wrapper وحذف _get_update_value."""
+    swaps_path = app_path.with_name("swaps.py")
+    if not swaps_path.exists():
+        add(results, "3I-a-4d: وجود swaps.py", "FAIL", f"غير موجود: {swaps_path}")
+        return
+
+    swaps_text = swaps_path.read_text(encoding="utf-8")
+    core_body = function_body(swaps_text, "on_swap_option_selected_core")
+    wrapper_body = function_body(app_text, "on_swap_option_selected")
+
+    core_exists = bool(re.search(r"^def\s+on_swap_option_selected_core\s*\(", swaps_text, re.MULTILINE))
+    duplicated_core = bool(re.search(r"^def\s+on_swap_option_selected_core\s*\(", app_text, re.MULTILINE))
+    add(
+        results,
+        "3I-a-4d: on_swap_option_selected_core موجودة في swaps.py فقط",
+        "PASS" if core_exists and not duplicated_core else "FAIL",
+        "core موجودة داخل swaps.py ولا توجد نسخة مكررة في app.py." if core_exists and not duplicated_core else f"core_exists={core_exists}, duplicated_core={duplicated_core}",
+    )
+
+    wrapper_exists = bool(re.search(r"^def\s+on_swap_option_selected\s*\(", app_text, re.MULTILINE))
+    wrapper_calls_core = bool(wrapper_body) and "on_swap_option_selected_core(" in wrapper_body
+    wrapper_no_old_helpers = bool(wrapper_body) and "_get_update_value" not in wrapper_body and "generate_wa_msg(" not in wrapper_body
+    wrapper_updates_ok = (
+        bool(wrapper_body)
+        and "gr.update(value=msg_value" in wrapper_body
+        and "gr.update(value=btn_value" in wrapper_body
+        and "interactive=is_interactive" in wrapper_body
+        and wrapper_body.count("visible=True") >= 3
+    )
+    add(
+        results,
+        "3I-a-4d: wrapper يستدعي core ويرجع مخرجات Gradio القديمة",
+        "PASS" if wrapper_exists and wrapper_calls_core and wrapper_no_old_helpers and wrapper_updates_ok else "FAIL",
+        "wrapper خفيف ويحوّل msg/button/interactive إلى 3 مخرجات Gradio." if wrapper_exists and wrapper_calls_core and wrapper_no_old_helpers and wrapper_updates_ok else f"wrapper_exists={wrapper_exists}, calls_core={wrapper_calls_core}, no_old_helpers={wrapper_no_old_helpers}, updates_ok={wrapper_updates_ok}",
+    )
+
+    event_handler_still_app = bool(re.search(r"^def\s+on_swap_option_selected_from_event\s*\(", app_text, re.MULTILINE))
+    event_handler_not_moved = not bool(re.search(r"^def\s+on_swap_option_selected_from_event\s*\(", swaps_text, re.MULTILINE))
+    add(
+        results,
+        "3I-a-4d: on_swap_option_selected_from_event باقية في app.py",
+        "PASS" if event_handler_still_app and event_handler_not_moved else "FAIL",
+        "event wrapper باقية في app.py لأنها تتعامل مع gr.SelectData." if event_handler_still_app and event_handler_not_moved else f"in_app={event_handler_still_app}, in_swaps={not event_handler_not_moved}",
+    )
+
+    core_direct_ok = (
+        bool(core_body)
+        and "generate_wa_msg_core(" in core_body
+        and "generate_wa_msg(" not in core_body
+        and "_get_update_value" not in core_body
+        and "gr.update" not in core_body
+        and "return SWAP_EMPTY_MSG" in core_body
+    )
+    add(
+        results,
+        "3I-a-4d: core يستدعي generate_wa_msg_core مباشرة",
+        "PASS" if core_direct_ok else "FAIL",
+        "core يرجع قيمًا خامًا ويستدعي generate_wa_msg_core مباشرة بلا wrapper أو gr.update." if core_direct_ok else "core لا يحقق شرط الاستدعاء المباشر أو يحتوي اعتمادًا غير نظيف.",
+    )
+
+    update_value_removed = "_get_update_value" not in app_text and "_get_update_value" not in swaps_text
+    add(
+        results,
+        "3I-a-4d: حذف _get_update_value بعد موتها",
+        "PASS" if update_value_removed else "FAIL",
+        "_get_update_value غير موجودة في app.py أو swaps.py بعد نقل on_swap_option_selected." if update_value_removed else "_get_update_value ما زالت موجودة بعد 3I-a-4d.",
+    )
+
+    empty_msg_in_swaps = "SWAP_EMPTY_MSG =" in swaps_text
+    app_imports_empty_msg = "SWAP_EMPTY_MSG" in re.search(r"from\s+swaps\s+import\s*\((.*?)\)", app_text, re.DOTALL).group(1) if re.search(r"from\s+swaps\s+import\s*\((.*?)\)", app_text, re.DOTALL) else False
+    app_local_empty_msg = bool(re.search(r"^SWAP_EMPTY_MSG\s*=", app_text, re.MULTILINE))
+    add(
+        results,
+        "3I-a-4d: SWAP_EMPTY_MSG في swaps.py بلا اعتماد عكسي",
+        "PASS" if empty_msg_in_swaps and app_imports_empty_msg and not app_local_empty_msg else "FAIL",
+        "SWAP_EMPTY_MSG مُعرّفة في swaps.py ومستوردة في app.py بلا تعريف محلي مكرر." if empty_msg_in_swaps and app_imports_empty_msg and not app_local_empty_msg else f"in_swaps={empty_msg_in_swaps}, imported_in_app={app_imports_empty_msg}, local_in_app={app_local_empty_msg}",
+    )
+
+    no_state_lock = not bool(re.search(r"@state_locked\s*\ndef\s+on_swap_option_selected_core\s*\(", swaps_text))
+    add(
+        results,
+        "3I-a-4d: on_swap_option_selected_core بلا @state_locked",
+        "PASS" if no_state_lock else "FAIL",
+        "لا توجد @state_locked على core لأنها لا تعدّل البيانات." if no_state_lock else "ظهرت @state_locked على core بلا حاجة.",
+    )
+
+    no_reverse_import = "import app" not in swaps_text and "from app import" not in swaps_text
+    swaps_no_gradio = "gr.update" not in swaps_text and "import gradio" not in swaps_text and "from gradio" not in swaps_text and "gr.SelectData" not in swaps_text
+    add(
+        results,
+        "3I-a-4d: swaps.py بلا Gradio ولا import app",
+        "PASS" if no_reverse_import and swaps_no_gradio else "FAIL",
+        "لا يوجد gr.update أو import gradio أو gr.SelectData أو import app داخل swaps.py." if no_reverse_import and swaps_no_gradio else f"no_reverse_import={no_reverse_import}, swaps_no_gradio={swaps_no_gradio}",
+    )
+
+    try:
+        app_tree = ast.parse(app_text)
+        wrapper_returns = []
+        for node in ast.walk(app_tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "on_swap_option_selected":
+                wrapper_returns = [r for r in ast.walk(node) if isinstance(r, ast.Return)]
+                break
+        wrapper_three_outputs = bool(wrapper_returns) and all(isinstance(r.value, ast.Tuple) and len(r.value.elts) == 3 for r in wrapper_returns)
+        add(
+            results,
+            "3I-a-4d: wrapper يرجع 3 عناصر",
+            "PASS" if wrapper_three_outputs else "FAIL",
+            "كل فروع wrapper ترجع 3 عناصر." if wrapper_three_outputs else "wrapper لا يرجع 3 عناصر في كل الفروع.",
+        )
+    except SyntaxError as exc:
+        add(results, "3I-a-4d: تحليل AST للـwrapper", "FAIL", f"تعذر تحليل app.py: {exc}")
+
+    try:
+        swaps_tree = ast.parse(swaps_text)
+        core_returns = []
+        for node in ast.walk(swaps_tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "on_swap_option_selected_core":
+                core_returns = [r for r in ast.walk(node) if isinstance(r, ast.Return)]
+                break
+        core_three_raw_outputs = bool(core_returns) and all(isinstance(r.value, ast.Tuple) and len(r.value.elts) == 3 for r in core_returns)
+        add(
+            results,
+            "3I-a-4d: core يرجع 3 قيم خام",
+            "PASS" if core_three_raw_outputs else "FAIL",
+            "core يرجع tuple من 3 قيم خام في كل الفروع." if core_three_raw_outputs else "core لا يرجع tuple من 3 قيم خام في كل الفروع.",
+        )
+    except SyntaxError as exc:
+        add(results, "3I-a-4d: تحليل AST للـcore", "FAIL", f"تعذر تحليل swaps.py: {exc}")
+
+    try:
+        py_compile.compile(str(app_path), doraise=True)
+        py_compile.compile(str(swaps_path), doraise=True)
+        add(results, "3I-a-4d: py_compile app.py و swaps.py", "PASS", "app.py و swaps.py بلا أخطاء نحوية بعد 3I-a-4d.")
+    except Exception as exc:
+        add(results, "3I-a-4d: py_compile app.py و swaps.py", "FAIL", f"فشل py_compile: {exc}")
+
 
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
@@ -2587,6 +2728,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_run_radar_safe_phase3ia4a(path, app_text, results)
     check_generate_wa_msg_phase3ia4b(path, app_text, results)
     check_get_swap_candidates_phase3ia4c(path, app_text, results)
+    check_on_swap_option_selected_phase3ia4d(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
