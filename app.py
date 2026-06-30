@@ -216,6 +216,7 @@ from distribution import (
     resolve_teacher_display_values,
     get_dynamic_header,
     get_initial_header,
+    refresh_ui_on_change_core,
 )
 
 
@@ -3630,168 +3631,68 @@ def run_full_regeneration(absent_list, day_name, dept_filter, max_reserves, is_a
     return tuple(ui) + (btn_upd, regen_upd, new_state)
     
 def refresh_ui_on_change(dept, day_name, is_admin_logged_in, current_abs=None):
-    if not teachers_db:
-        load_db()
-    if not daily_db:
-        load_daily_db()
+    refresh_values = refresh_ui_on_change_core(dept, day_name, is_admin_logged_in, current_abs=current_abs)
+    if len(refresh_values) != 27:
+        raise ValueError(f"refresh_ui_on_change_core returned {len(refresh_values)} outputs, expected 27")
 
-    effective_dept = resolve_effective_dept(dept)
-    is_shared_teacher_view = str(dept or "").strip() == "المعلمون"
-    target_date = get_date_of_weekday(day_name)
-    display_records = [r for r in daily_db if r["date"] == target_date and (effective_dept == "الكل" or r["dept"] == effective_dept)]
-    df = pd.DataFrame(display_records, columns=["المعلم الغائب", "الصف", "الحصة", "المعلم البديل", "dept", "date", "حالة_التكليف"]).sort_values(["المعلم الغائب", "الحصة"])
-    
-    if not df.empty:
-        df["المعلم البديل عرض"] = df.apply(format_sub_display, axis=1)
-        df["المعلم الغائب"] = df["المعلم الغائب"].apply(format_teacher_name)
-    
-    is_visible = not df.empty
-    warning_html = ""
-    
-    if is_admin_logged_in:
-        global_records = [r for r in daily_db if r["date"] == target_date]
-        uncovered = len([r for r in global_records if r["المعلم البديل"] == "إشراف إداري"])
-        if uncovered > 0: warning_html = f"<div style='background:#ffebee; color:#c62828; padding:15px; border-radius:10px; border:2px solid #c62828; text-align:center; font-weight:bold; font-size:16px; margin-bottom:15px; animation: pulse 2s infinite;'>🚨 رادار القيادة: بقي لديك ({uncovered}) حصص إشراف إداري تتطلب التدخل العاجل!</div>"
-        else:
-            if len(global_records) > 0: warning_html = f"<div style='background:#e8f5e9; color:#2e7d32; padding:15px; border-radius:10px; border:2px solid #2e7d32; text-align:center; font-weight:bold; font-size:16px; margin-bottom:15px;'>✅ رادار القيادة: تم تأمين المدرسة بالكامل! جميع الحصص مغطاة.</div>"
-            else: warning_html = f"<div style='background:#f1f8e9; color:#388e3c; padding:15px; border-radius:10px; border:1px dashed #388e3c; text-align:center; font-weight:bold; font-size:15px; margin-bottom:15px;'>🛡️ النظام جاهز: لا توجد حالات غياب مسجلة حتى الآن.</div>"
-    else:
-        uncovered = len([r for r in display_records if r["المعلم البديل"] == "إشراف إداري"])
-        if uncovered > 0: warning_html = f"<div style='background:#fff3e0; color:#e65100; padding:15px; border-radius:10px; border:2px solid #e65100; text-align:center; font-weight:bold; font-size:16px; margin-bottom:15px;'>⚠️ تنبيه للقسم: يوجد ({uncovered}) حصص غير مغطاة تم تحويلها للإدارة.</div>"
-        else:
-            if len(display_records) > 0: warning_html = f"<div style='background:#e8f5e9; color:#2e7d32; padding:15px; border-radius:10px; border:2px solid #2e7d32; text-align:center; font-weight:bold; font-size:16px; margin-bottom:15px;'>✅ اكتملت المهمة: تم تأمين جميع حصص القسم بنجاح.</div>"
-            else: warning_html = f"<div style='background:#f1f8e9; color:#388e3c; padding:15px; border-radius:10px; border:1px dashed #388e3c; text-align:center; font-weight:bold; font-size:15px; margin-bottom:15px;'>🛡️ القسم جاهز: لا توجد حالات غياب.</div>"
+    (
+        abs_update_raw,
+        balance_html,
+        absences_html,
+        shortcomings_html,
+        day_df,
+        day_table_html,
+        pager_visible,
+        prev_interactive,
+        next_interactive,
+        page_html,
+        safe_page,
+        t_names_filtered,
+        teacher_schedule_choices,
+        choices,
+        warning_html,
+        styled_table_html,
+        opts_abs,
+        df,
+        summary_txt,
+        html_cards,
+        dynamic_header,
+        admin_title_val,
+        admin_help_val,
+        period_update_raw,
+        cb_cross_update_raw,
+        first_action_interactive,
+        second_action_interactive,
+    ) = refresh_values
 
-    exhausted_msgs = []
-    checked_exhausted = set()
-    for r in display_records:
-        sub = r["المعلم البديل"]
-        if sub != "إشراف إداري" and r.get("حالة_التكليف") != "تقصير" and sub not in checked_exhausted:
-            checked_exhausted.add(sub)
-            if sub in teachers_db:
-                base_p = {int(p) for p in teachers_db[sub].get(day_name, {}).keys()}
-                sub_p = {int(r2["الحصة"]) for r2 in daily_db if r2["date"] == target_date and r2["المعلم البديل"] == sub and r2.get("حالة_التكليف") != "تقصير"}
-                all_p = base_p | sub_p
-                consecutive_groups = []
-                for i in range(1, 7):
-                    if i in all_p and i+1 in all_p and i+2 in all_p: consecutive_groups.append(f"{i}، {i+1}، {i+2}")
-                if consecutive_groups:
-                    grp_str = consecutive_groups[0]
-                    exhausted_msgs.append(f"<li style='margin-bottom:5px;'>⚠️ الأستاذ <b>{sub}</b> سيدرس الحصص ({grp_str}) متتالية!</li>")
-    
-    if exhausted_msgs:
-        radar_alert = f"<div style='background:#fff8e1; color:#e65100; padding:15px; border-radius:10px; border:2px solid #ffb74d; margin-bottom:15px; text-align:right;'><b style='font-size:16px;'>الرادار الإنساني (تنبيه إرهاق):</b><ul style='margin-top:8px; margin-bottom:0; padding-right:20px; font-size:14px;'>" + "".join(exhausted_msgs) + "</ul></div>"
-        warning_html = radar_alert + warning_html
-
-    persistent_conflict_html = ""
-    if not is_shared_teacher_view:
-        persistent_conflict_html = build_absence_conflict_warning_html(
-            detect_absence_assignment_conflicts_for_context(day_name, effective_dept, current_abs),
-            day_name,
-        )
-        if persistent_conflict_html:
-            warning_html = warning_html + persistent_conflict_html
-
-    actual_abs = sorted(list(set([r["المعلم الغائب"] for r in display_records])))
-    conflicted_teachers, conflicted_slots = detect_conflicted_absence_slots(display_records)
-    opts_abs = []
-    
-    if is_admin_logged_in:
-        admin_title_val = "<h4 style='color:#004d40; text-align:center; margin-top:0;'>🛠️ غرفة العمليات الإدارية والقيادة العليا</h4><p style='text-align:center; color:#555; font-size:13px;'>صلاحيات مطلقة: يمكنك إسناد أي حصة لأي معلم، واعتماد التبادلات، ورصد التقصير.</p>"
-        admin_help_val = "<div style='color:#00695c; background:#e0f2f1; padding:15px; border-radius:8px; border-right: 4px solid #00897b; direction:rtl; text-align:right; line-height:1.9; font-weight:800;'>💡 <b>توضيح:</b><br>لإلغاء غياب معلم من اليوم بالكامل، اختر <b>المعلم الغائب</b> ثم اضغط زر <b>إلغاء غياب اليوم بالكامل</b>.<br>لعمل <b>تكليف احتياط رسمي</b> أو <b>اعتماد كتبادل</b>، اختر المعلم الغائب، ثم الحصة، ثم <b>البديل المنقذ</b>.<br>لعمل <b>رصد تقصير في التكليف</b>، اختر المعلم الغائب ثم الحصة، ثم اضغط زر <b>رصد تقصير في التكليف</b>.</div>"
-        period_update = gr.update(choices=[], value=None, label="2️⃣ اختر الحصة", interactive=is_visible)
-        cb_cross_update = gr.update(visible=False, value=False)
-        for c in actual_abs:
-            role = teachers_db.get(c, {}).get("role", "معلم")
-            clean_c = str(c).split(" (")[0].strip()
-            has_admin_sup = any(str(r.get("المعلم البديل", "")) == "إشراف إداري" for r in display_records if str(r.get("المعلم الغائب", "")).split(" (")[0].strip() == clean_c)
-            has_conflict_sup = clean_c in conflicted_teachers
-
-            if has_admin_sup and has_conflict_sup:
-                radar_icon = " 🚨🔷 "
-            elif has_admin_sup:
-                radar_icon = " 🚨 "
-            elif has_conflict_sup:
-                radar_icon = " 🔷 "
-            else:
-                radar_icon = " ✅ "
-
-            opts_abs.append(f"{c} ({role}){radar_icon}" if role != "معلم" else f"{c}{radar_icon}")
-    else:
-        if is_shared_teacher_view:
-            admin_title_val = "<h4 style='color:#004d40; text-align:center; margin-top:0;'>📘 التبادل الودي الأسبوعي</h4><p style='text-align:center; color:#555; font-size:13px;'>عرض التبادلات الودية الأسبوعية وجداول المدرسة المتاحة للحساب العام للمعلمين.</p>"
-            admin_help_val = "<div style='color:#00695c; background:#e0f2f1; padding:15px; border-radius:8px; border-right: 4px solid #00897b;'>💡 <b>توضيح:</b> هذا الحساب مخصص للعرض المحدود فقط للوصول إلى التبادل الودي الأسبوعي، جدول اليوم، وجدول المعلم الأسبوعي.</div>"
-            period_update = gr.update(choices=[], value=None, label="2️⃣ الحصة", interactive=False)
-            cb_cross_update = gr.update(visible=False, value=False, interactive=False)
-        else:
-            dept_leader_title = "المعلم الأول"
-            for t_info in teachers_db.values():
-                if str(t_info.get("dept", "")).strip() == str(dept).strip():
-                    role = str(t_info.get("role", "")).strip()
-                    if "منسق" in role:
-                        dept_leader_title = "منسق المادة"
-                        break
-                    elif "معلم أول" in role:
-                        dept_leader_title = "المعلم الأول"
-                        break
-            admin_title_val = f"<h4 style='color:#004d40; text-align:center; margin-top:0;'>🛠️ غرفة عمليات {dept_leader_title} ({dept})</h4><p style='text-align:center; color:#555; font-size:13px;'>استبدل المعلم الغائب بمعلم آخر، أو فعّل التعاون للوصول لأقسام أخرى.</p>"
-            admin_help_val = "<div style='color:#00695c; background:#e0f2f1; padding:15px; border-radius:8px; border-right: 4px solid #00897b; direction:rtl; text-align:right; line-height:1.9; font-weight:800;'>💡 <b>توضيح:</b><br>⚫️ لإلغاء غياب معلم من اليوم بالكامل، اختر <b>المعلم الغائب</b> ثم اضغط زر <b>إلغاء غياب اليوم بالكامل</b>.<br>⚫️ لعمل <b>تكليف احتياط رسمي</b> أو <b>اعتماد كتبادل</b>، اختر المعلم الغائب، ثم اختر الحصة، ثم اختر <b>البديل المنقذ</b> من نفس القسم.<br>⚫️ إذا لم يظهر بديل مناسب من نفس القسم، اختر <b>إشراف إداري</b>، أو فعّل خيار <b>التعاون مع قسم آخر</b> لتظهر لك بدائل من الأقسام الأخرى.<br>⚫️ لعمل <b>رصد تقصير في التكليف</b>، اختر المعلم الغائب ثم اختر الحصة، ثم اضغط زر <b>رصد تقصير في التكليف</b>.</div>"
-            period_update = gr.update(choices=[], value=None, label="2️⃣ الحصة المراد تعديلها", interactive=is_visible)
-            cb_cross_update = gr.update(visible=True, value=False, interactive=True)
-        for c in actual_abs:
-            role = teachers_db.get(c, {}).get("role", "معلم")
-            clean_c = str(c).split(" (")[0].strip()
-            has_admin_sup = any(str(r.get("المعلم البديل", "")) == "إشراف إداري" for r in display_records if str(r.get("المعلم الغائب", "")).split(" (")[0].strip() == clean_c)
-            has_conflict_sup = clean_c in conflicted_teachers
-
-            if has_admin_sup and has_conflict_sup:
-                radar_icon = " 🚨🔷 "
-            elif has_admin_sup:
-                radar_icon = " 🚨 "
-            elif has_conflict_sup:
-                radar_icon = " 🔷 "
-            else:
-                radar_icon = " ✅ "
-
-            opts_abs.append(f"{c} ({role}){radar_icon}" if role != "معلم" else f"{c}{radar_icon}")
-            
-    t_names_filtered = sorted([t for t, d in teachers_db.items() if effective_dept == "الكل" or d.get("dept") == effective_dept])
-    choices = get_teacher_choices(effective_dept) 
-    teacher_schedule_choices = get_teacher_schedule_choices(effective_dept)
-    abs_choices = get_absentee_choices(effective_dept)
-    summary_txt, html_cards = generate_whatsapp_html(df, day_name, actual_abs) if not df.empty else ("", "<div style='text-align:center; color:gray; padding:20px;'>لا توجد تكليفات لعرضها</div>")
-    styled_table_html = generate_styled_html_table(df)
-    if isinstance(current_abs, str):
-        current_abs = [current_abs]
-    elif not current_abs:
-        current_abs = []
- 
-    safe_abs_value = resolve_teacher_display_values(current_abs, abs_choices)
-    fallback_abs_value = resolve_teacher_display_values(actual_abs, abs_choices)
-    day_table_updates = get_day_table_updates(day_name, effective_dept, 0)
-    
     return (
-        gr.update(choices=abs_choices, value=safe_abs_value if safe_abs_value else fallback_abs_value),
-        gr.update(value=get_updated_balance(effective_dept)),      
-        gr.update(value=get_updated_absences(effective_dept)),     
-        gr.update(value=get_updated_shortcomings(effective_dept)),
-        *day_table_updates,
-        gr.update(choices=t_names_filtered, value=None), 
-        gr.update(choices=teacher_schedule_choices, value=None),          
-        gr.update(choices=choices, value=None),          
-        warning_html,                         
-        gr.update(value=styled_table_html),              
-        gr.update(choices=opts_abs, value=None),         
-        df,                                         
-        summary_txt,                                     
-        html_cards,                                      
-        get_dynamic_header(day_name),                    
+        gr.update(**abs_update_raw),
+        gr.update(value=balance_html),
+        gr.update(value=absences_html),
+        gr.update(value=shortcomings_html),
+        gr.update(value=day_df, visible=False),
+        gr.update(value=day_table_html, visible=True),
+        gr.update(visible=pager_visible),
+        gr.update(interactive=prev_interactive),
+        gr.update(interactive=next_interactive),
+        gr.update(value=page_html, visible=True),
+        safe_page,
+        gr.update(choices=t_names_filtered, value=None),
+        gr.update(choices=teacher_schedule_choices, value=None),
+        gr.update(choices=choices, value=None),
+        warning_html,
+        gr.update(value=styled_table_html),
+        gr.update(choices=opts_abs, value=None),
+        df,
+        summary_txt,
+        html_cards,
+        dynamic_header,
         admin_title_val,
         gr.update(value=admin_help_val),
-        period_update,                           
-        cb_cross_update,
-        gr.update(interactive=is_visible),               
-        gr.update(interactive=is_visible)                
+        gr.update(**period_update_raw),
+        gr.update(**cb_cross_update_raw),
+        gr.update(interactive=first_action_interactive),
+        gr.update(interactive=second_action_interactive),
     )
 
 @state_locked
