@@ -18,7 +18,7 @@ from storage import (
     load_db, load_daily_db, save_db, save_daily_db, state_locked,
     _queue_audit_change, _flush_audit_changes, write_audit_log,
 )
-from schedules import resolve_effective_dept, format_teacher_name, get_teacher_choices, get_absentee_choices, get_day_table_updates_core, get_day_overview
+from schedules import resolve_effective_dept, format_teacher_name, clean_teacher_name, get_teacher_choices, get_absentee_choices, get_day_table_updates_core, get_day_overview
 from balances import get_updated_balance, get_updated_absences, get_updated_shortcomings
 from exemptions import is_teacher_exempt_for_slot, clean_teacher_name_from_ui
 from swaps import get_date_of_weekday, get_current_day_oman, get_class_dna, check_teacher_load, format_elegant_class
@@ -556,6 +556,86 @@ def reset_monthly_balances_core(dept_filter, day_val, is_admin=False, is_owner=F
     msg = "<div style='color:#1565c0; font-weight:bold; background:#e3f2fd; padding:15px; border-radius:10px; text-align:center; margin-bottom:10px;'>✅ تم إقفال الشهر بنجاح! تم حفظ نسخ احتياطية ثم تصفير الأرصدة والغياب والتقصير.</div>"
 
     return build_payload(msg)
+@state_locked
+def add_manual_staff_core(name, dept, phone, role, dept_filter, is_owner=False):
+    def build_payload(message, abs_update=None, teacher_update_1=None, teacher_update_2=None, staff_names_update=None, name_input_update=None, phone_input_update=None):
+        return {
+            "message": message,
+            "abs_update": abs_update or {},
+            "teacher_update_1": teacher_update_1 or {},
+            "teacher_update_2": teacher_update_2 or {},
+            "staff_names_update": staff_names_update or {},
+            "name_input_update": name_input_update or {},
+            "phone_input_update": phone_input_update or {},
+        }
+
+    if not bool(is_owner):
+        return build_payload("<div style='color:red; font-weight:bold;'>❌ الإضافة اليدوية للطاقم متاحة لمالك النظام فقط.</div>")
+    if not name or not str(name).strip():
+        return build_payload("<div style='color:red; font-weight:bold;'>❌ الرجاء إدخال الاسم.</div>")
+
+    t_name = clean_teacher_name(name)
+    if t_name not in teachers_db:
+        teachers_db[t_name] = {"dept": dept, "cover_count": 0, "absent_count": 0, "shortcoming_count": 0, "phone": "", "specialty": "", "role": role, "exempt_days": [], "exempt_periods": [], "exempt_slots": [], "absence_dates": [], "الأحد": {}, "الإثنين": {}, "الثلاثاء": {}, "الأربعاء": {}, "الخميس": {}}
+    else:
+        teachers_db[t_name]["dept"] = dept
+        teachers_db[t_name]["role"] = role
+    if phone:
+        phone_clean = re.sub(r'\D', '', str(phone))
+        if len(phone_clean) == 8:
+            phone_clean = "968" + phone_clean
+        teachers_db[t_name]["phone"] = phone_clean
+    save_db()
+    choices_all = get_teacher_choices(dept_filter)
+    abs_choices = get_absentee_choices(dept_filter)
+    t_names_filtered = sorted([t for t, d in teachers_db.items() if dept_filter == "الكل" or d.get("dept") == dept_filter])
+    msg = f"<div style='color:#2e7d32; font-weight:bold; background:#e8f5e9; padding:10px; border-radius:5px;'>✅ تم إضافة/تحديث ({t_name}) بنجاح كطاقم إداري!</div>"
+    return build_payload(
+        msg,
+        abs_update={"choices": abs_choices},
+        teacher_update_1={"choices": choices_all, "value": None},
+        teacher_update_2={"choices": choices_all, "value": None},
+        staff_names_update={"choices": t_names_filtered, "value": None},
+        name_input_update={"value": ""},
+        phone_input_update={"value": ""},
+    )
+
+
+@state_locked
+def delete_single_teacher_core(name, dept_filter, day_val, is_owner=False):
+    def build_payload(message, balance_update=None, absences_update=None, shortcomings_update=None, day_overview_update=None, abs_update=None, teacher_update_1=None, teacher_update_2=None, delete_choices_update=None):
+        return {
+            "balance_update": balance_update or {},
+            "absences_update": absences_update or {},
+            "shortcomings_update": shortcomings_update or {},
+            "day_overview_update": day_overview_update or {},
+            "message": message,
+            "abs_update": abs_update or {},
+            "teacher_update_1": teacher_update_1 or {},
+            "teacher_update_2": teacher_update_2 or {},
+            "delete_choices_update": delete_choices_update or {},
+        }
+
+    if not bool(is_owner):
+        return build_payload("<div style='color:red;'>❌ حذف السجل متاح لمالك النظام فقط.</div>")
+    if name and name in teachers_db:
+        del teachers_db[name]
+        save_db()
+        choices_all = get_teacher_choices(dept_filter)
+        abs_choices = get_absentee_choices(dept_filter)
+        msg = f"<div style='color:#c62828; font-weight:bold; background:#ffebee; padding:10px; border-radius:5px; text-align:center;'>🗑️ تم حذف ({name}) نهائياً من النظام!</div>"
+        return build_payload(
+            msg,
+            balance_update={"value": get_updated_balance(dept_filter)},
+            absences_update={"value": get_updated_absences(dept_filter)},
+            shortcomings_update={"value": get_updated_shortcomings(dept_filter)},
+            day_overview_update={"value": get_day_overview(day_val, dept_filter)},
+            abs_update={"choices": abs_choices},
+            teacher_update_1={"choices": choices_all, "value": None},
+            teacher_update_2={"choices": choices_all, "value": None},
+            delete_choices_update={"choices": list(teachers_db.keys()), "value": None},
+        )
+    return build_payload("<div style='color:red;'>❌ المعلم غير موجود</div>")
 
 
 def resolve_teacher_display_value(raw_name, choices):
