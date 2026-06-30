@@ -84,6 +84,9 @@ from storage import (
     load_swap_db,
     get_now_oman,
     write_audit_log,
+    last_assigned_teachers,
+    _queue_audit_change,
+    _flush_audit_changes,
 )
 
 from auth import (
@@ -1218,7 +1221,6 @@ WELCOME_MESSAGES = {
     "المهارات الفردية": " سُعدنا بانضمامك ({name}) هذه مساحة للتنسيق وتنظيم العمل."
 }
 
-last_assigned_teachers = []
 
 
 @state_locked
@@ -1467,29 +1469,6 @@ def fix_arabic(text):
     for c in ['\u202a', '\u202b', '\u202c', '\u200e', '\u200f']: bidi = bidi.replace(c, '')
     return bidi
 
-
-def _queue_audit_change(entries, action, target_teacher, old_value, new_value, details):
-    if old_value == new_value:
-        return
-    entries.append({
-        "action": action,
-        "target_teacher": target_teacher,
-        "old_value": old_value,
-        "new_value": new_value,
-        "details": details,
-    })
-
-def _flush_audit_changes(entries, actor_name="", actor_role=""):
-    for entry in entries:
-        write_audit_log(
-            entry.get("action", ""),
-            target_teacher=entry.get("target_teacher", ""),
-            old_value=entry.get("old_value"),
-            new_value=entry.get("new_value"),
-            details=entry.get("details", ""),
-            actor_name=actor_name,
-            actor_role=actor_role,
-        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3698,7 +3677,7 @@ def refresh_ui_on_change(dept, day_name, is_admin_logged_in, current_abs=None):
 
 @state_locked
 def assign_logic(absent_list, day_name, dept_filter, max_reserves, is_alt, is_admin_logged_in, actor_name="", actor_role=""):
-    global last_assigned_teachers, processed_absences, daily_db
+    global processed_absences, daily_db
 
     audit_entries = []
 
@@ -3857,7 +3836,8 @@ def assign_logic(absent_list, day_name, dept_filter, max_reserves, is_alt, is_ad
                 current_assigned.append(sel)
                 res.append({"المعلم الغائب": abs_t, "الصف": cl, "الحصة": str(p_int), "المعلم البديل": sel, "حالة_التكليف": ""})
 
-    last_assigned_teachers = current_assigned
+    last_assigned_teachers.clear()
+    last_assigned_teachers.extend(current_assigned)
     save_db()
     for r in res:
         r["date"] = target_date
@@ -4328,8 +4308,6 @@ def export_excel_report(dept_filter):
 
 @state_locked
 def reset_monthly_balances(dept_filter, day_val, is_admin=False, is_owner=False, actor_name="", actor_role=""):
-    global last_assigned_teachers
-
     permissions = get_permissions(role=actor_role, is_owner=is_owner, is_admin_flag=is_admin)
     if not permissions["can_close_month"]:
         return (
@@ -4354,7 +4332,7 @@ def reset_monthly_balances(dept_filter, day_val, is_admin=False, is_owner=False,
 
     daily_db.clear()
     processed_absences.clear()
-    last_assigned_teachers = []
+    last_assigned_teachers.clear()
     save_daily_db()
 
     if old_cover:
@@ -4376,8 +4354,6 @@ def reset_monthly_balances(dept_filter, day_val, is_admin=False, is_owner=False,
     
 @state_locked
 def clear_all_data(is_owner_logged_in):
-    global last_assigned_teachers
-
     empty_balance_df = pd.DataFrame(columns=["المعلم", "الرصيد"])
     empty_absence_df = pd.DataFrame(columns=["المعلم", "مرات الغياب"])
     empty_shortcomings_html = render_compact_rtl_table_html(
@@ -4426,7 +4402,7 @@ def clear_all_data(is_owner_logged_in):
     teachers_db.clear()
     daily_db.clear()
     processed_absences.clear()
-    last_assigned_teachers = []
+    last_assigned_teachers.clear()
 
     # الحفظ الآمن ينشئ نسخة احتياطية قبل كتابة الحالة الفارغة.
     save_db()
