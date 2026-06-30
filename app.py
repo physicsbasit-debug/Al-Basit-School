@@ -221,6 +221,7 @@ from distribution import (
     get_initial_header,
     refresh_ui_on_change_core,
     update_available_subs_smart_core,
+    assign_logic_core,
 )
 
 
@@ -3675,188 +3676,22 @@ def refresh_ui_on_change(dept, day_name, is_admin_logged_in, current_abs=None):
         gr.update(interactive=second_action_interactive),
     )
 
-@state_locked
 def assign_logic(absent_list, day_name, dept_filter, max_reserves, is_alt, is_admin_logged_in, actor_name="", actor_role=""):
-    global processed_absences, daily_db
-
-    audit_entries = []
-
-    if isinstance(absent_list, str):
-        raw_absents = [absent_list]
-    else:
-        raw_absents = list(absent_list or [])
-
-    absent_list_clean = []
-    for item in raw_absents:
-        clean_name = clean_teacher_name_from_ui(item)
-        if clean_name and clean_name not in absent_list_clean:
-            absent_list_clean.append(clean_name)
-
-    target_date = get_date_of_weekday(day_name)
-
-    existing_absent_today = []
-    for row in daily_db:
-        if row.get("date") != target_date:
-            continue
-        row_absent = clean_teacher_name_from_ui(row.get("المعلم الغائب", ""))
-        if row_absent and row_absent not in existing_absent_today:
-            existing_absent_today.append(row_absent)
-
-    target_absents = []
-    for name in absent_list_clean + existing_absent_today:
-        if name and name not in target_absents:
-            target_absents.append(name)
-
-    if is_alt:
-        records_to_keep = []
-        records_to_delete = []
-
-        for row in daily_db:
-            row_absent = clean_teacher_name_from_ui(row.get("المعلم الغائب", ""))
-            row_status = str(row.get("حالة_التكليف", "")).strip()
-            should_replace_auto = (
-                row.get("date") == target_date
-                and row_absent in target_absents
-                and row_status == ""
-            )
-            if should_replace_auto:
-                records_to_delete.append(row)
-            else:
-                records_to_keep.append(row)
-
-        daily_db.clear()
-        daily_db.extend(records_to_keep)
-
-        for row in records_to_delete:
-            old_sub = clean_teacher_name_from_ui(row.get("المعلم البديل", ""))
-            if old_sub != "إشراف إداري" and old_sub in teachers_db:
-                old_count = int(teachers_db[old_sub].get("cover_count", 0) or 0)
-                new_count = max(0, old_count - 1)
-                teachers_db[old_sub]["cover_count"] = new_count
-                _queue_audit_change(
-                    audit_entries,
-                    "تعديل رصيد الاحتياط",
-                    old_sub,
-                    old_count,
-                    new_count,
-                    f"إلغاء إسناد آلي بسبب طلب مقترح آخر ليوم {day_name}",
-                )
-
-        generation_absents = target_absents
-    else:
-        generation_absents = absent_list_clean
-        for abs_t in absent_list_clean:
-            if (target_date, abs_t) not in processed_absences:
-                if abs_t in teachers_db:
-                    old_absent = int(teachers_db[abs_t].get("absent_count", 0) or 0)
-                    new_absent = old_absent + 1
-                    teachers_db[abs_t]["absent_count"] = new_absent
-                    _queue_audit_change(
-                        audit_entries,
-                        "تعديل مرات الغياب",
-                        abs_t,
-                        old_absent,
-                        new_absent,
-                        f"تسجيل غياب يوم {day_name} ({target_date})",
-                    )
-                    if "absence_dates" not in teachers_db[abs_t]:
-                        teachers_db[abs_t]["absence_dates"] = []
-                    date_entry = f"{day_name} ({target_date})"
-                    if date_entry not in teachers_db[abs_t]["absence_dates"] and target_date not in teachers_db[abs_t]["absence_dates"]:
-                        teachers_db[abs_t]["absence_dates"].append(date_entry)
-                processed_absences.add((target_date, abs_t))
-
-    all_absent_today = set(target_absents if is_alt else (existing_absent_today + absent_list_clean))
-
-    preserved_slots = {
-        (
-            clean_teacher_name_from_ui(row.get("المعلم الغائب", "")),
-            str(row.get("الحصة", "")).strip()
-        )
-        for row in daily_db
-        if row.get("date") == target_date
-        and clean_teacher_name_from_ui(row.get("المعلم الغائب", "")) in all_absent_today
-    }
-
-    res, current_assigned = [], []
-    daily_assigned_count = {t: 0 for t in teachers_db}
-    assigned_periods_today = {t: set() for t in teachers_db}
-    for r in daily_db:
-        if r["date"] == target_date and r["المعلم البديل"] != "إشراف إداري" and r.get("حالة_التكليف") != "تقصير":
-            t = r["المعلم البديل"]
-            if t in daily_assigned_count:
-                daily_assigned_count[t] += 1
-                assigned_periods_today[t].add(int(r["الحصة"]))
-
-    for abs_t in generation_absents:
-        abs_dept = teachers_db.get(abs_t, {}).get("dept", "عام")
-        for p_str, cl in teachers_db.get(abs_t, {}).get(day_name, {}).items():
-            p_int = int(p_str)
-            p_key = str(p_int)
-            if (abs_t, p_key) in preserved_slots:
-                continue
-
-            cands = []
-            for t, t_info in teachers_db.items():
-                if t in all_absent_today:
-                    continue
-                if t_info.get("dept") != abs_dept:
-                    continue
-                if p_int in t_info.get(day_name, {}):
-                    continue
-                role = t_info.get("role", "معلم")
-                if role in ADMIN_ROLES:
-                    continue
-                if p_int in assigned_periods_today[t]:
-                    continue
-                if daily_assigned_count[t] >= max_reserves:
-                    continue
-                if is_teacher_exempt_for_slot(t, day_name, p_int):
-                    continue
-                cands.append(t)
-            if not cands:
-                res.append({"المعلم الغائب": abs_t, "الصف": cl, "الحصة": str(p_int), "المعلم البديل": "إشراف إداري", "حالة_التكليف": ""})
-            else:
-                random.shuffle(cands)
-                cands.sort(key=lambda t: teachers_db[t]["cover_count"])
-                sel = cands[0]
-                old_cover = int(teachers_db[sel].get("cover_count", 0) or 0)
-                new_cover = old_cover + 1
-                teachers_db[sel]["cover_count"] = new_cover
-                _queue_audit_change(
-                    audit_entries,
-                    "تعديل رصيد الاحتياط",
-                    sel,
-                    old_cover,
-                    new_cover,
-                    f"إسناد احتياط آلي بدل {abs_t} في الحصة {p_int} يوم {day_name}",
-                )
-                daily_assigned_count[sel] += 1
-                assigned_periods_today[sel].add(p_int)
-                current_assigned.append(sel)
-                res.append({"المعلم الغائب": abs_t, "الصف": cl, "الحصة": str(p_int), "المعلم البديل": sel, "حالة_التكليف": ""})
-
-    last_assigned_teachers.clear()
-    last_assigned_teachers.extend(current_assigned)
-    save_db()
-    for r in res:
-        r["date"] = target_date
-        r["dept"] = teachers_db.get(r["المعلم الغائب"], {}).get("dept", "عام")
-        is_dup = any(
-            x["date"] == r["date"] and
-            x["المعلم الغائب"] == r["المعلم الغائب"] and
-            x["الحصة"] == r["الحصة"]
-            for x in daily_db
-        )
-        if not is_dup:
-            daily_db.append(r)
-    save_daily_db()
-    _flush_audit_changes(audit_entries, actor_name, actor_role)
-    return refresh_ui_on_change(
-        dept_filter,
+    result = assign_logic_core(
+        absent_list,
         day_name,
+        dept_filter,
+        max_reserves,
+        is_alt,
         is_admin_logged_in,
-        current_abs=(target_absents if is_alt else absent_list_clean)
+        actor_name=actor_name,
+        actor_role=actor_role,
+    )
+    return refresh_ui_on_change(
+        result["refresh_dept"],
+        result["refresh_day"],
+        result["refresh_is_admin"],
+        current_abs=result.get("refresh_current_abs"),
     )
     
 @state_locked
