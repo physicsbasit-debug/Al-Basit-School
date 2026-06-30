@@ -6,11 +6,16 @@ Phase 3I-a-1: نقل دوال العرض/التحليل النصي النظيف�
 من app.py إلى swaps.py دون أي اعتماد على Gradio أو app.py.
 """
 
+import os
+import datetime
 import re
 import urllib.parse
 
 import pandas as pd
 from openpyxl.styles import Alignment, Font, PatternFill
+from PIL import Image, ImageDraw, ImageFont
+
+from config import APP_DIR
 
 from schedules import get_teacher_choices
 
@@ -22,10 +27,35 @@ from storage import (
     get_now_oman,
     write_audit_log,
     SCHOOL_WEEK_DAYS,
+    ensure_data_directories,
+    SWAP_IMG_DIR,
 )
 
 
 SWAP_EMPTY_MSG = "💡 يرجى اختيار أحد المعلمين من القائمة بالأعلى لتوليد مسودة رسالة الواتساب هنا..."
+
+
+def get_date_of_weekday(target_day_name):
+    days_map = {"الأحد": 6, "الإثنين": 0, "الثلاثاء": 1, "الأربعاء": 2, "الخميس": 3}
+    target_weekday = days_map.get(target_day_name, 6)
+    now = get_now_oman()
+    diff = (target_weekday - now.weekday()) % 7
+    target_date = now + datetime.timedelta(days=diff)
+    return target_date.strftime("%Y-%m-%d")
+
+candidate_font_paths = [
+    os.path.join(APP_DIR, "Cairo-Regular.ttf"),
+    "/app/Cairo-Regular.ttf",
+    "./Cairo-Regular.ttf",
+]
+font_path = next((p for p in candidate_font_paths if os.path.exists(p)), None)
+
+image_font_candidate_paths = [
+    os.path.join(APP_DIR, "Amiri-Regular.ttf"),
+    "/app/Amiri-Regular.ttf",
+    "./Amiri-Regular.ttf",
+]
+image_font_path = next((p for p in image_font_candidate_paths if os.path.exists(p)), None)
 
 def get_current_day_oman():
     weekday = get_now_oman().weekday()
@@ -489,6 +519,210 @@ def format_period_label(period_value):
         return raw
     return f"الحصة {raw}"
 
+
+
+def generate_swap_table_image_core(
+    state,
+    teacher_name,
+    day_name,
+    system_name,
+    system_subtitle,
+    theme_color,
+    accent_color,
+):
+    """توليد صورة التبادل الودي كمسار ملف خام دون أي اعتماد على Gradio."""
+    if not isinstance(state, dict) or not state:
+        return None
+
+    try:
+        ensure_data_directories()
+        os.makedirs(SWAP_IMG_DIR, exist_ok=True)
+
+        target_date = get_date_of_weekday(day_name)
+
+        rows = []
+        for p, info in sorted(state.items(), key=lambda x: int(x[0])):
+            rows.append({
+                "المعلم الطالب": str(info.get("requester", "")),
+                "الصف": str(info.get("class", "")),
+                "الحصة": f"الحصة {p}",
+                "المعلم البديل": str(info.get("candidate", "")),
+                "يوم التعويض": str(info.get("comp_day", "يحدد لاحقاً")),
+                "حصة التعويض": str(info.get("comp_period", "يحدد لاحقاً")),
+            })
+
+        pil_font_path = None
+        for candidate in [
+            image_font_path,
+            os.path.join(APP_DIR, "Amiri-Regular.ttf"),
+            "/app/Amiri-Regular.ttf",
+            "./Amiri-Regular.ttf",
+            font_path,
+            os.path.join(APP_DIR, "Cairo-Regular.ttf"),
+            "/app/Cairo-Regular.ttf",
+            "./Cairo-Regular.ttf",
+        ]:
+            if candidate and os.path.exists(candidate):
+                pil_font_path = candidate
+                break
+
+        def load_font(size, bold=False):
+            try:
+                if pil_font_path:
+                    return ImageFont.truetype(pil_font_path, size=size)
+            except Exception:
+                pass
+            try:
+                fallback = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+                return ImageFont.truetype(fallback, size=size)
+            except Exception:
+                return ImageFont.load_default()
+
+        font_title = load_font(40, bold=True)
+        font_subtitle = load_font(27, bold=False)
+        font_header = load_font(25, bold=True)
+        font_cell = load_font(24, bold=False)
+        font_footer = load_font(24, bold=True)
+
+        temp_img = Image.new("RGB", (10, 10), "white")
+        temp_draw = ImageDraw.Draw(temp_img)
+
+        def text_size(value, font):
+            text_value = "" if value is None else str(value)
+            bbox = temp_draw.textbbox((0, 0), text_value, font=font)
+            return bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+        def draw_text_right(draw, x_right, y_top, value, font, fill):
+            text_value = "" if value is None else str(value)
+            w, h = text_size(text_value, font)
+            draw.text((x_right - w, y_top), text_value, font=font, fill=fill)
+            return w, h
+
+        def draw_text_center(draw, box, value, font, fill):
+            x1, y1, x2, y2 = box
+            text_value = "" if value is None else str(value)
+            w, h = text_size(text_value, font)
+            draw.text((x1 + ((x2 - x1) - w) / 2, y1 + ((y2 - y1) - h) / 2 - 2), text_value, font=font, fill=fill)
+
+        def wrap_text_by_width(value, font, max_width):
+            text_value = "" if value is None else str(value).strip()
+            if not text_value:
+                return [""]
+
+            words = text_value.split()
+            if len(words) <= 1:
+                return [text_value]
+
+            lines = []
+            current = words[0]
+            for word in words[1:]:
+                trial = current + " " + word
+                trial_w, _ = text_size(trial, font)
+                if trial_w <= max_width:
+                    current = trial
+                else:
+                    lines.append(current)
+                    current = word
+            lines.append(current)
+            return lines if lines else [text_value]
+
+        def draw_multiline_center(draw, box, value, font, fill, line_gap=5):
+            x1, y1, x2, y2 = box
+            max_width = max(40, int((x2 - x1) - 18))
+            lines = wrap_text_by_width(value, font, max_width)
+            line_heights = [text_size(line, font)[1] for line in lines]
+            total_h = sum(line_heights) + max(0, len(lines) - 1) * line_gap
+            y = y1 + ((y2 - y1) - total_h) / 2
+
+            for line, h in zip(lines, line_heights):
+                w, _ = text_size(line, font)
+                draw.text((x1 + ((x2 - x1) - w) / 2, y), line, font=font, fill=fill)
+                y += h + line_gap
+
+        columns = [
+            ("المعلم الطالب", 245),
+            ("الصف", 270),
+            ("الحصة", 125),
+            ("المعلم البديل", 245),
+            ("يوم التعويض", 165),
+            ("حصة التعويض", 165),
+        ]
+
+        margin = 42
+        table_width = sum(width for _, width in columns)
+        image_width = table_width + margin * 2
+        header_h = 135
+        table_header_h = 58
+        base_row_h = 64
+
+        row_heights = []
+        for row in rows:
+            max_lines = 1
+            for col_name, col_w in columns:
+                max_lines = max(max_lines, len(wrap_text_by_width(row.get(col_name, ""), font_cell, col_w - 18)))
+            row_heights.append(max(base_row_h, 44 + max_lines * 30))
+
+        image_height = header_h + table_header_h + sum(row_heights) + 58
+        image = Image.new("RGB", (image_width, image_height), "#ffffff")
+        draw = ImageDraw.Draw(image)
+
+        header_bg = theme_color
+        draw.rectangle((0, 0, image_width, header_h), fill=header_bg)
+
+        title = "جدول التبادلات الودية المعتمدة"
+        subtitle = f"{teacher_name or 'الكل'} | {day_name} | {target_date}"
+
+        title_w, title_h = text_size(title, font_title)
+        subtitle_w, subtitle_h = text_size(subtitle, font_subtitle)
+        draw.text(((image_width - title_w) / 2, 24), title, font=font_title, fill=accent_color)
+        draw.text(((image_width - subtitle_w) / 2, 78), subtitle, font=font_subtitle, fill="#ffffff")
+
+        y = header_h
+        x_right = image_width - margin
+
+        header_fill = "#e8f5e9"
+        header_text = "#004d40"
+        border = "#cbd5e1"
+        row_fill_1 = "#ffffff"
+        row_fill_2 = "#f8faf8"
+        text_fill = "#1f2937"
+
+        x = x_right
+        for col_name, col_w in columns:
+            x1 = x - col_w
+            draw.rectangle((x1, y, x, y + table_header_h), fill=header_fill, outline=border)
+            draw_multiline_center(draw, (x1, y, x, y + table_header_h), col_name, font_header, header_text)
+            x = x1
+
+        y += table_header_h
+
+        for idx, row in enumerate(rows):
+            row_h = row_heights[idx]
+            bg = row_fill_1 if idx % 2 == 0 else row_fill_2
+            x = x_right
+
+            for col_name, col_w in columns:
+                x1 = x - col_w
+                draw.rectangle((x1, y, x, y + row_h), fill=bg, outline=border)
+                draw_multiline_center(draw, (x1, y, x, y + row_h), row.get(col_name, ""), font_cell, text_fill)
+                x = x1
+
+            y += row_h
+
+        footer_text = f"{system_name} {system_subtitle}"
+        footer_w, footer_h = text_size(footer_text, font_footer)
+        draw.text(((image_width - footer_w) / 2, image_height - 39), footer_text, font=font_footer, fill=theme_color)
+
+        filename = os.path.join(
+            SWAP_IMG_DIR,
+            f"swap_table_{get_now_oman().strftime('%Y%m%d_%H%M%S_%f')}.png"
+        )
+        image.save(filename)
+        return filename
+
+    except Exception as e:
+        print(f"generate_swap_table_image error: {e}")
+        return None
 
 def export_confirmed_swaps_excel_core():
     """يصدر سجل التبادلات المعتمدة إلى Excel ويُرجع اسم الملف النسبي أو None.
