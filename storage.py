@@ -301,6 +301,34 @@ def write_audit_log(action, target_teacher="", old_value=None, new_value=None, d
         except Exception as e:
             print(f"write_audit_log error: {e}")
 
+
+
+def _queue_audit_change(entries, action, target_teacher, old_value, new_value, details):
+    """إضافة تغيير إلى قائمة سجل مؤقتة مع تجاهل القيم غير المتغيرة."""
+    if old_value == new_value:
+        return
+    entries.append({
+        "action": action,
+        "target_teacher": target_teacher,
+        "old_value": old_value,
+        "new_value": new_value,
+        "details": details,
+    })
+
+
+def _flush_audit_changes(entries, actor_name="", actor_role=""):
+    """تفريغ قائمة التغييرات المؤقتة إلى سجل العمليات الحساسة."""
+    for entry in entries:
+        write_audit_log(
+            entry.get("action", ""),
+            target_teacher=entry.get("target_teacher", ""),
+            old_value=entry.get("old_value"),
+            new_value=entry.get("new_value"),
+            details=entry.get("details", ""),
+            actor_name=actor_name,
+            actor_role=actor_role,
+        )
+
 # ─────────────────────────────────────────────────────────────────────────────
 # v1.8.5d / Phase 3C — إعدادات المدرسة التشغيلية
 # ─────────────────────────────────────────────────────────────────────────────
@@ -362,6 +390,7 @@ OFFICIAL_DEPTS = list(
 teachers_db = {}
 daily_db = []
 processed_absences = set()
+last_assigned_teachers = []
 exemptions_log = []
 swap_db = {}
 
