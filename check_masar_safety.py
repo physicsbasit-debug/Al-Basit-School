@@ -3231,7 +3231,7 @@ def check_distribution_phase3ja1(app_path: Path, app_text: str, results: list[Ch
         add(results, "3J-a1: تحليل AST للـdistribution.py", "FAIL", f"تعذر التحليل: {exc}")
         return
 
-    allowed_locked_defs = {"assign_logic_core", "cancel_teacher_absence_core", "process_admin_action_core", "update_manual_count_core", "reset_monthly_balances_core", "add_manual_staff_core", "delete_single_teacher_core"}
+    allowed_locked_defs = {"assign_logic_core", "rollback_auto_assignments_for_absentees_core", "cancel_teacher_absence_core", "process_admin_action_core", "update_manual_count_core", "reset_monthly_balances_core", "add_manual_staff_core", "delete_single_teacher_core"}
     unexpected_locked_defs = [name for name in locked_defs if name not in allowed_locked_defs]
     add(
         results,
@@ -4548,6 +4548,73 @@ def check_generation_orchestration_phase3je2fix(path: Path, app_text: str, resul
     add(results, "3J-e2-fix: دوال UI الصغيرة باقية في app.py", "PASS" if helpers_still_in_app and helpers_not_in_distribution else "FAIL",
         "دوال generate/clear/force/toggle/buttons بقيت في app.py لأنها UI-bound." if helpers_still_in_app and helpers_not_in_distribution else f"helpers_in_app={helpers_still_in_app}, helpers_not_in_distribution={helpers_not_in_distribution}")
 
+
+def check_rollback_auto_assignments_phase3je3(path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص Phase 3J-e3: rollback_auto_assignments_for_absentees أصبحت core فقط داخل distribution.py."""
+    distribution_path = path.with_name("distribution.py")
+    distribution_text = read_text(distribution_path) if distribution_path.exists() else ""
+
+    core_exists = re.search(r"^def\s+rollback_auto_assignments_for_absentees_core\s*\(", distribution_text, flags=re.MULTILINE) is not None
+    old_wrapper_exists = re.search(r"^def\s+rollback_auto_assignments_for_absentees\s*\(", app_text, flags=re.MULTILINE) is not None
+    app_imports_core = "rollback_auto_assignments_for_absentees_core" in app_text and "from distribution import" in app_text
+    add(results, "3J-e3: rollback core فقط في distribution.py", "PASS" if core_exists and not old_wrapper_exists and app_imports_core else "FAIL",
+        "core موجودة في distribution.py والاسم القديم غير معرف في app.py مع استيراد core." if core_exists and not old_wrapper_exists and app_imports_core else f"core_exists={core_exists}, old_wrapper_exists={old_wrapper_exists}, app_imports_core={app_imports_core}")
+
+    forbidden = []
+    for pattern, label in [(r"gr\.update", "gr.update"), (r"import\s+gradio", "import gradio"), (r"gr\.SelectData", "gr.SelectData"), (r"import\s+app", "import app")]:
+        lines = line_numbers_for_pattern(distribution_text, pattern)
+        if lines:
+            forbidden.append(f"{label} في الأسطر {lines[:5]}")
+    add(results, "3J-e3: distribution.py بلا Gradio ولا app.py", "PASS" if not forbidden else "FAIL",
+        "لا يحتوي distribution.py على Gradio ولا import app." if not forbidden else "; ".join(forbidden))
+
+    try:
+        dist_tree = ast.parse(distribution_text)
+        app_tree = ast.parse(app_text)
+        core_node = next((n for n in ast.walk(dist_tree) if isinstance(n, ast.FunctionDef) and n.name == "rollback_auto_assignments_for_absentees_core"), None)
+        run_full_node = next((n for n in ast.walk(app_tree) if isinstance(n, ast.FunctionDef) and n.name == "run_full_regeneration"), None)
+        def has_state_locked(node):
+            return bool(node and any(
+                (isinstance(d, ast.Name) and d.id == "state_locked")
+                or (isinstance(d, ast.Call) and isinstance(d.func, ast.Name) and d.func.id == "state_locked")
+                for d in node.decorator_list
+            ))
+        core_locked = has_state_locked(core_node)
+        core_returns_none = bool(core_node) and all(isinstance(n, ast.Return) and n.value is None for n in ast.walk(core_node) if isinstance(n, ast.Return))
+        run_full_locked = has_state_locked(run_full_node)
+    except Exception as exc:
+        core_locked = False
+        core_returns_none = False
+        run_full_locked = True
+        add(results, "3J-e3: تحليل AST", "FAIL", f"تعذر التحليل: {exc}")
+
+    add(results, "3J-e3: core مقفلة وترجع None فقط", "PASS" if core_locked and core_returns_none else "FAIL",
+        "rollback core عليها @state_locked وتبقى دالة أثر جانبي بلا قيمة إرجاع." if core_locked and core_returns_none else f"core_locked={core_locked}, core_returns_none={core_returns_none}")
+
+    core_body = function_body(distribution_text, "rollback_auto_assignments_for_absentees_core") or ""
+    state_ok = all(marker in core_body for marker in ["daily_db.clear()", "daily_db.extend(kept_rows)", "teachers_db[old_sub][\"cover_count\"]", "save_db()", "save_daily_db()"])
+    no_forbidden_state = all(marker not in core_body for marker in ["processed_absences", "last_assigned_teachers", "teachers_db =", "daily_db ="])
+    add(results, "3J-e3: تعديل الحالة محفوظ in-place", "PASS" if state_ok and no_forbidden_state else "FAIL",
+        "core تعدل teachers_db/daily_db في المكان ولا تلمس processed_absences أو last_assigned_teachers." if state_ok and no_forbidden_state else f"state_ok={state_ok}, no_forbidden_state={no_forbidden_state}")
+
+    audit_ok = all(marker in core_body for marker in ["_queue_audit_change", "_flush_audit_changes", "actor_name", "actor_role"])
+    add(results, "3J-e3: audit محفوظ داخل core", "PASS" if audit_ok else "FAIL",
+        "core يحافظ على audit queue/flush كما في الأصل." if audit_ok else "لم تظهر مؤشرات audit المطلوبة داخل core.")
+
+    run_full_body = function_body(app_text, "run_full_regeneration") or ""
+    calls_core = "rollback_auto_assignments_for_absentees_core(" in run_full_body
+    calls_old = re.search(r"(?<!_rollback_auto_assignments_for_absentees_)\brollback_auto_assignments_for_absentees\s*\(", run_full_body) is not None
+    idx_rb = run_full_body.find("rollback_auto_assignments_for_absentees_core(")
+    idx_assign = run_full_body.find("assign_logic_core(", idx_rb + 1) if idx_rb >= 0 else -1
+    idx_refresh = run_full_body.find("refresh_ui_on_change(", idx_assign + 1) if idx_assign >= 0 else -1
+    order_ok = idx_rb >= 0 and idx_assign > idx_rb and idx_refresh > idx_assign
+    add(results, "3J-e3: run_full_regeneration يستدعي rollback core بالترتيب الصحيح", "PASS" if calls_core and not calls_old and order_ok and not run_full_locked else "FAIL",
+        "الترتيب محفوظ: rollback_core ثم assign_logic_core ثم refresh_ui_on_change، بلا قفل على run_full." if calls_core and not calls_old and order_ok and not run_full_locked else f"calls_core={calls_core}, calls_old={calls_old}, order_ok={order_ok}, run_full_locked={run_full_locked}")
+
+    other_calls = len(re.findall(r"rollback_auto_assignments_for_absentees_core\s*\(", app_text))
+    add(results, "3J-e3: نقطة استدعاء rollback محدودة", "PASS" if other_calls == 1 else "FAIL",
+        "الاسم يظهر مرة واحدة داخل run_full_regeneration، والاستيراد لا يُحسب كاستدعاء." if other_calls == 1 else f"عدد استدعاءات rollback core في app.py: {other_calls}")
+
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Masar safety checker")
     parser.add_argument("source", nargs="?", default="app.py", help="مسار ملف app.py أو نسخة منظومة مسار")
@@ -4632,6 +4699,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_staff_management_phase3jd4(path, app_text, results)
     check_draw_schedule_image_phase3je1(path, app_text, results)
     check_generation_orchestration_phase3je2fix(path, app_text, results)
+    check_rollback_auto_assignments_phase3je3(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
