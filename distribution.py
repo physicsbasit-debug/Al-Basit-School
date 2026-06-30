@@ -14,7 +14,7 @@ from config import ADMIN_ROLES
 from storage import teachers_db, daily_db, SCHOOL_WEEK_DAYS, load_db, load_daily_db
 from schedules import resolve_effective_dept, format_teacher_name, get_teacher_choices, get_absentee_choices, get_day_table_updates_core
 from balances import get_updated_balance, get_updated_absences, get_updated_shortcomings
-from exemptions import is_teacher_exempt_for_slot
+from exemptions import is_teacher_exempt_for_slot, clean_teacher_name_from_ui
 from swaps import get_date_of_weekday, get_current_day_oman, get_class_dna, check_teacher_load, format_elegant_class
 
 
@@ -319,6 +319,169 @@ def generate_whatsapp_html(df_state, day_name, absent_list):
 # ─────────────────────────────────────────────────────────────────────────────
 # Phase 3J-a3: refresh_ui_on_change core
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+def update_available_subs_smart_core(abs_t, period, intervention_type, day_name, df_state, is_admin):
+    """يرجع: (choices, value, interactive) لقائمة البدائل المتاحين دون أي اعتماد على Gradio."""
+    # 1 — لم يُختر معلم بعد
+    if not abs_t:
+        return [], None, False
+
+    # 2 — لم تُختر الحصة بعد
+    if not period:
+        msg = "ℹ️ اختر الحصة أولًا"
+        return [msg], msg, False
+
+    fallback_msg = "⚠️ لا يوجد بديل متاح"
+    fallback = ([fallback_msg], fallback_msg, False)
+
+    if not day_name or not intervention_type:
+        return fallback
+
+    try:
+        p_str_clean = str(period).split("-")[0].replace("الحصة", "").strip()
+        p_int = int(p_str_clean)
+    except Exception:
+        return fallback
+
+    abs_t_clean = clean_teacher_name_from_ui(abs_t)
+    target_date = get_date_of_weekday(day_name)
+    already_subbing, absent_today = set(), set()
+    if df_state is not None and not df_state.empty:
+        subs = df_state[df_state["الحصة"] == str(p_int)]["المعلم البديل"].tolist()
+        already_subbing.update(subs)
+        absent_today.update(
+            df_state["المعلم الغائب"].apply(lambda x: str(x).split(" (")[0].strip()).tolist()
+        )
+
+    # ✅ استبعاد المعلمين المكلفين في نفس الحصة من جميع الأقسام
+    for r in daily_db:
+        if r["date"] == target_date and r["الحصة"] == str(p_int) and r.get("حالة_التكليف") != "تقصير":
+            already_subbing.add(r["المعلم البديل"])
+
+    abs_dept = teachers_db.get(abs_t_clean, {}).get("dept", "عام")
+    target_dept = intervention_type
+    if "نفس القسم" in target_dept:
+        target_dept = abs_dept
+
+    def no_result_update(label):
+        msg = f"⚠️ لا يوجد بديل متاح من {label}"
+        return [msg], msg, False
+
+    def admin_supervision_only_update():
+        return ["إشراف إداري"], None, True
+
+    opts = []
+
+    # الهيئة التدريسية (يستبعد الإداريين)
+    if target_dept == "الهيئة التدريسية":
+        available_cands = []
+        for t, info in teachers_db.items():
+            if t == abs_t_clean or t in already_subbing or t in absent_today:
+                continue
+            if is_teacher_exempt_for_slot(t, day_name, p_int):
+                continue
+            if info.get("dept") == "الهيئة الإدارية":
+                continue
+            if p_int not in info.get(day_name, {}):
+                available_cands.append(t)
+
+        available_cands.sort(key=lambda x: teachers_db[x].get("cover_count", 0))
+        for c in available_cands:
+            c_dept = teachers_db[c].get("dept", "عام")
+            warn_str = check_teacher_load(c, day_name, p_int)
+            warn_str = f" ⚠️ {warn_str}" if warn_str else ""
+            opts.append(f"{c} ({c_dept}){warn_str}")
+
+        if not opts:
+            if not is_admin:
+                return admin_supervision_only_update()
+            return no_result_update(target_dept)
+        if not is_admin:
+            opts.append("إشراف إداري")
+        return opts, None, True
+
+    # الهيئة الإدارية (خاص بالمدير)
+    if target_dept == "الهيئة الإدارية":
+        available_cands = []
+        for t, info in teachers_db.items():
+            if t == abs_t_clean or t in already_subbing or t in absent_today:
+                continue
+            if is_teacher_exempt_for_slot(t, day_name, p_int):
+                continue
+            if info.get("dept") == "الهيئة الإدارية" and p_int not in info.get(day_name, {}):
+                available_cands.append(t)
+
+        available_cands.sort(key=lambda x: teachers_db[x].get("cover_count", 0))
+        for c in available_cands:
+            role = teachers_db[c].get("role", "إداري")
+            opts.append(f"{c} ({role})")
+
+        if not opts:
+            if not is_admin:
+                return admin_supervision_only_update()
+            return no_result_update(target_dept)
+        if not is_admin:
+            opts.append("إشراف إداري")
+        return opts, None, True
+
+    # --- بقية الأقسام ومعلمو الصف ---
+    falcon_cands = get_falcon_eye_candidates(abs_t_clean, period, day_name)
+
+    if target_dept != abs_dept:
+        for cand_str in falcon_cands:
+            name_part = cand_str.split(" (يدرس")[0].replace("🦅 ", "").strip()
+            if is_teacher_exempt_for_slot(name_part, day_name, p_int):
+                continue
+            if name_part not in already_subbing and name_part not in absent_today:
+                if target_dept == "معلمو الصف" or teachers_db.get(name_part, {}).get("dept") == target_dept:
+                    opts.append(cand_str)
+        if not opts:
+            if not is_admin:
+                return admin_supervision_only_update()
+            return no_result_update(target_dept)
+        if not is_admin:
+            opts.append("إشراف إداري")
+        return opts, None, True
+
+    for cand_str in falcon_cands:
+        name_part = cand_str.split(" (يدرس")[0].replace("🦅 ", "").strip()
+        if is_teacher_exempt_for_slot(name_part, day_name, p_int):
+            continue
+        if name_part not in already_subbing and name_part not in absent_today and teachers_db.get(name_part, {}).get("dept") == abs_dept:
+            opts.append(cand_str)
+
+    available_cands = []
+    for t, info in teachers_db.items():
+        if t == abs_t_clean or t in already_subbing or t in absent_today:
+            continue
+        if is_teacher_exempt_for_slot(t, day_name, p_int):
+            continue
+        if p_int not in info.get(day_name, {}):
+            if info.get("dept") == target_dept:
+                available_cands.append(t)
+
+    available_cands.sort(key=lambda x: teachers_db[x].get("cover_count", 0))
+    for c in available_cands:
+        is_falcon = False
+        for opt in opts:
+            if c in opt:
+                is_falcon = True
+                break
+        if is_falcon:
+            continue
+
+        warn_str = check_teacher_load(c, day_name, p_int)
+        warn_str = f" ⚠️ {warn_str}" if warn_str else ""
+        opts.append(f"{c} ({abs_dept}){warn_str}")
+
+    if not opts:
+        if not is_admin:
+            return admin_supervision_only_update()
+        return no_result_update(target_dept)
+    if not is_admin:
+        opts.append("إشراف إداري")
+    return opts, None, True
 
 def refresh_ui_on_change_core(dept, day_name, is_admin_logged_in, current_abs=None):
     """يبني القيم الخام لمحرك إعادة العرض المركزي.
