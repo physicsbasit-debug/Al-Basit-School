@@ -205,6 +205,94 @@ def assign_logic_core(absent_list, day_name, dept_filter, max_reserves, is_alt, 
         "refresh_current_abs": (target_absents if is_alt else absent_list_clean),
     }
 
+
+@state_locked
+def cancel_teacher_absence_core(abs_t, day_name, dept_filter, is_admin_logged_in, current_abs, actor_name="", actor_role=""):
+    if not abs_t or not day_name:
+        return {
+            "refresh_dept": dept_filter,
+            "refresh_day": day_name,
+            "refresh_is_admin": is_admin_logged_in,
+            "refresh_current_abs": current_abs,
+        }
+
+    abs_t_clean = clean_teacher_name_from_ui(abs_t)
+    if not abs_t_clean:
+        return {
+            "refresh_dept": dept_filter,
+            "refresh_day": day_name,
+            "refresh_is_admin": is_admin_logged_in,
+            "refresh_current_abs": current_abs,
+        }
+
+    audit_entries = []
+    target_date = get_date_of_weekday(day_name)
+    records_to_keep, records_to_delete = [], []
+
+    for r in daily_db:
+        row_date = r.get("date")
+        row_absent = str(r.get("المعلم الغائب", "")).split(" (")[0].strip()
+        if row_date == target_date and row_absent == abs_t_clean:
+            records_to_delete.append(r)
+        else:
+            records_to_keep.append(r)
+
+    daily_db.clear()
+    daily_db.extend(records_to_keep)
+
+    for r in records_to_delete:
+        sub = str(r.get("المعلم البديل", "")).replace(" 🔄", "").replace("🔄", "").strip()
+        status = r.get("حالة_التكليف", "")
+        if sub != "إشراف إداري" and sub in teachers_db and status == "":
+            old_cover = int(teachers_db[sub].get("cover_count", 0) or 0)
+            new_cover = max(0, old_cover - 1)
+            teachers_db[sub]["cover_count"] = new_cover
+            _queue_audit_change(
+                audit_entries,
+                "تعديل رصيد الاحتياط",
+                sub,
+                old_cover,
+                new_cover,
+                f"إلغاء احتياط بسبب إلغاء غياب {abs_t_clean} يوم {day_name}",
+            )
+
+    if abs_t_clean in teachers_db:
+        old_absent = int(teachers_db[abs_t_clean].get("absent_count", 0) or 0)
+        new_absent = max(0, old_absent - 1)
+        teachers_db[abs_t_clean]["absent_count"] = new_absent
+        _queue_audit_change(
+            audit_entries,
+            "تعديل مرات الغياب",
+            abs_t_clean,
+            old_absent,
+            new_absent,
+            f"إلغاء غياب يوم {day_name} ({target_date})",
+        )
+        date_entry = f"{day_name} ({target_date})"
+        if "absence_dates" in teachers_db[abs_t_clean]:
+            if date_entry in teachers_db[abs_t_clean]["absence_dates"]:
+                teachers_db[abs_t_clean]["absence_dates"].remove(date_entry)
+            elif target_date in teachers_db[abs_t_clean]["absence_dates"]:
+                teachers_db[abs_t_clean]["absence_dates"].remove(target_date)
+
+    if (target_date, abs_t_clean) in processed_absences:
+        processed_absences.remove((target_date, abs_t_clean))
+
+    save_db()
+    save_daily_db()
+    _flush_audit_changes(audit_entries, actor_name, actor_role)
+
+    updated_abs = []
+    if current_abs:
+        updated_abs = [t for t in current_abs if clean_teacher_name_from_ui(t) != abs_t_clean]
+
+    return {
+        "refresh_dept": dept_filter,
+        "refresh_day": day_name,
+        "refresh_is_admin": is_admin_logged_in,
+        "refresh_current_abs": updated_abs,
+    }
+
 def resolve_teacher_display_value(raw_name, choices):
     if not raw_name:
         return None
