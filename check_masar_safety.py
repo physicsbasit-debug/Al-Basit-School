@@ -3231,7 +3231,7 @@ def check_distribution_phase3ja1(app_path: Path, app_text: str, results: list[Ch
         add(results, "3J-a1: تحليل AST للـdistribution.py", "FAIL", f"تعذر التحليل: {exc}")
         return
 
-    allowed_locked_defs = {"assign_logic_core", "cancel_teacher_absence_core", "process_admin_action_core", "update_manual_count_core", "reset_monthly_balances_core"}
+    allowed_locked_defs = {"assign_logic_core", "cancel_teacher_absence_core", "process_admin_action_core", "update_manual_count_core", "reset_monthly_balances_core", "add_manual_staff_core", "delete_single_teacher_core"}
     unexpected_locked_defs = [name for name in locked_defs if name not in allowed_locked_defs]
     add(
         results,
@@ -4072,13 +4072,14 @@ def check_process_admin_action_phase3jd1(path: Path, app_text: str, results: lis
 
     still_outside = all(marker not in distribution_text for marker in [
         "def draw_schedule_image",
-        "def delete_single_teacher",
+        "def run_main_generation",
+        "def run_full_regeneration",
     ])
     add(
         results,
         "3J-d1: الدوال الثقيلة غير المستهدفة بقيت خارج distribution.py",
         "PASS" if still_outside else "FAIL",
-        "draw_schedule_image/delete_single_teacher لم تُنقلا في هذه المرحلة." if still_outside else "وجدت دوال ثقيلة غير مستهدفة داخل distribution.py.",
+        "draw_schedule_image/run_generation لم تُنقل في هذه المرحلة." if still_outside else "وجدت دوال ثقيلة غير مستهدفة داخل distribution.py.",
     )
 
 
@@ -4196,13 +4197,14 @@ def check_update_manual_count_phase3jd2(path: Path, app_text: str, results: list
 
     still_outside = all(marker not in distribution_text for marker in [
         "def draw_schedule_image",
-        "def delete_single_teacher",
+        "def run_main_generation",
+        "def run_full_regeneration",
     ])
     add(
         results,
         "3J-d2: الدوال الثقيلة غير المستهدفة بقيت خارج distribution.py",
         "PASS" if still_outside else "FAIL",
-        "draw_schedule_image/delete_single_teacher لم تُنقلا في هذه المرحلة." if still_outside else "وجدت دوال ثقيلة غير مستهدفة داخل distribution.py.",
+        "draw_schedule_image/run_generation لم تُنقل في هذه المرحلة." if still_outside else "وجدت دوال ثقيلة غير مستهدفة داخل distribution.py.",
     )
 
 
@@ -4317,14 +4319,14 @@ def check_reset_monthly_balances_phase3jd3(path: Path, app_text: str, results: l
 
     still_outside = all(marker not in distribution_text for marker in [
         "def draw_schedule_image",
-        "def delete_single_teacher",
-        "def add_manual_staff",
+        "def run_main_generation",
+        "def run_full_regeneration",
     ])
     add(
         results,
         "3J-d3: الدوال الثقيلة الأخرى بقيت خارج distribution.py",
         "PASS" if still_outside else "FAIL",
-        "draw_schedule_image/delete_single_teacher/add_manual_staff لم تُنقل في هذه المرحلة." if still_outside else "وجدت دوال ثقيلة غير مستهدفة داخل distribution.py.",
+        "draw_schedule_image/run_generation لم تُنقل في هذه المرحلة." if still_outside else "وجدت دوال ثقيلة غير مستهدفة داخل distribution.py.",
     )
 
 def parse_expected_symbols(raw: str | None) -> dict[str, int]:
@@ -4342,6 +4344,83 @@ def parse_expected_symbols(raw: str | None) -> dict[str, int]:
         expected[symbol.strip()] = int(value.strip())
     return expected
 
+
+
+def check_staff_management_phase3jd4(path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص Phase 3J-d4: تقسيم add_manual_staff و delete_single_teacher إلى core/wrapper."""
+    distribution_path = path.with_name("distribution.py")
+    if not distribution_path.exists():
+        add(results, "3J-d4: وجود distribution.py", "FAIL", f"غير موجود: {distribution_path}")
+        return
+    distribution_text = read_text(distribution_path)
+
+    add_core_exists = re.search(r"^def\s+add_manual_staff_core\s*\(", distribution_text, flags=re.MULTILINE) is not None
+    add_wrapper_exists = re.search(r"^def\s+add_manual_staff\s*\(", app_text, flags=re.MULTILINE) is not None
+    add_core_in_app = re.search(r"^def\s+add_manual_staff_core\s*\(", app_text, flags=re.MULTILINE) is not None
+    add_wrapper_in_distribution = re.search(r"^def\s+add_manual_staff\s*\(", distribution_text, flags=re.MULTILINE) is not None
+    del_core_exists = re.search(r"^def\s+delete_single_teacher_core\s*\(", distribution_text, flags=re.MULTILINE) is not None
+    del_wrapper_exists = re.search(r"^def\s+delete_single_teacher\s*\(", app_text, flags=re.MULTILINE) is not None
+    del_core_in_app = re.search(r"^def\s+delete_single_teacher_core\s*\(", app_text, flags=re.MULTILINE) is not None
+    del_wrapper_in_distribution = re.search(r"^def\s+delete_single_teacher\s*\(", distribution_text, flags=re.MULTILINE) is not None
+    placement_ok = all([
+        add_core_exists, add_wrapper_exists, not add_core_in_app, not add_wrapper_in_distribution,
+        del_core_exists, del_wrapper_exists, not del_core_in_app, not del_wrapper_in_distribution,
+    ])
+    add(results, "3J-d4: core/wrapper في المواضع الصحيحة", "PASS" if placement_ok else "FAIL",
+        "add/delete cores في distribution.py وwrappers في app.py دون تكرار." if placement_ok else f"add_core={add_core_exists}, add_wrapper={add_wrapper_exists}, del_core={del_core_exists}, del_wrapper={del_wrapper_exists}")
+
+    forbidden = []
+    for pattern, label in [(r"gr\.update", "gr.update"), (r"import\s+gradio", "import gradio"), (r"gr\.SelectData", "gr.SelectData"), (r"import\s+app", "import app")]:
+        lines = line_numbers_for_pattern(distribution_text, pattern)
+        if lines:
+            forbidden.append(f"{label} في الأسطر {lines[:5]}")
+    add(results, "3J-d4: distribution.py بلا Gradio ولا app.py", "PASS" if not forbidden else "FAIL",
+        "لا يحتوي distribution.py على Gradio ولا app.py." if not forbidden else "; ".join(forbidden))
+
+    try:
+        dist_tree = ast.parse(distribution_text)
+        add_node = next((n for n in ast.walk(dist_tree) if isinstance(n, ast.FunctionDef) and n.name == "add_manual_staff_core"), None)
+        del_node = next((n for n in ast.walk(dist_tree) if isinstance(n, ast.FunctionDef) and n.name == "delete_single_teacher_core"), None)
+        def has_state_locked(node):
+            return bool(node and any((isinstance(d, ast.Name) and d.id == "state_locked") or (isinstance(d, ast.Call) and isinstance(d.func, ast.Name) and d.func.id == "state_locked") for d in node.decorator_list))
+        def returns_dict(node):
+            return bool(node and any(isinstance(n, ast.Return) and isinstance(n.value, ast.Dict) for n in ast.walk(node)))
+        locked_payload_ok = has_state_locked(add_node) and has_state_locked(del_node) and returns_dict(add_node) and returns_dict(del_node)
+    except Exception as exc:
+        locked_payload_ok = False
+        add(results, "3J-d4: تحليل AST للـcores", "FAIL", f"تعذر التحليل: {exc}")
+    add(results, "3J-d4: cores مقفلة وترجع payload خام", "PASS" if locked_payload_ok else "FAIL",
+        "add/delete cores عليها @state_locked وترجع payload خامًا." if locked_payload_ok else "فشل تحقق @state_locked أو payload.")
+
+    wrappers_body = (function_body(app_text, "add_manual_staff") or "") + "\n" + (function_body(app_text, "delete_single_teacher") or "")
+    try:
+        app_tree = ast.parse(app_text)
+        app_add_node = next((n for n in ast.walk(app_tree) if isinstance(n, ast.FunctionDef) and n.name == "add_manual_staff"), None)
+        app_del_node = next((n for n in ast.walk(app_tree) if isinstance(n, ast.FunctionDef) and n.name == "delete_single_teacher"), None)
+        wrapper_locked = has_state_locked(app_add_node) or has_state_locked(app_del_node)
+    except Exception:
+        wrapper_locked = True
+    wrapper_calls_core = "add_manual_staff_core(" in wrappers_body and "delete_single_teacher_core(" in wrappers_body
+    wrapper_has_raw_html = 'raw["message"]' in wrappers_body
+    add(results, "3J-d4: wrappers خفيفة وتحافظ على HTML الخام", "PASS" if wrapper_calls_core and wrapper_has_raw_html and not wrapper_locked else "FAIL",
+        "wrappers تستدعي cores وتعيد message خامًا بلا @state_locked." if wrapper_calls_core and wrapper_has_raw_html and not wrapper_locked else f"calls_core={wrapper_calls_core}, raw_html={wrapper_has_raw_html}, wrapper_locked={wrapper_locked}")
+
+    add_core_body = function_body(distribution_text, "add_manual_staff_core") or ""
+    del_core_body = function_body(distribution_text, "delete_single_teacher_core") or ""
+    no_audit = "write_audit_log" not in add_core_body and "write_audit_log" not in del_core_body and "_queue_audit_change" not in add_core_body and "_queue_audit_change" not in del_core_body
+    add(results, "3J-d4: عدم إضافة audit غير موجود أصلاً", "PASS" if no_audit else "FAIL",
+        "لم تُضف سجلات audit للإضافة/الحذف، حفاظًا على السلوك الأصلي." if no_audit else "وجد audit داخل add/delete cores.")
+
+    no_global_teachers = "global teachers_db" not in add_core_body and "global teachers_db" not in del_core_body
+    delete_element_only = "del teachers_db[name]" in del_core_body and "del teachers_db" not in del_core_body.replace("del teachers_db[name]", "")
+    add(results, "3J-d4: تعديل teachers_db في المكان", "PASS" if no_global_teachers and delete_element_only else "FAIL",
+        "لا global teachers_db، والحذف عنصر من القاموس فقط." if no_global_teachers and delete_element_only else f"no_global={no_global_teachers}, delete_element_only={delete_element_only}")
+
+    still_outside = all(marker not in distribution_text for marker in [
+        "def draw_schedule_image(", "def run_main_generation(", "def run_full_regeneration(",
+    ])
+    add(results, "3J-d4: الدوال الثقيلة الأخرى بقيت خارج distribution.py", "PASS" if still_outside else "FAIL",
+        "draw_schedule_image/run_generation لم تُنقل في هذه المرحلة." if still_outside else "وجدت دوال ثقيلة غير مستهدفة داخل distribution.py.")
 
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Masar safety checker")
@@ -4424,6 +4503,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_process_admin_action_phase3jd1(path, app_text, results)
     check_update_manual_count_phase3jd2(path, app_text, results)
     check_reset_monthly_balances_phase3jd3(path, app_text, results)
+    check_staff_management_phase3jd4(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
