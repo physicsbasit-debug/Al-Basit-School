@@ -4762,6 +4762,119 @@ def check_potential_dead_code_admin_excel_phase3j_final(path: Path, app_text: st
     )
 
 
+
+def check_data_center_reference_refresh_phase3k(path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص Phase 3K: فصل تحديث الإداريين والأرقام المرجعية إلى core/wrapper."""
+    school_data_path = path.with_name("school_data.py")
+    if not school_data_path.exists():
+        add(results, "3K-data-center-core: وجود school_data.py", "FAIL", f"غير موجود: {school_data_path}")
+        return
+
+    school_text = read_text(school_data_path)
+    admins_core = "refresh_admins_from_reference_core"
+    admins_wrapper = "refresh_admins_from_reference"
+    phones_core = "refresh_phones_from_reference_core"
+    phones_wrapper = "refresh_phones_from_reference"
+
+    placement_ok = all([
+        re.search(rf"^def\s+{admins_core}\s*\(", school_text, flags=re.MULTILINE) is not None,
+        re.search(rf"^def\s+{phones_core}\s*\(", school_text, flags=re.MULTILINE) is not None,
+        re.search(rf"^def\s+{admins_wrapper}\s*\(", app_text, flags=re.MULTILINE) is not None,
+        re.search(rf"^def\s+{phones_wrapper}\s*\(", app_text, flags=re.MULTILINE) is not None,
+        re.search(rf"^def\s+{admins_core}\s*\(", app_text, flags=re.MULTILINE) is None,
+        re.search(rf"^def\s+{phones_core}\s*\(", app_text, flags=re.MULTILINE) is None,
+    ])
+    add(results, "3K-data-center-core: core/wrapper في المواضع الصحيحة", "PASS" if placement_ok else "FAIL",
+        "cores في school_data.py والـwrappers في app.py دون تكرار." if placement_ok else "فشل موضع core/wrapper لتحديث الإداريين أو الأرقام.")
+
+    try:
+        app_tree = ast.parse(app_text)
+        school_tree = ast.parse(school_text)
+        app_funcs = {n.name: n for n in ast.walk(app_tree) if isinstance(n, ast.FunctionDef)}
+        school_funcs = {n.name: n for n in ast.walk(school_tree) if isinstance(n, ast.FunctionDef)}
+
+        def state_locked_count(node: ast.FunctionDef | None) -> int:
+            if not node:
+                return -1
+            count = 0
+            for dec in node.decorator_list:
+                if isinstance(dec, ast.Name) and dec.id == "state_locked":
+                    count += 1
+                elif isinstance(dec, ast.Call) and isinstance(dec.func, ast.Name) and dec.func.id == "state_locked":
+                    count += 1
+            return count
+
+        def tuple_return_lengths(node: ast.FunctionDef | None) -> list[int]:
+            if not node:
+                return []
+            lengths: list[int] = []
+            for child in ast.walk(node):
+                if isinstance(child, ast.Return) and isinstance(child.value, ast.Tuple):
+                    lengths.append(len(child.value.elts))
+            return lengths
+
+        admin_core_node = school_funcs.get(admins_core)
+        phone_core_node = school_funcs.get(phones_core)
+        admin_wrapper_node = app_funcs.get(admins_wrapper)
+        phone_wrapper_node = app_funcs.get(phones_wrapper)
+
+        locks_ok = (
+            state_locked_count(admin_core_node) == 1
+            and state_locked_count(phone_core_node) == 1
+            and state_locked_count(admin_wrapper_node) == 0
+            and state_locked_count(phone_wrapper_node) == 0
+        )
+        admin_core_lengths = tuple_return_lengths(admin_core_node)
+        phone_core_lengths = tuple_return_lengths(phone_core_node)
+        admin_wrapper_lengths = tuple_return_lengths(admin_wrapper_node)
+        phone_wrapper_lengths = tuple_return_lengths(phone_wrapper_node)
+        contracts_ok = (
+            admin_core_lengths and all(length == 8 for length in admin_core_lengths)
+            and phone_core_lengths and all(length == 4 for length in phone_core_lengths)
+            and admin_wrapper_lengths == [8]
+            and phone_wrapper_lengths == [4]
+        )
+    except Exception as exc:
+        locks_ok = False
+        contracts_ok = False
+        admin_core_lengths = phone_core_lengths = admin_wrapper_lengths = phone_wrapper_lengths = []
+        add(results, "3K-data-center-core: تحليل AST", "FAIL", f"تعذر التحليل: {exc}")
+
+    add(results, "3K-data-center-core: القفل على core فقط", "PASS" if locks_ok else "FAIL",
+        "@state_locked مرة واحدة على كل core وصفر على wrappers." if locks_ok else "فشل تحقق القفل: يجب أن يكون على core فقط وبلا تكرار.")
+    add(results, "3K-data-center-core: عقود الإرجاع 8 و4 محفوظة", "PASS" if contracts_ok else "FAIL",
+        "admins core/wrapper = 8 عناصر، phones core/wrapper = 4 عناصر." if contracts_ok else f"admins_core={admin_core_lengths}, admins_wrapper={admin_wrapper_lengths}, phones_core={phone_core_lengths}, phones_wrapper={phone_wrapper_lengths}")
+
+    admin_core_body = function_body(school_text, admins_core) or ""
+    phone_core_body = function_body(school_text, phones_core) or ""
+    cores_forbidden = any(marker in (admin_core_body + phone_core_body) for marker in ["gr.update", "gr.Warning", "gr.Info", "import gradio", "gr.SelectData"])
+    school_no_app = re.search(r"(^|\n)\s*(from\s+app\s+import|import\s+app)\b", school_text) is None
+    add(results, "3K-data-center-core: cores خامة بلا Gradio ولا app.py", "PASS" if not cores_forbidden and school_no_app else "FAIL",
+        "cores لا تحتوي gr.update/Warning/Info ولا يوجد اعتماد عكسي على app.py." if not cores_forbidden and school_no_app else f"cores_forbidden={cores_forbidden}, school_no_app={school_no_app}")
+
+    admin_wrapper_body = function_body(app_text, admins_wrapper) or ""
+    phone_wrapper_body = function_body(app_text, phones_wrapper) or ""
+    wrappers_ok = (
+        f"{admins_core}(" in admin_wrapper_body
+        and f"{phones_core}(" in phone_wrapper_body
+        and "gr.update" in admin_wrapper_body
+        and "gr.update" in phone_wrapper_body
+        and "state_locked" not in admin_wrapper_body.split("def", 1)[0]
+        and "state_locked" not in phone_wrapper_body.split("def", 1)[0]
+    )
+    add(results, "3K-data-center-core: wrappers تستدعي cores وتغلف Gradio", "PASS" if wrappers_ok else "FAIL",
+        "wrappers تستدعي cores وتحافظ على تغليف gr.update بالاسم القديم." if wrappers_ok else "wrapper لا يستدعي core أو لا يغلف مخرجات Gradio كما هو متوقع.")
+
+    binding_admin_ok = re.search(r"refresh_admin_reference_btn\.click\s*\(\s*refresh_admins_from_reference\s*,", app_text, flags=re.DOTALL) is not None
+    binding_phones_ok = re.search(r"refresh_phones_reference_btn\.click\s*\(\s*refresh_phones_from_reference\s*,", app_text, flags=re.DOTALL) is not None
+    add(results, "3K-data-center-core: ربط أزرار مركز البيانات محفوظ", "PASS" if binding_admin_ok and binding_phones_ok else "FAIL",
+        "الربط المباشر بالاسم بقي كما هو بلا lambda أو تغيير أسماء." if binding_admin_ok and binding_phones_ok else f"admin_binding={binding_admin_ok}, phones_binding={binding_phones_ok}")
+
+    red_lines_clean = all(marker not in app_text for marker in ["school_data_tab.select(", "select_tab_js(\"مركز البيانات\"", "select_tab_js('مركز البيانات'"])
+    add(results, "3K-data-center-core: القاعدة الحمراء لمركز البيانات محفوظة", "PASS" if red_lines_clean else "FAIL",
+        "لم يرجع school_data_tab.select أو select_tab_js لمركز البيانات." if red_lines_clean else "وجد نمط ممنوع في ربط مركز البيانات.")
+
+
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Masar safety checker")
     parser.add_argument("source", nargs="?", default="app.py", help="مسار ملف app.py أو نسخة منظومة مسار")
@@ -4814,6 +4927,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_auth_phase3d(path, app_text, results)
     check_state_phase3e_pre(path, app_text, results)
     check_school_data_phase3ea(path, app_text, results)
+    check_data_center_reference_refresh_phase3k(path, app_text, results)
     check_schedules_phase3fa(path, app_text, results)
     check_balances_phase3ga(path, app_text, results)
     check_time_helper_phase3eb1(path, app_text, results)
