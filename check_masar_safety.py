@@ -17,10 +17,12 @@ from __future__ import annotations
 
 import argparse
 import ast
+import io
 import json
 import py_compile
 import re
 import sys
+import tokenize
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Iterable
@@ -182,7 +184,123 @@ def check_required_markers(combined_text: str, app_text: str, results: list[Chec
         )
 
 
+SYMBOL_SCAN_MODULES = [
+    "app.py",
+    "distribution.py",
+    "swaps.py",
+    "exemptions.py",
+    "school_data.py",
+    "schedules.py",
+    "balances.py",
+    "storage.py",
+    "auth.py",
+    "config.py",
+]
+
+
+def _docstring_spans(tree: ast.AST) -> set[tuple[int, int, int, int]]:
+    """حدّد مواضع docstrings حتى لا تُحسب ضمن الرموز الحساسة."""
+    spans: set[tuple[int, int, int, int]] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        body = getattr(node, "body", [])
+        if not body:
+            continue
+        first = body[0]
+        if (
+            isinstance(first, ast.Expr)
+            and isinstance(first.value, ast.Constant)
+            and isinstance(first.value.value, str)
+            and hasattr(first, "end_lineno")
+            and hasattr(first, "end_col_offset")
+        ):
+            spans.add((first.lineno, first.col_offset, first.end_lineno, first.end_col_offset))
+    return spans
+
+
+def _token_inside_span(token: tokenize.TokenInfo, spans: set[tuple[int, int, int, int]]) -> bool:
+    start_line, start_col = token.start
+    end_line, end_col = token.end
+    for span_start_line, span_start_col, span_end_line, span_end_col in spans:
+        starts_inside = (start_line > span_start_line) or (start_line == span_start_line and start_col >= span_start_col)
+        ends_inside = (end_line < span_end_line) or (end_line == span_end_line and end_col <= span_end_col)
+        if starts_inside and ends_inside:
+            return True
+    return False
+
+
+def _code_text_without_comments_or_docstrings(source: str) -> str:
+    """أعد نصًا برمجيًا قابلاً للعد مع تجاهل comments وdocstrings فقط."""
+    try:
+        spans = _docstring_spans(ast.parse(source))
+    except SyntaxError:
+        spans = set()
+
+    tokens: list[str] = []
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type in {
+            tokenize.COMMENT,
+            tokenize.ENCODING,
+            tokenize.ENDMARKER,
+            tokenize.INDENT,
+            tokenize.DEDENT,
+            tokenize.NEWLINE,
+            tokenize.NL,
+        }:
+            continue
+        if token.type == tokenize.STRING and _token_inside_span(token, spans):
+            continue
+        tokens.append(token.string)
+    return "\n".join(tokens)
+
+
+def check_symbol_counts_across_modules(app_path: Path, results: list[CheckResult], expected: dict[str, int]) -> None:
+    """افحص مجموع الرموز الحساسة عبر وحدات المنظومة، لا app.py وحده.
+
+    يستبعد هذا الفحص check_masar_safety.py نفسه، ويتجاهل التعليقات وdocstrings
+    لتجنب المطابقات الزائفة بعد تفكيك المنظومة إلى وحدات متعددة.
+    """
+    totals = {symbol: 0 for symbol in expected}
+    per_file: dict[str, dict[str, int]] = {}
+    scanned_files: list[str] = []
+
+    for module_name in SYMBOL_SCAN_MODULES:
+        module_path = app_path.with_name(module_name)
+        if not module_path.exists():
+            continue
+        try:
+            source = module_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            source = module_path.read_text(encoding="utf-8-sig")
+        cleaned = _code_text_without_comments_or_docstrings(source)
+        scanned_files.append(module_name)
+        file_counts = {symbol: cleaned.count(symbol) for symbol in expected}
+        per_file[module_name] = file_counts
+        for symbol, count in file_counts.items():
+            totals[symbol] += count
+
+    add(
+        results,
+        "فحص الرموز الحساسة عبر كل الوحدات",
+        "PASS" if scanned_files else "FAIL",
+        "تم فحص الوحدات: " + ", ".join(scanned_files) if scanned_files else "لم يتم العثور على وحدات للفحص.",
+    )
+
+    for symbol, expected_count in expected.items():
+        actual = totals[symbol]
+        contributing = {name: counts[symbol] for name, counts in per_file.items() if counts[symbol]}
+        status = "PASS" if actual == expected_count else "FAIL"
+        add(
+            results,
+            f"عدد الرمز {symbol} عبر الوحدات",
+            status,
+            f"المتوقع {expected_count}، الحالي {actual}. التفاصيل: {contributing}",
+        )
+
+
 def check_symbol_counts(text: str, results: list[CheckResult], expected: dict[str, int]) -> None:
+    """فحص قديم محفوظ للتوافق، لكن الفحص المعتمد بعد 3J هو عبر الوحدات."""
     for symbol, expected_count in expected.items():
         actual = text.count(symbol)
         status = "PASS" if actual == expected_count else "FAIL"
@@ -4615,6 +4733,35 @@ def check_rollback_auto_assignments_phase3je3(path: Path, app_text: str, results
     add(results, "3J-e3: نقطة استدعاء rollback محدودة", "PASS" if other_calls == 1 else "FAIL",
         "الاسم يظهر مرة واحدة داخل run_full_regeneration، والاستيراد لا يُحسب كاستدعاء." if other_calls == 1 else f"عدد استدعاءات rollback core في app.py: {other_calls}")
 
+def check_potential_dead_code_admin_excel_phase3j_final(path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """وثّق دوال Excel القديمة المرشحة للمراجعة لاحقًا دون تحويلها إلى فشل."""
+    try:
+        tree = ast.parse(app_text)
+    except SyntaxError as exc:
+        add(results, "3J-final: فحص دوال Excel القديمة", "INFO", f"تعذر تحليل app.py: {exc}")
+        return
+
+    defined = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
+    call_counts: dict[str, int] = {"process_admin_excel": 0, "process_phone_excel": 0}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in call_counts:
+            call_counts[node.func.id] += 1
+
+    notes: list[str] = []
+    for func_name in call_counts:
+        if func_name in defined:
+            notes.append(f"{func_name}: معرفة، عدد الاستدعاءات المباشرة={call_counts[func_name]}")
+        else:
+            notes.append(f"{func_name}: غير موجودة")
+
+    add(
+        results,
+        "3J-final: process_admin_excel/process_phone_excel للمراجعة لاحقًا",
+        "INFO",
+        "; ".join(notes) + " — ملاحظة توثيقية فقط خارج نطاق إغلاق 3J، بلا WARN/FAIL.",
+    )
+
+
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Masar safety checker")
     parser.add_argument("source", nargs="?", default="app.py", help="مسار ملف app.py أو نسخة منظومة مسار")
@@ -4654,7 +4801,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_syntax(path, results)
     check_forbidden_patterns(app_text, results)
     check_required_markers(combined_text, app_text, results)
-    check_symbol_counts(code_text, results, expected_symbols)
+    check_symbol_counts_across_modules(path, results, expected_symbols)
     check_excel_and_periods(code_text, results)
     check_error_updates(app_text, results)
     check_exemption_centralization(code_text, results)
@@ -4700,6 +4847,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_draw_schedule_image_phase3je1(path, app_text, results)
     check_generation_orchestration_phase3je2fix(path, app_text, results)
     check_rollback_auto_assignments_phase3je3(path, app_text, results)
+    check_potential_dead_code_admin_excel_phase3j_final(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
