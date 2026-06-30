@@ -132,6 +132,8 @@ from school_data import (
     render_schedule_precheck_error_html,
     validate_reference_filename,
     refresh_schedule_from_reference_core,
+    refresh_admins_from_reference_core,
+    refresh_phones_from_reference_core,
     delete_department_data_core,
     process_uploaded_excel_core,
     _normalize_schedule_header_text,
@@ -1234,196 +1236,37 @@ WELCOME_MESSAGES = {
 
 
 
-@state_locked
-@state_locked
 def refresh_admins_from_reference(dept_filter, is_owner=False):
-    if not bool(is_owner):
-        return (
-            "<div style='color:red; font-weight:bold;'>❌ تحديث بيانات الإداريين متاح لمالك النظام فقط.</div>",
-            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-            gr.update(value=render_admin_reference_card()), gr.update(value=None)
-        )
-    if not os.path.exists(ADMIN_FILE):
-        return (
-        "<div style='color:red; font-weight:bold;'>❌ لا يوجد ملف إداريين مرجعي حتى الآن.</div>",
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        gr.update(value=render_admin_reference_card()),
-        gr.update(value=None)
+    (
+        message,
+        abs_update,
+        teacher_update_1,
+        teacher_update_2,
+        staff_names_update,
+        balance_update,
+        card_update,
+        file_update,
+    ) = refresh_admins_from_reference_core(dept_filter, is_owner=is_owner)
+    return (
+        message,
+        gr.update(**abs_update),
+        gr.update(**teacher_update_1),
+        gr.update(**teacher_update_2),
+        gr.update(**staff_names_update),
+        gr.update(**balance_update),
+        gr.update(**card_update),
+        gr.update(**file_update),
     )
-
-    try:
-        df = pd.read_excel(ADMIN_FILE, header=None) if not ADMIN_FILE.endswith(".csv") else pd.read_csv(ADMIN_FILE, header=None)
-        df = df.fillna("")
-
-        added_or_updated = 0
-        found_names = []
-
-        for r in range(len(df)):
-            raw_phone = str(df.iloc[r, 0]).strip() if df.shape[1] > 0 else ""
-            raw_role = str(df.iloc[r, 1]).strip() if df.shape[1] > 1 else ""
-            raw_name = str(df.iloc[r, 2]).strip() if df.shape[1] > 2 else ""
-
-            if not raw_name or raw_name == "nan":
-                continue
-
-            t_name = clean_teacher_name(raw_name)
-            if not t_name or len(t_name) < 3:
-                continue
-
-            if raw_phone.endswith(".0"):
-                raw_phone = raw_phone[:-2]
-
-            phone_digits = re.sub(r"\D", "", raw_phone)
-            if len(phone_digits) == 8:
-                phone_digits = "968" + phone_digits
-
-            role_val = raw_role if raw_role else "أخصائي اجتماعي"
-
-            if t_name not in teachers_db:
-                teachers_db[t_name] = {
-                    "dept": "الهيئة الإدارية",
-                    "cover_count": 0,
-                    "absent_count": 0,
-                    "shortcoming_count": 0,
-                    "phone": "",
-                    "specialty": "",
-                    "role": role_val,
-                    "exempt_days": [],
-                    "exempt_periods": [],
-                    "exempt_slots": [],
-                    "absence_dates": [],
-                    "الأحد": {},
-                    "الإثنين": {},
-                    "الثلاثاء": {},
-                    "الأربعاء": {},
-                    "الخميس": {}
-                }
-            else:
-                teachers_db[t_name]["dept"] = "الهيئة الإدارية"
-                teachers_db[t_name]["role"] = role_val
-
-            teachers_db[t_name]["phone"] = phone_digits if phone_digits else teachers_db[t_name].get("phone", "")
-            found_names.append(t_name)
-            added_or_updated += 1
-
-        save_db()
-        update_reference_file_status(
-            _reference_status_key("admin"),
-            ADMIN_FILE,
-            applied=True,
-            extracted_count=added_or_updated,
-        )
-
-        dept_filter = resolve_effective_dept(dept_filter)
-        choices_all = get_teacher_choices(dept_filter)
-        abs_choices = get_absentee_choices(dept_filter)
-        t_names_filtered = sorted([t for t, d in teachers_db.items() if dept_filter == "الكل" or d.get("dept") == dept_filter])
-
-        names_list_str = "، ".join(found_names) if found_names else "لا توجد أسماء صالحة"
-        msg = (
-            f"<div style='color:#2e7d32; font-weight:bold; background:#e8f5e9; padding:10px; border-radius:5px;'>"
-            f"✅ تم تحديث بيانات الإداريين من الملف المرجعي بنجاح."
-            f"<br>👥 الأسماء: {names_list_str}"
-            f"</div>"
-        )
-
-        return (
-            msg,
-            gr.update(choices=abs_choices),
-            gr.update(choices=choices_all, value=None),
-            gr.update(choices=choices_all, value=None),
-            gr.update(choices=t_names_filtered, value=None),
-            gr.update(value=get_updated_balance(dept_filter)),
-            gr.update(value=render_admin_reference_card()),
-            gr.update(value=None)
-        )
-
-    except Exception as e:
-        return (
-            f"<div style='color:red; font-weight:bold;'>❌ خطأ أثناء تحديث الإداريين من المرجع: {str(e)}</div>",
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            gr.update(value=render_admin_reference_card()),
-            gr.update(value=None)
-        )
-@state_locked
-@state_locked
 def refresh_phones_from_reference(dept_filter, is_owner=False):
-    if not bool(is_owner):
-        return (
-            "<div style='color:red; font-weight:bold;'>❌ تحديث أرقام المعلمين متاح لمالك النظام فقط.</div>",
-            gr.update(), gr.update(value=render_phones_reference_card()), gr.update(value=None)
-        )
-    if not os.path.exists(PHONES_FILE):
-        return (
-            "<div style='color:red; font-weight:bold;'>❌ لا يوجد ملف أرقام معلمين مرجعي حتى الآن.</div>",
-            gr.update(),
-            gr.update(value=render_phones_reference_card()),
-            gr.update(value=None)
-        )
-
-    try:
-        df = pd.read_excel(PHONES_FILE, header=None) if not PHONES_FILE.endswith(".csv") else pd.read_csv(PHONES_FILE, header=None)
-        updated = 0
-        db_fingerprints = {k: get_name_fingerprint(k) for k in teachers_db.keys()}
-
-        for r in range(len(df)):
-            raw_name = str(df.iloc[r, 0]).strip() if df.shape[1] > 0 else ""
-            raw_phone = str(df.iloc[r, 1]).strip() if df.shape[1] > 1 else ""
-
-            if not raw_name or raw_name == "nan":
-                continue
-
-            if raw_phone.endswith(".0"):
-                raw_phone = raw_phone[:-2]
-
-            phone_digits = re.sub(r"\D", "", raw_phone)
-            if len(phone_digits) == 8:
-                phone_digits = "968" + phone_digits
-            if not phone_digits:
-                continue
-
-            phone_first_name, phone_name_fingerprint = get_name_fingerprint(raw_name)
-            if not phone_first_name:
-                continue
-
-            for db_key, (db_first_name, db_words) in db_fingerprints.items():
-                if db_first_name == phone_first_name and len(db_words) > 0 and db_words.issubset(phone_name_fingerprint):
-                    teachers_db[db_key]["phone"] = phone_digits
-                    updated += 1
-                    break
-
-        save_db()
-        update_reference_file_status(
-            _reference_status_key("phones"),
-            PHONES_FILE,
-            applied=True,
-            extracted_count=updated,
-        )
-
-        msg = f"<div style='color:#2e7d32; font-weight:bold; background:#e8f5e9; padding:10px; border-radius:5px;'>✅ تم تحديث أرقام ({updated}) من المعلمين من الملف المرجعي بنجاح.</div>"
-
-        return (
-            msg,
-            gr.update(value=get_updated_balance(dept_filter)),
-            gr.update(value=render_phones_reference_card()),
-            gr.update(value=None)
-        )
-
-    except Exception as e:
-        return (
-            f"<div style='color:red; font-weight:bold;'>❌ خطأ أثناء تحديث أرقام المعلمين من المرجع: {str(e)}</div>",
-            gr.update(),
-            gr.update(value=render_phones_reference_card()),
-            gr.update(value=None)
-        )
+    message, balance_update, card_update, file_update = refresh_phones_from_reference_core(
+        dept_filter, is_owner=is_owner
+    )
+    return (
+        message,
+        gr.update(**balance_update),
+        gr.update(**card_update),
+        gr.update(**file_update),
+    )
 def refresh_schedule_from_reference(dept_name, current_day, is_owner=False):
     msg, abs_c, choices_all, balance_h, absences_h, day_ov, cards, _reset = refresh_schedule_from_reference_core(
         dept_name,
