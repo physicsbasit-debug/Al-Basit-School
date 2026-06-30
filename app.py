@@ -223,6 +223,7 @@ from distribution import (
     update_available_subs_smart_core,
     assign_logic_core,
     cancel_teacher_absence_core,
+    process_admin_action_core,
 )
 
 
@@ -3792,92 +3793,26 @@ def update_available_subs_smart(abs_t, period, intervention_type, day_name, df_s
     )
     return gr.update(choices=choices, value=value, interactive=interactive)
 
-@state_locked
 def process_admin_action(df_state, abs_t, period, new_sub, day_name, dept_filter, is_admin_logged_in, current_abs, action_type, actor_name="", actor_role=""):
-    global daily_db
-    if df_state is None or df_state.empty or not abs_t or not period:
-        return refresh_ui_on_change(dept_filter, day_name, is_admin_logged_in, current_abs=current_abs)
-    if action_type != "penalty":
-        if not new_sub or str(new_sub).startswith("⚠️") or str(new_sub).startswith("ℹ️"):
-            return refresh_ui_on_change(dept_filter, day_name, is_admin_logged_in, current_abs=current_abs)
-    target_date = get_date_of_weekday(day_name)
-    audit_entries = []
-
-    abs_t_clean = clean_teacher_name_from_ui(abs_t)
-    p_str_clean = str(period).split("-")[0].replace("الحصة", "").strip()
-
-    for r in daily_db:
-        if r["date"] == target_date and r["المعلم الغائب"] == abs_t_clean and r["الحصة"] == p_str_clean:
-            old_sub = r["المعلم البديل"]
-            old_status = r.get("حالة_التكليف", "")
-
-            if action_type == "penalty":
-                target_sub = old_sub
-            else:
-                if not new_sub:
-                    return refresh_ui_on_change(dept_filter, day_name, is_admin_logged_in, current_abs=current_abs)
-                if new_sub == "إشراف إداري":
-                    target_sub = new_sub
-                else:
-                    target_sub = new_sub.split(" (")[0].replace("🦅 ", "").strip()
-
-            if old_sub == target_sub and action_type == "normal" and old_status == "":
-                break
-
-            if old_sub != "إشراف إداري" and old_sub in teachers_db and old_status == "":
-                old_count = int(teachers_db[old_sub].get("cover_count", 0) or 0)
-                new_count = max(0, old_count - 1)
-                teachers_db[old_sub]["cover_count"] = new_count
-                _queue_audit_change(
-                    audit_entries,
-                    "تعديل رصيد الاحتياط",
-                    old_sub,
-                    old_count,
-                    new_count,
-                    f"إلغاء تكليف سابق للحصة {p_str_clean} يوم {day_name}",
-                )
-
-            if action_type == "penalty":
-                if target_sub != "إشراف إداري" and old_status != "تقصير" and target_sub in teachers_db:
-                    old_short = int(teachers_db[target_sub].get("shortcoming_count", 0) or 0)
-                    new_short = old_short + 1
-                    teachers_db[target_sub]["shortcoming_count"] = new_short
-                    _queue_audit_change(
-                        audit_entries,
-                        "تعديل حالات التقصير",
-                        target_sub,
-                        old_short,
-                        new_short,
-                        f"رصد تقصير في تكليف الحصة {p_str_clean} يوم {day_name}",
-                    )
-                r["المعلم البديل"] = target_sub
-                r["حالة_التكليف"] = "تقصير"
-
-            elif action_type == "tabadul":
-                r["المعلم البديل"] = target_sub
-                r["حالة_التكليف"] = "تبادل"
-
-            elif action_type == "normal":
-                r["المعلم البديل"] = target_sub
-                r["حالة_التكليف"] = ""
-                if target_sub != "إشراف إداري" and target_sub in teachers_db:
-                    old_count = int(teachers_db[target_sub].get("cover_count", 0) or 0)
-                    new_count = old_count + 1
-                    teachers_db[target_sub]["cover_count"] = new_count
-                    _queue_audit_change(
-                        audit_entries,
-                        "تعديل رصيد الاحتياط",
-                        target_sub,
-                        old_count,
-                        new_count,
-                        f"تكليف احتياط رسمي للحصة {p_str_clean} يوم {day_name}",
-                    )
-
-            save_db()
-            save_daily_db()
-            _flush_audit_changes(audit_entries, actor_name, actor_role)
-            break
-    return refresh_ui_on_change(dept_filter, day_name, is_admin_logged_in, current_abs=current_abs)
+    result = process_admin_action_core(
+        df_state,
+        abs_t,
+        period,
+        new_sub,
+        day_name,
+        dept_filter,
+        is_admin_logged_in,
+        current_abs,
+        action_type,
+        actor_name=actor_name,
+        actor_role=actor_role,
+    )
+    return refresh_ui_on_change(
+        result["refresh_dept"],
+        result["refresh_day"],
+        result["refresh_is_admin"],
+        current_abs=result.get("refresh_current_abs"),
+    )
     
 def load_teacher_data_for_edit(selected_teacher, is_admin=False, is_owner=False):
     permissions = get_permissions_from_flags(is_admin=is_admin, is_owner=is_owner)
