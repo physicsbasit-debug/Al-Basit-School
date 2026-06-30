@@ -6,11 +6,13 @@ Phase 3J-a1: دوال مساعدة نظيفة منخفضة المخاطر من �
 هذا الملف لا يعتمد على Gradio ولا يستورد app.py.
 """
 
+import urllib.parse
+
 from config import ADMIN_ROLES
 from storage import teachers_db, daily_db, SCHOOL_WEEK_DAYS
 from schedules import resolve_effective_dept, format_teacher_name
 from exemptions import is_teacher_exempt_for_slot
-from swaps import get_date_of_weekday, get_current_day_oman, get_class_dna, check_teacher_load
+from swaps import get_date_of_weekday, get_current_day_oman, get_class_dna, check_teacher_load, format_elegant_class
 
 
 def resolve_teacher_display_value(raw_name, choices):
@@ -196,3 +198,116 @@ def detect_conflicted_absence_slots(display_records):
             conflicted_slots.add((abs_name, period_val))
 
     return conflicted_teachers, conflicted_slots
+
+
+def detect_absence_assignment_conflicts_for_context(day_name, dept_filter, current_abs=None):
+    effective_dept = resolve_effective_dept(dept_filter)
+    cleaned = normalize_absent_names(current_abs) if current_abs else []
+    if not cleaned:
+        cleaned = get_existing_absents_for_context(day_name, effective_dept)
+
+    if not cleaned or not day_name:
+        return []
+
+    target_date = get_date_of_weekday(day_name)
+    conflict_rows = {}
+
+    for row in daily_db:
+        if row.get("date") != target_date:
+            continue
+        if effective_dept != "الكل" and row.get("dept") != effective_dept:
+            continue
+        if str(row.get("المعلم البديل", "")).strip() in ["", "إشراف إداري"]:
+            continue
+        if row.get("حالة_التكليف") == "تقصير":
+            continue
+
+        sub_name = str(row.get("المعلم البديل", "")).split(" (")[0].strip()
+        if sub_name not in cleaned:
+            continue
+
+        conflict_rows.setdefault(sub_name, [])
+        period_val = str(row.get("الحصة", "")).strip()
+        if period_val and period_val not in conflict_rows[sub_name]:
+            conflict_rows[sub_name].append(period_val)
+
+    conflicts = []
+    for teacher_name, periods in conflict_rows.items():
+        conflicts.append({
+            "name": teacher_name,
+            "periods": sorted(periods, key=lambda x: int(x) if str(x).isdigit() else str(x))
+        })
+
+    conflicts.sort(key=lambda item: item["name"])
+    return conflicts
+
+def generate_styled_html_table(df):
+    if df is None or df.empty: return "<div style='text-align:center; color:gray; padding:20px; border: 1px dashed #ccc; border-radius: 10px;'>لا توجد تكليفات للعرض. اختر معلماً غائباً واضغط توليد.</div>"
+    html = "<div style='overflow-x: auto; margin-top: 15px;'><table style='width: 100%; border-collapse: separate; border-spacing: 0 6px; text-align: center; font-family: Cairo, Arial, sans-serif; direction: rtl; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px rgba(0,0,0,0.05);'>"
+    html += "<tr style='background-color: #004d40; color: white; font-size: 16px; border-bottom: 3px solid #ffca28;'><th style='padding: 15px;'>المعلم الغائب</th><th style='padding: 15px;'>الصف</th><th style='padding: 15px;'>الحصة</th><th style='padding: 15px;'>المعلم البديل</th></tr>"
+    for index, row in df.iterrows():
+        sub_teacher_display = str(row.get("المعلم البديل عرض", row["المعلم البديل"]))
+        abs_teacher = str(row["المعلم الغائب"])
+        status = row.get("حالة_التكليف", "")
+        is_admin_supervision = "إشراف" in sub_teacher_display
+
+        if status == "تقصير" or "❌" in sub_teacher_display: bg_color, text_color, border_style = "#ffebee", "#c62828", "border-top: 2px solid #ef9a9a; border-bottom: 2px solid #ef9a9a;"
+        elif status == "تبادل" or "🤝" in sub_teacher_display: bg_color, text_color, border_style = "#e0f2f1", "#00695c", "border-top: 2px solid #80cbc4; border-bottom: 2px solid #80cbc4;"
+        elif is_admin_supervision: bg_color, text_color, border_style = "#fee2e2", "#991b1b", "border-top: 4px solid #ef4444; border-bottom: 4px solid #ef4444;"
+        else: bg_color, text_color, border_style = "#f1f8e9" if index % 2 == 0 else "#ffffff", "#333333", "border-bottom: 1px solid #e5e7eb;"
+
+        if is_admin_supervision:
+            row_shadow = "box-shadow: inset 0 0 0 2px rgba(220, 38, 38, 0.18), 0 0 0 2px rgba(248, 113, 113, 0.35);"
+            admin_badge_style = "display:inline-block; background:#dc2626; color:#ffffff; padding:4px 12px; border-radius:999px; font-weight:900; box-shadow:0 2px 4px rgba(220,38,38,0.25);"
+            sub_teacher_display = f"<span style='{admin_badge_style}'>{sub_teacher_display}</span>"
+        else:
+            row_shadow = ""
+
+        base_cell_style = f"padding: 12px; font-size: 15px; font-weight: bold; background-color: {bg_color} !important; color: {text_color} !important; {border_style} {row_shadow}"
+        right_cell_style = base_cell_style + (" border-right: 10px solid #dc2626; border-top-right-radius: 14px; border-bottom-right-radius: 14px;" if is_admin_supervision else "")
+        left_cell_style = base_cell_style + (" border-left: 10px solid #dc2626; border-top-left-radius: 14px; border-bottom-left-radius: 14px;" if is_admin_supervision else "")
+
+        html += f"<tr style='background-color: {bg_color}; color: {text_color};'>"
+        html += f"<td style='{right_cell_style}'>{abs_teacher}</td>"
+        html += f"<td style='{base_cell_style}'>{row['الصف']}</td>"
+        html += f"<td style='{base_cell_style}'>{row['الحصة']}</td>"
+        html += f"<td style='{left_cell_style}'>{sub_teacher_display}</td></tr>"
+    html += "</table></div>"
+    return html
+
+def generate_whatsapp_html(df_state, day_name, absent_list):
+    if df_state is None or df_state.empty: return "", "<div style='text-align:center; color:gray; padding:20px;'>لا توجد تكليفات لعرضها</div>"
+    absents_str = "، ".join([format_teacher_name(a) for a in absent_list]) if absent_list else "لا يوجد"
+    summary = f" ملخص احتياط اليوم: {day_name}\n المعلم الغائب: {absents_str}\n تم توزيع حصص الاحتياط بنجاح عبر منظومة الباسط.. يعطيكم العافية جميعاً! "
+    html_cards = ""
+    for _, row in df_state.iterrows():
+        sub_raw = str(row["المعلم البديل"])
+        abs_raw = str(row["المعلم الغائب"])
+        status = str(row.get("حالة_التكليف", ""))
+        
+        if status == "تقصير" or "إشراف" in sub_raw: continue
+        
+        sub_fmt = format_teacher_name(sub_raw)
+        abs_fmt = format_teacher_name(abs_raw)
+ 
+        spec = teachers_db.get(sub_raw, {}).get("specialty", "")
+        sub_display = f"{sub_fmt} [{spec}]" if spec else sub_fmt
+        
+        elegant_class = format_elegant_class(row['الصف'])
+        
+        if status == "تبادل":
+            msg = f"أهلاً بك أستاذنا المتعاون 🤝 {sub_display}،\nتم اعتماد التكليف كحصة (تبادلية) للصف ({elegant_class}) في الحصة ({row['الحصة']})، بدلاً من الأستاذ {abs_fmt}.\nعلى أن يتم التنسيق بينكما ليعوض الأستاذ {abs_fmt} حصته.\nإدارة مدرسة الباسط تشكر لكم هذا التعاون المثمر!"
+            btn_color = "#00897b"
+        else:
+            msg = f"أهلاً بك أستاذنا المبدع {sub_display}،\nتم تكليفك اليوم بمهمة قيادة الصف ({elegant_class}) في الحصة ({row['الحصة']})، بدلاً من الأستاذ {abs_fmt}.\nشاكرين لك مبادرتك وتعاونك الدائم!\n- إدارة مدرسة الباسط"
+            btn_color = "#25D366" if teachers_db.get(sub_raw, {}).get("phone", "") else "#075e54"
+            
+        encoded_msg = urllib.parse.quote(msg)
+        phone = teachers_db.get(sub_raw, {}).get("phone", "")
+        wa_link = f"https://api.whatsapp.com/send?phone={phone}&text={encoded_msg}" if phone else f"https://api.whatsapp.com/send?text={encoded_msg}"
+        btn_text = f"✅ إرسال للأستاذ {sub_raw}" if phone else f"⚠️ إرسال (لا يوجد رقم)"
+        
+        card = f"<div style='background:#ffffff; border: 2px solid {btn_color}; border-radius: 10px; padding: 15px; margin-bottom: 15px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); direction: rtl; text-align: right;'><h4 style='color: {btn_color}; margin-top: 0; font-size: 1.1em;'>👤 {'المعلم المتعاون' if status=='تبادل' else 'المعلم البديل'}: {sub_display}</h4><p style='white-space: pre-wrap; font-size: 14px; background: #f1f8e9; padding: 10px; border-radius: 5px; color:#333; line-height: 1.6;'>{msg}</p><a href='{wa_link}' target='_blank' style='display: inline-block; background-color: {btn_color}; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px;'>{btn_text}</a></div>"
+        html_cards += card
+    if not html_cards: html_cards = "<div style='text-align:center; color:gray; padding:20px; border: 1px dashed #ccc; border-radius: 10px;'>جميع التكليفات إدارية أو تقصير ولا توجد رسائل فردية للمكلفين.</div>"
+    return summary, html_cards
