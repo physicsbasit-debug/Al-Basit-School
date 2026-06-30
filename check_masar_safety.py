@@ -4422,6 +4422,84 @@ def check_staff_management_phase3jd4(path: Path, app_text: str, results: list[Ch
     add(results, "3J-d4: الدوال الثقيلة الأخرى بقيت خارج distribution.py", "PASS" if still_outside else "FAIL",
         "draw_schedule_image/run_generation لم تُنقل في هذه المرحلة." if still_outside else "وجدت دوال ثقيلة غير مستهدفة داخل distribution.py.")
 
+
+
+def check_draw_schedule_image_phase3je1(path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص Phase 3J-e1: نقل draw_schedule_image كـcore إلى swaps.py مع إبقاء wrapper في app.py."""
+    swaps_path = path.with_name("swaps.py")
+    distribution_path = path.with_name("distribution.py")
+    if not swaps_path.exists():
+        add(results, "3J-e1: وجود swaps.py", "FAIL", f"غير موجود: {swaps_path}")
+        return
+    swaps_text = read_text(swaps_path)
+    distribution_text = read_text(distribution_path) if distribution_path.exists() else ""
+
+    core_exists = re.search(r"^def\s+draw_schedule_image_core\s*\(", swaps_text, flags=re.MULTILINE) is not None
+    wrapper_exists = re.search(r"^def\s+draw_schedule_image\s*\(", app_text, flags=re.MULTILINE) is not None
+    core_in_app = re.search(r"^def\s+draw_schedule_image_core\s*\(", app_text, flags=re.MULTILINE) is not None
+    wrapper_in_swaps = re.search(r"^def\s+draw_schedule_image\s*\(", swaps_text, flags=re.MULTILINE) is not None
+    core_in_distribution = "def draw_schedule_image_core" in distribution_text
+    placement_ok = core_exists and wrapper_exists and not core_in_app and not wrapper_in_swaps and not core_in_distribution
+    add(results, "3J-e1: draw_schedule_image core/wrapper في المواضع الصحيحة", "PASS" if placement_ok else "FAIL",
+        "core في swaps.py وwrapper في app.py دون تكرار أو نقل إلى distribution.py." if placement_ok else f"core={core_exists}, wrapper={wrapper_exists}, core_in_app={core_in_app}, wrapper_in_swaps={wrapper_in_swaps}, core_in_distribution={core_in_distribution}")
+
+    forbidden = []
+    for pattern, label in [(r"gr\.update", "gr.update"), (r"import\s+gradio", "import gradio"), (r"gr\.SelectData", "gr.SelectData"), (r"import\s+app", "import app")]:
+        lines = line_numbers_for_pattern(swaps_text, pattern)
+        if lines:
+            forbidden.append(f"{label} في الأسطر {lines[:5]}")
+    add(results, "3J-e1: swaps.py بلا Gradio ولا app.py", "PASS" if not forbidden else "FAIL",
+        "لا يحتوي swaps.py على Gradio ولا import app." if not forbidden else "; ".join(forbidden))
+
+    try:
+        app_tree = ast.parse(app_text)
+        swaps_tree = ast.parse(swaps_text)
+        app_node = next((n for n in ast.walk(app_tree) if isinstance(n, ast.FunctionDef) and n.name == "draw_schedule_image"), None)
+        core_node = next((n for n in ast.walk(swaps_tree) if isinstance(n, ast.FunctionDef) and n.name == "draw_schedule_image_core"), None)
+        def has_state_locked(node):
+            return bool(node and any((isinstance(d, ast.Name) and d.id == "state_locked") or (isinstance(d, ast.Call) and isinstance(d.func, ast.Name) and d.func.id == "state_locked") for d in node.decorator_list))
+        def direct_returns(node):
+            if not node:
+                return []
+            values = []
+            for child in node.body:
+                if isinstance(child, ast.Return):
+                    values.append(ast.unparse(child.value) if child.value is not None else "None")
+            return values
+        wrapper_locked = has_state_locked(app_node)
+        core_locked = has_state_locked(core_node)
+        core_direct_returns = direct_returns(core_node)
+    except Exception as exc:
+        wrapper_locked = True
+        core_locked = True
+        core_direct_returns = []
+        add(results, "3J-e1: تحليل AST للدالة", "FAIL", f"تعذر التحليل: {exc}")
+
+    wrapper_body = function_body(app_text, "draw_schedule_image") or ""
+    wrapper_ok = (not wrapper_locked) and "draw_schedule_image_core(" in wrapper_body and "gr.update" not in wrapper_body
+    add(results, "3J-e1: wrapper خفيف بلا قفل ولا Gradio", "PASS" if wrapper_ok else "FAIL",
+        "wrapper يستدعي core مباشرة ويرجع filename كما في العقد القديم." if wrapper_ok else f"wrapper_locked={wrapper_locked}, calls_core={'draw_schedule_image_core(' in wrapper_body}, has_gr={'gr.update' in wrapper_body}")
+
+    core_body = function_body(swaps_text, "draw_schedule_image_core") or ""
+    core_contract_ok = (not core_locked) and core_direct_returns == ["filename"]
+    add(results, "3J-e1: core بلا قفل ويرجع filename فقط", "PASS" if core_contract_ok else "FAIL",
+        "core غير مقفلة وترجع سلسلة filename خامًا فقط." if core_contract_ok else f"core_locked={core_locked}, direct_returns={core_direct_returns}")
+
+    no_state_mutation = all(marker not in core_body for marker in [
+        "teachers_db", "daily_db", "processed_absences", "last_assigned_teachers", "save_db(", "save_daily_db(", "save_swap_db(", "write_audit_log(",
+    ])
+    add(results, "3J-e1: core لا تعدل حالة عامة", "PASS" if no_state_mutation else "FAIL",
+        "draw_schedule_image_core تقرأ df فقط وتولّد ملف صورة." if no_state_mutation else "وجدت مؤشرات تعديل حالة داخل core.")
+
+    deps_ok = all(marker in core_body for marker in ["ensure_data_directories()", "IMG_DIR", "get_date_of_weekday(day_name)", "Image.new", "ImageDraw.Draw", "ImageFont.truetype"])
+    add(results, "3J-e1: اعتماديات الصورة والمسار محفوظة", "PASS" if deps_ok else "FAIL",
+        "core تستخدم IMG_DIR وensure_data_directories وPIL وget_date_of_weekday." if deps_ok else "بعض اعتماديات الصورة أو المسار غير ظاهرة داخل core.")
+
+    app_no_duplicate_fonts = "candidate_font_paths = [" not in app_text and "image_font_candidate_paths = [" not in app_text
+    app_imports_font_paths = "font_path" in app_text and "image_font_path" in app_text and "from swaps import" in app_text
+    add(results, "3J-e1: مصدر الخطوط موحد من swaps.py", "PASS" if app_no_duplicate_fonts and app_imports_font_paths else "FAIL",
+        "حُذف منطق البحث المكرر عن الخطوط من app.py ويستورد المسارات من swaps.py." if app_no_duplicate_fonts and app_imports_font_paths else f"no_duplicate={app_no_duplicate_fonts}, imports_paths={app_imports_font_paths}")
+
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Masar safety checker")
     parser.add_argument("source", nargs="?", default="app.py", help="مسار ملف app.py أو نسخة منظومة مسار")
@@ -4504,6 +4582,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_update_manual_count_phase3jd2(path, app_text, results)
     check_reset_monthly_balances_phase3jd3(path, app_text, results)
     check_staff_management_phase3jd4(path, app_text, results)
+    check_draw_schedule_image_phase3je1(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
