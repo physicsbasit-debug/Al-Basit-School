@@ -29,7 +29,7 @@ from typing import Iterable
 
 
 EXPECTED_SYMBOL_COUNTS = {
-    "❌": 56,
+    "❌": 52,
     "🤝": 9,
     "🦅": 5,
     "⚠️": 22,
@@ -4451,7 +4451,7 @@ def parse_expected_symbols(raw: str | None) -> dict[str, int]:
     if not raw:
         return dict(EXPECTED_SYMBOL_COUNTS)
     expected = dict(EXPECTED_SYMBOL_COUNTS)
-    # صيغة: ❌=56,🤝=9,🦅=5,⚠️=22
+    # صيغة: ❌=52,🤝=9,🦅=5,⚠️=22
     for part in raw.split(","):
         part = part.strip()
         if not part:
@@ -4734,33 +4734,37 @@ def check_rollback_auto_assignments_phase3je3(path: Path, app_text: str, results
         "الاسم يظهر مرة واحدة داخل run_full_regeneration، والاستيراد لا يُحسب كاستدعاء." if other_calls == 1 else f"عدد استدعاءات rollback core في app.py: {other_calls}")
 
 def check_potential_dead_code_admin_excel_phase3j_final(path: Path, app_text: str, results: list[CheckResult]) -> None:
-    """وثّق دوال Excel القديمة المرشحة للمراجعة لاحقًا دون تحويلها إلى فشل."""
+    """وثّق إزالة دوال Excel القديمة ككود ميت مؤكد بعد 3K-dead-code-cleanup."""
     try:
         tree = ast.parse(app_text)
     except SyntaxError as exc:
-        add(results, "3J-final: فحص دوال Excel القديمة", "INFO", f"تعذر تحليل app.py: {exc}")
+        add(results, "3K-dead-code-cleanup: فحص دوال Excel القديمة", "INFO", f"تعذر تحليل app.py: {exc}")
         return
 
+    removed_names = {"process_admin_excel", "process_phone_excel"}
     defined = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
-    call_counts: dict[str, int] = {"process_admin_excel": 0, "process_phone_excel": 0}
+    call_counts: dict[str, int] = {name: 0 for name in removed_names}
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in call_counts:
             call_counts[node.func.id] += 1
 
-    notes: list[str] = []
-    for func_name in call_counts:
-        if func_name in defined:
-            notes.append(f"{func_name}: معرفة، عدد الاستدعاءات المباشرة={call_counts[func_name]}")
-        else:
-            notes.append(f"{func_name}: غير موجودة")
+    still_defined = sorted(name for name in removed_names if name in defined)
+    still_called = sorted(name for name, count in call_counts.items() if count > 0)
+    if still_defined or still_called:
+        add(
+            results,
+            "3K-dead-code-cleanup: إزالة process_admin_excel/process_phone_excel",
+            "FAIL",
+            f"لا تزال موجودة أو مستدعاة: defined={still_defined}, called={still_called}",
+        )
+        return
 
     add(
         results,
-        "3J-final: process_admin_excel/process_phone_excel للمراجعة لاحقًا",
+        "3K-dead-code-cleanup: إزالة process_admin_excel/process_phone_excel",
         "INFO",
-        "; ".join(notes) + " — ملاحظة توثيقية فقط خارج نطاق إغلاق 3J، بلا WARN/FAIL.",
+        "تمت إزالة الدالتين ككود ميت مؤكد بعد فحص 3K-dead-code-cleanup-pre؛ غيابهما هو السلوك الصحيح ولا يُعد FAIL.",
     )
-
 
 
 def check_data_center_reference_refresh_phase3k(path: Path, app_text: str, results: list[CheckResult]) -> None:
@@ -4880,7 +4884,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("source", nargs="?", default="app.py", help="مسار ملف app.py أو نسخة منظومة مسار")
     parser.add_argument("--json", action="store_true", help="إخراج النتيجة بصيغة JSON")
     parser.add_argument("--warn-as-fail", action="store_true", help="اعتبار التحذيرات فشلًا")
-    parser.add_argument("--expected-symbols", help="تجاوز أعداد الرموز، مثال: ❌=56,🤝=9,🦅=5,⚠️=22")
+    parser.add_argument("--expected-symbols", help="تجاوز أعداد الرموز، مثال: ❌=52,🤝=9,🦅=5,⚠️=22")
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     path = Path(args.source).resolve()
