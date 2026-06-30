@@ -4500,6 +4500,54 @@ def check_draw_schedule_image_phase3je1(path: Path, app_text: str, results: list
     add(results, "3J-e1: مصدر الخطوط موحد من swaps.py", "PASS" if app_no_duplicate_fonts and app_imports_font_paths else "FAIL",
         "حُذف منطق البحث المكرر عن الخطوط من app.py ويستورد المسارات من swaps.py." if app_no_duplicate_fonts and app_imports_font_paths else f"no_duplicate={app_no_duplicate_fonts}, imports_paths={app_imports_font_paths}")
 
+
+def check_generation_orchestration_phase3je2fix(path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص Phase 3J-e2-fix: تشغيل التوليد يستدعي assign_logic_core مباشرة بلا refresh مزدوج."""
+    distribution_path = path.with_name("distribution.py")
+    distribution_text = read_text(distribution_path) if distribution_path.exists() else ""
+
+    imports_core = "assign_logic_core" in app_text and "from distribution import" in app_text
+    core_exists = re.search(r"^def\s+assign_logic_core\s*\(", distribution_text, flags=re.MULTILINE) is not None
+    add(results, "3J-e2-fix: assign_logic_core متاحة للتوليد", "PASS" if imports_core and core_exists else "FAIL",
+        "assign_logic_core مستوردة في app.py وموجودة في distribution.py." if imports_core and core_exists else f"imports_core={imports_core}, core_exists={core_exists}")
+
+    def check_generation_func(func_name: str) -> None:
+        body = function_body(app_text, func_name) or ""
+        exists = bool(body)
+        calls_core = "assign_logic_core(" in body
+        calls_wrapper = re.search(r"(?<!_)\bassign_logic\s*\(", body) is not None
+        refresh_count = body.count("refresh_ui_on_change(")
+        locked = False
+        try:
+            tree = ast.parse(app_text)
+            node = next((n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == func_name), None)
+            locked = bool(node and any(
+                (isinstance(d, ast.Name) and d.id == "state_locked")
+                or (isinstance(d, ast.Call) and isinstance(d.func, ast.Name) and d.func.id == "state_locked")
+                for d in node.decorator_list
+            ))
+        except Exception:
+            locked = True
+
+        ok = exists and calls_core and not calls_wrapper and refresh_count == 2 and not locked
+        add(results, f"3J-e2-fix: {func_name} يستدعي core بلا wrapper", "PASS" if ok else "FAIL",
+            f"{func_name} يستدعي assign_logic_core مباشرة ويحافظ على refresh_ui_on_change للفرعين فقط." if ok else f"exists={exists}, calls_core={calls_core}, calls_wrapper={calls_wrapper}, refresh_count={refresh_count}, locked={locked}")
+
+    check_generation_func("run_main_generation")
+    check_generation_func("run_full_regeneration")
+
+    ui_helpers_expected = [
+        "def generate_image_only(",
+        "def clear_generated_image(",
+        "def force_refresh_data(",
+        "def toggle_cross_dept(",
+        "def get_leader_action_button_updates(",
+    ]
+    helpers_still_in_app = all(marker in app_text for marker in ui_helpers_expected)
+    helpers_not_in_distribution = not any(marker in distribution_text for marker in ui_helpers_expected)
+    add(results, "3J-e2-fix: دوال UI الصغيرة باقية في app.py", "PASS" if helpers_still_in_app and helpers_not_in_distribution else "FAIL",
+        "دوال generate/clear/force/toggle/buttons بقيت في app.py لأنها UI-bound." if helpers_still_in_app and helpers_not_in_distribution else f"helpers_in_app={helpers_still_in_app}, helpers_not_in_distribution={helpers_not_in_distribution}")
+
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Masar safety checker")
     parser.add_argument("source", nargs="?", default="app.py", help="مسار ملف app.py أو نسخة منظومة مسار")
@@ -4583,6 +4631,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_reset_monthly_balances_phase3jd3(path, app_text, results)
     check_staff_management_phase3jd4(path, app_text, results)
     check_draw_schedule_image_phase3je1(path, app_text, results)
+    check_generation_orchestration_phase3je2fix(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
