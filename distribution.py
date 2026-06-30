@@ -7,6 +7,7 @@ Phase 3J-a1: دوال مساعدة نظيفة منخفضة المخاطر من �
 """
 
 import random
+import re
 import urllib.parse
 
 import pandas as pd
@@ -15,12 +16,13 @@ from config import ADMIN_ROLES
 from storage import (
     teachers_db, daily_db, processed_absences, last_assigned_teachers, SCHOOL_WEEK_DAYS,
     load_db, load_daily_db, save_db, save_daily_db, state_locked,
-    _queue_audit_change, _flush_audit_changes,
+    _queue_audit_change, _flush_audit_changes, write_audit_log,
 )
-from schedules import resolve_effective_dept, format_teacher_name, get_teacher_choices, get_absentee_choices, get_day_table_updates_core
+from schedules import resolve_effective_dept, format_teacher_name, get_teacher_choices, get_absentee_choices, get_day_table_updates_core, get_day_overview
 from balances import get_updated_balance, get_updated_absences, get_updated_shortcomings
 from exemptions import is_teacher_exempt_for_slot, clean_teacher_name_from_ui
 from swaps import get_date_of_weekday, get_current_day_oman, get_class_dna, check_teacher_load, format_elegant_class
+from auth import get_permissions_from_flags
 
 
 @state_locked
@@ -401,6 +403,113 @@ def process_admin_action_core(df_state, abs_t, period, new_sub, day_name, dept_f
         "refresh_is_admin": is_admin_logged_in,
         "refresh_current_abs": current_abs,
     }
+
+
+@state_locked
+def update_manual_count_core(name, new_val, new_abs_val, new_short_val, new_phone, new_specialty, new_role, dept_filter, day_val, df_state, abs_in_list, is_admin=False, is_owner=False, actor_name="", actor_role=""):
+    permissions = get_permissions_from_flags(is_admin=is_admin, is_owner=is_owner)
+    can_edit_vault = permissions["can_edit_vault_basic"]
+    owner_mode = permissions["can_edit_sensitive_teacher_data"]
+
+    def build_payload(message, abs_update=None, teacher_update_1=None, teacher_update_2=None):
+        return {
+            "balance": get_updated_balance(dept_filter),
+            "absences": get_updated_absences(dept_filter),
+            "shortcomings": get_updated_shortcomings(dept_filter),
+            "day_overview": get_day_overview(day_val, dept_filter),
+            "message": message,
+            "abs_update": abs_update or {},
+            "teacher_update_1": teacher_update_1 or {},
+            "teacher_update_2": teacher_update_2 or {},
+        }
+
+    if not can_edit_vault:
+        return build_payload(
+            "<div style='color:#c62828; font-weight:bold; background:#ffebee; padding:10px; border-radius:5px; text-align:center;'>❌ لا تملك صلاحية تعديل الخزنة.</div>"
+        )
+
+    if name and name in teachers_db:
+        old_cover_count = teachers_db[name].get("cover_count", 0)
+        old_absent_count = teachers_db[name].get("absent_count", 0)
+        old_shortcoming_count = teachers_db[name].get("shortcoming_count", 0)
+
+        if new_val is not None:
+            try:
+                parsed_cover = int(new_val)
+                if parsed_cover != old_cover_count:
+                    teachers_db[name]["cover_count"] = parsed_cover
+                    write_audit_log(
+                        "تعديل رصيد الاحتياط",
+                        target_teacher=name,
+                        old_value=old_cover_count,
+                        new_value=parsed_cover,
+                        details="تعديل من الخزنة",
+                        actor_name=actor_name,
+                        actor_role=actor_role
+                    )
+            except Exception:
+                pass
+
+        if new_abs_val is not None:
+            try:
+                parsed_absent = int(new_abs_val)
+                if parsed_absent != old_absent_count:
+                    teachers_db[name]["absent_count"] = parsed_absent
+                    write_audit_log(
+                        "تعديل مرات الغياب",
+                        target_teacher=name,
+                        old_value=old_absent_count,
+                        new_value=parsed_absent,
+                        details="تعديل من الخزنة",
+                        actor_name=actor_name,
+                        actor_role=actor_role
+                    )
+            except Exception:
+                pass
+
+        if new_short_val is not None:
+            try:
+                parsed_short = int(new_short_val)
+                if parsed_short != old_shortcoming_count:
+                    teachers_db[name]["shortcoming_count"] = parsed_short
+                    write_audit_log(
+                        "تعديل حالات التقصير",
+                        target_teacher=name,
+                        old_value=old_shortcoming_count,
+                        new_value=parsed_short,
+                        details="تعديل من الخزنة",
+                        actor_name=actor_name,
+                        actor_role=actor_role
+                    )
+            except Exception:
+                pass
+
+        if owner_mode and new_phone is not None:
+            phone_clean = re.sub(r'\D', '', str(new_phone))
+            if phone_clean:
+                if len(phone_clean) == 8:
+                    phone_clean = "968" + phone_clean
+                teachers_db[name]["phone"] = phone_clean
+            else:
+                teachers_db[name]["phone"] = ""
+        if owner_mode and new_specialty is not None:
+            teachers_db[name]["specialty"] = str(new_specialty).strip()
+        if owner_mode and new_role is not None:
+            teachers_db[name]["role"] = str(new_role).strip()
+
+        save_db()
+        choices_all = get_teacher_choices(dept_filter)
+        abs_choices = get_absentee_choices(dept_filter)
+        permission_note = "" if owner_mode else "<br><span style='color:#6b7280;'>ℹ️ تم تجاهل تعديل المنصب ورقم الواتساب والتخصص الدقيق لأن هذه الحقول مخصصة لصاحب النظام فقط.</span>"
+        return build_payload(
+            f"<div style='color:#2e7d32; font-weight:bold; background:#e8f5e9; padding:10px; border-radius:5px; text-align:center;'>✅ تم حفظ التعديلات للأستاذ ({name}) بنجاح!{permission_note}</div>",
+            {"choices": abs_choices},
+            {"choices": choices_all, "value": None},
+            {"choices": choices_all, "value": None},
+        )
+
+    return build_payload("<div style='color:red;'>❌ لم يتم الحفظ</div>")
+
 
 def resolve_teacher_display_value(raw_name, choices):
     if not raw_name:
