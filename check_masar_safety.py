@@ -260,7 +260,7 @@ def check_exemption_centralization(text: str, results: list[CheckResult]) -> Non
 
     for func_name, min_calls in [
         ("assign_logic", 1),
-        ("update_available_subs_smart", 1),
+        ("update_available_subs_smart_core", 1),
         ("get_falcon_eye_candidates", 1),
     ]:
         body = function_body(text, func_name)
@@ -1730,7 +1730,7 @@ def check_exemptions_phase3ha2(app_path: Path, app_text: str, results: list[Chec
             distribution_text = distribution_path.read_text(encoding="utf-8-sig")
 
     critical_sources = app_text + "\n" + distribution_text
-    critical_callers = ["assign_logic", "update_available_subs_smart", "get_falcon_eye_candidates"]
+    critical_callers = ["assign_logic", "update_available_subs_smart_core", "get_falcon_eye_candidates"]
     missing_calls = []
     for fn in critical_callers:
         body = function_body(critical_sources, fn)
@@ -1740,7 +1740,7 @@ def check_exemptions_phase3ha2(app_path: Path, app_text: str, results: list[Chec
         results,
         "3H-a-2: دوال الترشيح ما زالت تستخدم is_teacher_exempt_for_slot",
         "PASS" if not missing_calls else "FAIL",
-        "assign_logic/update_available_subs_smart/get_falcon_eye_candidates تستدعي دالة الإعفاء المركزية." if not missing_calls else f"ناقص أو غير واضح: {missing_calls}",
+        "assign_logic/update_available_subs_smart_core/get_falcon_eye_candidates تستدعي دالة الإعفاء المركزية." if not missing_calls else f"ناقص أو غير واضح: {missing_calls}",
     )
 
     try:
@@ -3504,7 +3504,7 @@ def check_distribution_phase3ja3(path: Path, app_text: str, results: list[CheckR
         "core يستدعي get_day_table_updates_core مباشرة." if direct_core_dependency and not direct_wrapper_dependency else "core قد يستدعي wrapper أو لا يستدعي core المطلوب.",
     )
 
-    heavy_names = ["assign_logic", "update_available_subs_smart", "draw_schedule_image", "process_admin_action", "update_manual_count", "cancel_teacher_absence"]
+    heavy_names = ["assign_logic", "draw_schedule_image", "process_admin_action", "update_manual_count", "cancel_teacher_absence"]
     moved_heavy = [
         name for name in heavy_names
         if re.search(rf"^def\s+{re.escape(name)}\s*\(", distribution_text, flags=re.MULTILINE)
@@ -3515,6 +3515,109 @@ def check_distribution_phase3ja3(path: Path, app_text: str, results: list[CheckR
         "PASS" if not moved_heavy else "FAIL",
         "الدوال الثقيلة الأخرى لم تُنقل في هذه المرحلة." if not moved_heavy else f"نُقلت بالخطأ: {moved_heavy}",
     )
+
+
+def check_distribution_phase3jb1(path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص Phase 3J-b1: تقسيم update_available_subs_smart إلى core/wrapper."""
+    distribution_path = path.with_name("distribution.py")
+    if not distribution_path.exists():
+        add(results, "3J-b1: وجود distribution.py", "FAIL", f"غير موجود: {distribution_path}")
+        return
+
+    try:
+        distribution_text = distribution_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        distribution_text = distribution_path.read_text(encoding="utf-8-sig")
+
+    core_in_distribution = re.search(r"^def\s+update_available_subs_smart_core\s*\(", distribution_text, flags=re.MULTILINE) is not None
+    wrapper_in_app = re.search(r"^def\s+update_available_subs_smart\s*\(", app_text, flags=re.MULTILINE) is not None
+    duplicated_wrapper = re.search(r"^def\s+update_available_subs_smart\s*\(", distribution_text, flags=re.MULTILINE) is not None
+
+    add(
+        results,
+        "3J-b1: core موجودة في distribution.py",
+        "PASS" if core_in_distribution else "FAIL",
+        "update_available_subs_smart_core موجودة في distribution.py." if core_in_distribution else "core غير موجودة في distribution.py.",
+    )
+    add(
+        results,
+        "3J-b1: wrapper باقية في app.py",
+        "PASS" if wrapper_in_app else "FAIL",
+        "update_available_subs_smart باقية في app.py كـwrapper." if wrapper_in_app else "wrapper غير موجودة في app.py.",
+    )
+    add(
+        results,
+        "3J-b1: لا توجد wrapper مكررة في distribution.py",
+        "PASS" if not duplicated_wrapper else "FAIL",
+        "لا توجد update_available_subs_smart كاملة في distribution.py." if not duplicated_wrapper else "الدالة wrapper موجودة خطأ في distribution.py.",
+    )
+
+    forbidden = []
+    for pattern, desc in [
+        (r"gr\.update", "gr.update"),
+        (r"import\s+gradio", "import gradio"),
+        (r"gr\.SelectData", "gr.SelectData"),
+        (r"import\s+app", "import app"),
+        (r"from\s+app\s+import", "from app import"),
+    ]:
+        lines = line_numbers_for_pattern(distribution_text, pattern)
+        if lines:
+            forbidden.append(f"{desc} في الأسطر {lines[:10]}")
+    add(
+        results,
+        "3J-b1: distribution.py بلا Gradio ولا app.py",
+        "PASS" if not forbidden else "FAIL",
+        "لا يحتوي distribution.py على Gradio ولا import app." if not forbidden else "; ".join(forbidden),
+    )
+
+    core_body = function_body(distribution_text, "update_available_subs_smart_core")
+    wrapper_body = function_body(app_text, "update_available_subs_smart")
+    required_markers = [
+        "clean_teacher_name_from_ui",
+        "get_date_of_weekday",
+        "daily_db",
+        "teachers_db",
+        "is_teacher_exempt_for_slot",
+        "get_falcon_eye_candidates",
+        "check_teacher_load",
+    ]
+    missing = [marker for marker in required_markers if marker not in core_body and marker not in distribution_text]
+    add(
+        results,
+        "3J-b1: اعتماديات core موجودة",
+        "PASS" if not missing else "FAIL",
+        "اعتماديات الترشيح الذكي موجودة." if not missing else f"ناقص: {missing}",
+    )
+
+    wrapper_uses_core = "update_available_subs_smart_core" in wrapper_body
+    wrapper_single_update = wrapper_body.count("gr.update") == 1 and "choices=choices" in wrapper_body and "interactive=interactive" in wrapper_body
+    add(
+        results,
+        "3J-b1: wrapper يرجع gr.update مفردًا",
+        "PASS" if wrapper_uses_core and wrapper_single_update else "FAIL",
+        "wrapper يستدعي core ويرجع gr.update واحدًا بعقد choices/value/interactive." if wrapper_uses_core and wrapper_single_update else "wrapper لا يطابق العقد المفرد.",
+    )
+
+    try:
+        dist_tree = ast.parse(distribution_text)
+        core_node = next((n for n in dist_tree.body if isinstance(n, ast.FunctionDef) and n.name == "update_available_subs_smart_core"), None)
+        locked = bool(core_node and core_node.decorator_list)
+        required_return_markers = [
+            "return [], None, False",
+            "return [msg], msg, False",
+            "return opts, None, True",
+            "return [\"إشراف إداري\"], None, True",
+        ]
+        missing_returns = [marker for marker in required_return_markers if marker not in core_body]
+        no_gradio_in_core = "gr.update" not in core_body
+        add(
+            results,
+            "3J-b1: core بلا @state_locked وترجع قيمًا خامة",
+            "PASS" if (not locked and no_gradio_in_core and not missing_returns) else "FAIL",
+            "core بلا decorators وبلا gr.update وتستخدم عقد choices/value/interactive الخام." if (not locked and no_gradio_in_core and not missing_returns) else f"decorators={locked}, no_gradio={no_gradio_in_core}, missing={missing_returns}",
+        )
+    except Exception as exc:
+        add(results, "3J-b1: تحليل AST للـcore", "FAIL", f"تعذر التحليل: {exc}")
 
 def parse_expected_symbols(raw: str | None) -> dict[str, int]:
     if not raw:
@@ -3606,6 +3709,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_distribution_phase3ja1(path, app_text, results)
     check_distribution_phase3ja2fix(path, app_text, results)
     check_distribution_phase3ja3(path, app_text, results)
+    check_distribution_phase3jb1(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
