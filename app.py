@@ -226,6 +226,8 @@ from distribution import (
     process_admin_action_core,
     update_manual_count_core,
     reset_monthly_balances_core,
+    add_manual_staff_core,
+    delete_single_teacher_core,
 )
 
 
@@ -2804,29 +2806,17 @@ def confirm_swap(t, period_value, choice, d, msg_text, state, actor_name="", act
 
 
 
-@state_locked
 def add_manual_staff(name, dept, phone, role, dept_filter, is_owner=False):
-    if not bool(is_owner):
-        return "<div style='color:red; font-weight:bold;'>❌ الإضافة اليدوية للطاقم متاحة لمالك النظام فقط.</div>", gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
-    if not name or not str(name).strip():
-        return "<div style='color:red; font-weight:bold;'>❌ الرجاء إدخال الاسم.</div>", gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
-    t_name = clean_teacher_name(name)
-    if t_name not in teachers_db:
-        teachers_db[t_name] = {"dept": dept, "cover_count": 0, "absent_count": 0, "shortcoming_count": 0, "phone": "", "specialty": "", "role": role, "exempt_days": [], "exempt_periods": [], "exempt_slots": [], "absence_dates": [], "الأحد": {}, "الإثنين": {}, "الثلاثاء": {}, "الأربعاء": {}, "الخميس": {}}
-    else:
-        teachers_db[t_name]["dept"] = dept
-        teachers_db[t_name]["role"] = role
-    if phone:
-        phone_clean = re.sub(r'\D', '', str(phone))
-        if len(phone_clean) == 8:
-            phone_clean = "968" + phone_clean
-        teachers_db[t_name]["phone"] = phone_clean
-    save_db()
-    choices_all = get_teacher_choices(dept_filter)
-    abs_choices = get_absentee_choices(dept_filter)
-    t_names_filtered = sorted([t for t, d in teachers_db.items() if dept_filter == "الكل" or d.get("dept") == dept_filter])
-    msg = f"<div style='color:#2e7d32; font-weight:bold; background:#e8f5e9; padding:10px; border-radius:5px;'>✅ تم إضافة/تحديث ({t_name}) بنجاح كطاقم إداري!</div>"
-    return msg, gr.update(choices=abs_choices), gr.update(choices=choices_all, value=None), gr.update(choices=choices_all, value=None), gr.update(choices=t_names_filtered, value=None), gr.update(value=""), gr.update(value="")
+    raw = add_manual_staff_core(name, dept, phone, role, dept_filter, is_owner=is_owner)
+    return (
+        raw["message"],
+        gr.update(**raw["abs_update"]),
+        gr.update(**raw["teacher_update_1"]),
+        gr.update(**raw["teacher_update_2"]),
+        gr.update(**raw["staff_names_update"]),
+        gr.update(**raw["name_input_update"]),
+        gr.update(**raw["phone_input_update"]),
+    )
 def process_admin_excel(file, dept_filter):
     if file is None:
         return (
@@ -3869,19 +3859,19 @@ def update_manual_count(name, new_val, new_abs_val, new_short_val, new_phone, ne
         gr.update(**raw["teacher_update_2"]),
     )
 
-@state_locked
 def delete_single_teacher(name, dept_filter, day_val, is_owner=False):
-    global teachers_db
-    if not bool(is_owner):
-        return (gr.update(), gr.update(), gr.update(), gr.update(), "<div style='color:red;'>❌ حذف السجل متاح لمالك النظام فقط.</div>", gr.update(), gr.update(), gr.update(), gr.update())
-    if name and name in teachers_db:
-        del teachers_db[name]
-        save_db()
-        choices_all = get_teacher_choices(dept_filter)
-        abs_choices = get_absentee_choices(dept_filter)
-        msg = f"<div style='color:#c62828; font-weight:bold; background:#ffebee; padding:10px; border-radius:5px; text-align:center;'>🗑️ تم حذف ({name}) نهائياً من النظام!</div>"
-        return (gr.update(value=get_updated_balance(dept_filter)), gr.update(value=get_updated_absences(dept_filter)), gr.update(value=get_updated_shortcomings(dept_filter)), gr.update(value=get_day_overview(day_val, dept_filter)), msg, gr.update(choices=abs_choices), gr.update(choices=choices_all, value=None), gr.update(choices=choices_all, value=None), gr.update(choices=list(teachers_db.keys()), value=None))
-    return (gr.update(), gr.update(), gr.update(), gr.update(), "<div style='color:red;'>❌ المعلم غير موجود</div>", gr.update(), gr.update(), gr.update(), gr.update())
+    raw = delete_single_teacher_core(name, dept_filter, day_val, is_owner=is_owner)
+    return (
+        gr.update(**raw["balance_update"]),
+        gr.update(**raw["absences_update"]),
+        gr.update(**raw["shortcomings_update"]),
+        gr.update(**raw["day_overview_update"]),
+        raw["message"],
+        gr.update(**raw["abs_update"]),
+        gr.update(**raw["teacher_update_1"]),
+        gr.update(**raw["teacher_update_2"]),
+        gr.update(**raw["delete_choices_update"]),
+    )
 
 
 def load_teacher_rules(t_name):
