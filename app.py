@@ -225,6 +225,7 @@ from distribution import (
     refresh_ui_on_change_core,
     update_available_subs_smart_core,
     assign_logic_core,
+    rollback_auto_assignments_for_absentees_core,
     cancel_teacher_absence_core,
     process_admin_action_core,
     update_manual_count_core,
@@ -3157,44 +3158,6 @@ def get_generation_button_updates(absent_list, day_name, dept_filter, generation
     )
 
 
-@state_locked
-def rollback_auto_assignments_for_absentees(absent_list, day_name, actor_name="", actor_role=""):
-
-    cleaned = set(normalize_absent_names(absent_list))
-    if not cleaned or not day_name:
-        return
-
-    audit_entries = []
-    target_date = get_date_of_weekday(day_name)
-    kept_rows = []
-
-    for row in daily_db:
-        if row["date"] == target_date and row["المعلم الغائب"] in cleaned:
-            old_sub = str(row.get("المعلم البديل", "")).replace(" 🔄", "").replace("🔄", "").strip()
-            old_status = row.get("حالة_التكليف", "")
-
-            if old_sub != "إشراف إداري" and old_sub in teachers_db and old_status == "":
-                old_count = int(teachers_db[old_sub].get("cover_count", 0) or 0)
-                new_count = max(0, old_count - 1)
-                teachers_db[old_sub]["cover_count"] = new_count
-                _queue_audit_change(
-                    audit_entries,
-                    "تعديل رصيد الاحتياط",
-                    old_sub,
-                    old_count,
-                    new_count,
-                    f"إلغاء إسناد آلي أثناء إعادة التوليد ليوم {day_name}",
-                )
-            continue
-
-        kept_rows.append(row)
-
-    daily_db.clear()
-    daily_db.extend(kept_rows)
-    save_db()
-    save_daily_db()
-    _flush_audit_changes(audit_entries, actor_name, actor_role)
-
 def clear_generated_image():
     return gr.update(value=None)
 
@@ -3354,7 +3317,7 @@ def run_full_regeneration(absent_list, day_name, dept_filter, max_reserves, is_a
         btn_upd, regen_upd = get_generation_button_updates(cleaned, day_name, dept_filter, generation_state)
         return tuple(ui) + (btn_upd, regen_upd, generation_state)
 
-    rollback_auto_assignments_for_absentees(cleaned, day_name, actor_name, actor_role)
+    rollback_auto_assignments_for_absentees_core(cleaned, day_name, actor_name, actor_role)
     assign_logic_core(
         cleaned,
         day_name,
