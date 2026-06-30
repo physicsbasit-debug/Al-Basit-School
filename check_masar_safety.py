@@ -3231,7 +3231,7 @@ def check_distribution_phase3ja1(app_path: Path, app_text: str, results: list[Ch
         add(results, "3J-a1: تحليل AST للـdistribution.py", "FAIL", f"تعذر التحليل: {exc}")
         return
 
-    allowed_locked_defs = {"assign_logic_core"}
+    allowed_locked_defs = {"assign_logic_core", "cancel_teacher_absence_core"}
     unexpected_locked_defs = [name for name in locked_defs if name not in allowed_locked_defs]
     add(
         results,
@@ -3843,6 +3843,126 @@ def check_assign_logic_phase3jc2(path: Path, app_text: str, results: list[CheckR
     )
 
 
+def check_cancel_teacher_absence_phase3jc3(path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص Phase 3J-c3: تقسيم cancel_teacher_absence إلى core/wrapper بالخيار C."""
+    distribution_path = path.with_name("distribution.py")
+    if not distribution_path.exists():
+        add(results, "3J-c3: وجود distribution.py", "FAIL", f"غير موجود: {distribution_path}")
+        return
+
+    try:
+        distribution_text = distribution_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        distribution_text = distribution_path.read_text(encoding="utf-8-sig")
+
+    core_exists = re.search(r"^def\s+cancel_teacher_absence_core\s*\(", distribution_text, flags=re.MULTILINE) is not None
+    wrapper_exists = re.search(r"^def\s+cancel_teacher_absence\s*\(", app_text, flags=re.MULTILINE) is not None
+    core_in_app = re.search(r"^def\s+cancel_teacher_absence_core\s*\(", app_text, flags=re.MULTILINE) is not None
+    wrapper_in_distribution = re.search(r"^def\s+cancel_teacher_absence\s*\(", distribution_text, flags=re.MULTILINE) is not None
+    add(
+        results,
+        "3J-c3: core/wrapper في المواضع الصحيحة",
+        "PASS" if core_exists and wrapper_exists and not core_in_app and not wrapper_in_distribution else "FAIL",
+        "cancel_teacher_absence_core في distribution.py وcancel_teacher_absence wrapper في app.py دون تكرار." if core_exists and wrapper_exists and not core_in_app and not wrapper_in_distribution else f"core_exists={core_exists}, wrapper_exists={wrapper_exists}, core_in_app={core_in_app}, wrapper_in_distribution={wrapper_in_distribution}",
+    )
+
+    core_body = function_body(distribution_text, "cancel_teacher_absence_core")
+    wrapper_body = function_body(app_text, "cancel_teacher_absence")
+
+    forbidden_patterns = [
+        (r"gr\.update", "gr.update"),
+        (r"import\s+gradio", "import gradio"),
+        (r"gr\.SelectData", "gr.SelectData"),
+        (r"import\s+app", "import app"),
+        (r"from\s+app\s+import", "from app import"),
+    ]
+    forbidden = []
+    for pattern, label in forbidden_patterns:
+        lines = line_numbers_for_pattern(distribution_text, pattern)
+        if lines:
+            forbidden.append(f"{label}: {lines[:10]}")
+    add(
+        results,
+        "3J-c3: distribution.py بلا Gradio ولا app.py",
+        "PASS" if not forbidden else "FAIL",
+        "لا يحتوي distribution.py على Gradio ولا app.py." if not forbidden else "; ".join(forbidden),
+    )
+
+    try:
+        dist_tree = ast.parse(distribution_text)
+        core_node = next((n for n in ast.walk(dist_tree) if isinstance(n, ast.FunctionDef) and n.name == "cancel_teacher_absence_core"), None)
+        has_locked = bool(core_node and any(getattr(dec, "id", "") == "state_locked" or getattr(getattr(dec, "func", None), "id", "") == "state_locked" for dec in core_node.decorator_list))
+        returns = [n for n in ast.walk(core_node) if isinstance(n, ast.Return)] if core_node else []
+        returns_dict = bool(returns) and all(isinstance(r.value, ast.Dict) for r in returns)
+    except Exception as exc:
+        add(results, "3J-c3: تحليل AST للـcore", "FAIL", f"تعذر التحليل: {exc}")
+        has_locked = False
+        returns_dict = False
+    add(
+        results,
+        "3J-c3: core مقفلة وترجع dict خامًا",
+        "PASS" if has_locked and returns_dict else "FAIL",
+        "cancel_teacher_absence_core عليها @state_locked وترجع dict خامًا." if has_locked and returns_dict else f"has_locked={has_locked}, returns_dict={returns_dict}",
+    )
+
+    wrapper_has_locked = "@state_locked\ndef cancel_teacher_absence" in app_text or "@state_locked\r\ndef cancel_teacher_absence" in app_text
+    wrapper_markers = [
+        "cancel_teacher_absence_core(",
+        "refresh_ui_on_change(",
+        'result["refresh_dept"]',
+        'result["refresh_day"]',
+        'result["refresh_is_admin"]',
+        'result.get("refresh_current_abs")',
+    ]
+    missing_wrapper = [m for m in wrapper_markers if m not in wrapper_body]
+    add(
+        results,
+        "3J-c3: wrapper يستدعي core ثم refresh_ui_on_change",
+        "PASS" if not wrapper_has_locked and not missing_wrapper else "FAIL",
+        "wrapper بلا @state_locked ويستدعي core ثم refresh_ui_on_change بالقيم الأربع." if not wrapper_has_locked and not missing_wrapper else f"wrapper_locked={wrapper_has_locked}, missing={missing_wrapper}",
+    )
+
+    required_core_markers = [
+        "daily_db.clear()",
+        "daily_db.extend(",
+        "processed_absences.remove(",
+        "teachers_db[",
+        "save_db()",
+        "save_daily_db()",
+        "_queue_audit_change(",
+        "_flush_audit_changes(",
+        "clean_teacher_name_from_ui(",
+        "get_date_of_weekday(",
+    ]
+    missing_core = [m for m in required_core_markers if m not in core_body]
+    add(
+        results,
+        "3J-c3: منطق إلغاء الغياب/audit محفوظ داخل core",
+        "PASS" if not missing_core else "FAIL",
+        "core يحتوي منطق daily_db/teachers_db/processed_absences/audit والحفظ." if not missing_core else f"ناقص: {missing_core}",
+    )
+
+    heavy_still_outside = all(marker not in distribution_text for marker in [
+        "def draw_schedule_image",
+        "def process_admin_action",
+        "def update_manual_count",
+    ])
+    add(
+        results,
+        "3J-c3: الدوال الثقيلة الأخرى بقيت خارج distribution.py",
+        "PASS" if heavy_still_outside else "FAIL",
+        "draw_schedule_image/process_admin_action/update_manual_count لم تُنقل في هذه المرحلة." if heavy_still_outside else "وجدت دوال ثقيلة غير مستهدفة داخل distribution.py.",
+    )
+
+    no_last_assigned = "last_assigned_teachers" not in core_body
+    add(
+        results,
+        "3J-c3: cancel core لا يلمس last_assigned_teachers",
+        "PASS" if no_last_assigned else "FAIL",
+        "cancel_teacher_absence_core لا يلمس last_assigned_teachers كما هو متوقع." if no_last_assigned else "وجد last_assigned_teachers داخل core.",
+    )
+
+
 def parse_expected_symbols(raw: str | None) -> dict[str, int]:
     if not raw:
         return dict(EXPECTED_SYMBOL_COUNTS)
@@ -3936,6 +4056,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_distribution_phase3jb1(path, app_text, results)
     check_assign_prereqs_phase3jc1fix(path, app_text, results)
     check_assign_logic_phase3jc2(path, app_text, results)
+    check_cancel_teacher_absence_phase3jc3(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
