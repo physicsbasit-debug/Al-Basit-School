@@ -224,6 +224,7 @@ from distribution import (
     assign_logic_core,
     cancel_teacher_absence_core,
     process_admin_action_core,
+    update_manual_count_core,
 )
 
 
@@ -3847,97 +3848,25 @@ def load_teacher_data_for_edit(selected_teacher, is_admin=False, is_owner=False)
     
 def toggle_specialty_visibility(dept): return gr.update(visible=dept in ["العلوم", "المهارات الفردية"])
 
-@state_locked
 def update_manual_count(name, new_val, new_abs_val, new_short_val, new_phone, new_specialty, new_role, dept_filter, day_val, df_state, abs_in_list, is_admin=False, is_owner=False, actor_name="", actor_role=""):
-    permissions = get_permissions_from_flags(is_admin=is_admin, is_owner=is_owner)
-    can_edit_vault = permissions["can_edit_vault_basic"]
-    owner_mode = permissions["can_edit_sensitive_teacher_data"]
-
-    if not can_edit_vault:
-        return (
-            gr.update(value=get_updated_balance(dept_filter)),
-            gr.update(value=get_updated_absences(dept_filter)),
-            gr.update(value=get_updated_shortcomings(dept_filter)),
-            gr.update(value=get_day_overview(day_val, dept_filter)),
-            "<div style='color:#c62828; font-weight:bold; background:#ffebee; padding:10px; border-radius:5px; text-align:center;'>❌ لا تملك صلاحية تعديل الخزنة.</div>",
-            gr.update(),
-            gr.update(),
-            gr.update()
-        )
-
-    if name and name in teachers_db:
-        old_cover_count = teachers_db[name].get("cover_count", 0)
-        old_absent_count = teachers_db[name].get("absent_count", 0)
-        old_shortcoming_count = teachers_db[name].get("shortcoming_count", 0)
-
-        if new_val is not None:
-            try:
-                parsed_cover = int(new_val)
-                if parsed_cover != old_cover_count:
-                    teachers_db[name]["cover_count"] = parsed_cover
-                    write_audit_log(
-                        "تعديل رصيد الاحتياط",
-                        target_teacher=name,
-                        old_value=old_cover_count,
-                        new_value=parsed_cover,
-                        details="تعديل من الخزنة",
-                        actor_name=actor_name,
-                        actor_role=actor_role
-                    )
-            except Exception:
-                pass
-
-        if new_abs_val is not None:
-            try:
-                parsed_absent = int(new_abs_val)
-                if parsed_absent != old_absent_count:
-                    teachers_db[name]["absent_count"] = parsed_absent
-                    write_audit_log(
-                        "تعديل مرات الغياب",
-                        target_teacher=name,
-                        old_value=old_absent_count,
-                        new_value=parsed_absent,
-                        details="تعديل من الخزنة",
-                        actor_name=actor_name,
-                        actor_role=actor_role
-                    )
-            except Exception:
-                pass
-
-        if new_short_val is not None:
-            try:
-                parsed_short = int(new_short_val)
-                if parsed_short != old_shortcoming_count:
-                    teachers_db[name]["shortcoming_count"] = parsed_short
-                    write_audit_log(
-                        "تعديل حالات التقصير",
-                        target_teacher=name,
-                        old_value=old_shortcoming_count,
-                        new_value=parsed_short,
-                        details="تعديل من الخزنة",
-                        actor_name=actor_name,
-                        actor_role=actor_role
-                    )
-            except Exception:
-                pass
-
-        if owner_mode and new_phone is not None:
-            phone_clean = re.sub(r'\D', '', str(new_phone))
-            if phone_clean:
-                if len(phone_clean) == 8: phone_clean = "968" + phone_clean
-                teachers_db[name]["phone"] = phone_clean
-            else:
-                teachers_db[name]["phone"] = ""
-        if owner_mode and new_specialty is not None:
-            teachers_db[name]["specialty"] = str(new_specialty).strip()
-        if owner_mode and new_role is not None:
-            teachers_db[name]["role"] = str(new_role).strip() 
-        save_db()
-        choices_all = get_teacher_choices(dept_filter)
-        abs_choices = get_absentee_choices(dept_filter)
-        permission_note = "" if owner_mode else "<br><span style='color:#6b7280;'>ℹ️ تم تجاهل تعديل المنصب ورقم الواتساب والتخصص الدقيق لأن هذه الحقول مخصصة لصاحب النظام فقط.</span>"
-        return (gr.update(value=get_updated_balance(dept_filter)), gr.update(value=get_updated_absences(dept_filter)), gr.update(value=get_updated_shortcomings(dept_filter)), gr.update(value=get_day_overview(day_val, dept_filter)), f"<div style='color:#2e7d32; font-weight:bold; background:#e8f5e9; padding:10px; border-radius:5px; text-align:center;'>✅ تم حفظ التعديلات للأستاذ ({name}) بنجاح!{permission_note}</div>", gr.update(choices=abs_choices), gr.update(choices=choices_all, value=None), gr.update(choices=choices_all, value=None))
-    return (gr.update(value=get_updated_balance(dept_filter)), gr.update(value=get_updated_absences(dept_filter)), gr.update(value=get_updated_shortcomings(dept_filter)), gr.update(value=get_day_overview(day_val, dept_filter)), "<div style='color:red;'>❌ لم يتم الحفظ</div>", gr.update(), gr.update(), gr.update())
+    raw = update_manual_count_core(
+        name, new_val, new_abs_val, new_short_val, new_phone, new_specialty, new_role,
+        dept_filter, day_val, df_state, abs_in_list,
+        is_admin=is_admin,
+        is_owner=is_owner,
+        actor_name=actor_name,
+        actor_role=actor_role,
+    )
+    return (
+        gr.update(value=raw["balance"]),
+        gr.update(value=raw["absences"]),
+        gr.update(value=raw["shortcomings"]),
+        gr.update(value=raw["day_overview"]),
+        raw["message"],
+        gr.update(**raw["abs_update"]),
+        gr.update(**raw["teacher_update_1"]),
+        gr.update(**raw["teacher_update_2"]),
+    )
 
 @state_locked
 def delete_single_teacher(name, dept_filter, day_val, is_owner=False):
