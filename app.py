@@ -225,6 +225,7 @@ from distribution import (
     cancel_teacher_absence_core,
     process_admin_action_core,
     update_manual_count_core,
+    reset_monthly_balances_core,
 )
 
 
@@ -3951,50 +3952,21 @@ def export_excel_report(dept_filter):
             worksheet.column_dimensions[column].width = adjusted_width
     return gr.update(value=filename)
 
-@state_locked
 def reset_monthly_balances(dept_filter, day_val, is_admin=False, is_owner=False, actor_name="", actor_role=""):
-    permissions = get_permissions(role=actor_role, is_owner=is_owner, is_admin_flag=is_admin)
-    if not permissions["can_close_month"]:
-        return (
-            gr.update(value=get_updated_balance(dept_filter)),
-            gr.update(value=get_updated_absences(dept_filter)),
-            gr.update(value=get_updated_shortcomings(dept_filter)),
-            gr.update(value=get_day_overview(day_val, dept_filter)),
-            "<div style='color:#c62828; font-weight:bold; background:#ffebee; padding:12px; border-radius:8px; text-align:center;'>❌ إقفال الشهر متاح لمالك النظام والإدارة فقط.</div>"
-        )
-
-    old_cover = {t: int(info.get("cover_count", 0) or 0) for t, info in teachers_db.items() if int(info.get("cover_count", 0) or 0) != 0}
-    old_absent = {t: int(info.get("absent_count", 0) or 0) for t, info in teachers_db.items() if int(info.get("absent_count", 0) or 0) != 0}
-    old_short = {t: int(info.get("shortcoming_count", 0) or 0) for t, info in teachers_db.items() if int(info.get("shortcoming_count", 0) or 0) != 0}
-
-    for t in teachers_db:
-        teachers_db[t]["cover_count"] = 0
-        teachers_db[t]["absent_count"] = 0
-        teachers_db[t]["absence_dates"] = []
-        teachers_db[t]["shortcoming_count"] = 0
-
-    save_db()
-
-    daily_db.clear()
-    processed_absences.clear()
-    last_assigned_teachers.clear()
-    save_daily_db()
-
-    if old_cover:
-        write_audit_log("تعديل رصيد الاحتياط", "جميع المعلمين", old_cover, 0, "إقفال الشهر وتصفير أرصدة الاحتياط", actor_name, actor_role)
-    if old_absent:
-        write_audit_log("تعديل مرات الغياب", "جميع المعلمين", old_absent, 0, "إقفال الشهر وتصفير مرات وتواريخ الغياب", actor_name, actor_role)
-    if old_short:
-        write_audit_log("تعديل حالات التقصير", "جميع المعلمين", old_short, 0, "إقفال الشهر وتصفير حالات التقصير", actor_name, actor_role)
-
-    msg = "<div style='color:#1565c0; font-weight:bold; background:#e3f2fd; padding:15px; border-radius:10px; text-align:center; margin-bottom:10px;'>✅ تم إقفال الشهر بنجاح! تم حفظ نسخ احتياطية ثم تصفير الأرصدة والغياب والتقصير.</div>"
-
+    raw = reset_monthly_balances_core(
+        dept_filter,
+        day_val,
+        is_admin=is_admin,
+        is_owner=is_owner,
+        actor_name=actor_name,
+        actor_role=actor_role,
+    )
     return (
-        gr.update(value=get_updated_balance(dept_filter)),
-        gr.update(value=get_updated_absences(dept_filter)),
-        gr.update(value=get_updated_shortcomings(dept_filter)),
-        gr.update(value=get_day_overview(day_val, dept_filter)),
-        msg
+        gr.update(value=raw["balance"]),
+        gr.update(value=raw["absences"]),
+        gr.update(value=raw["shortcomings"]),
+        gr.update(value=raw["day_overview"]),
+        raw["message"],
     )
     
 @state_locked
