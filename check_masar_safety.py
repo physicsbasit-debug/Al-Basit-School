@@ -259,7 +259,7 @@ def check_exemption_centralization(text: str, results: list[CheckResult]) -> Non
         add(results, "منع فحص الإعفاء inline خارج الدالة المركزية", "PASS", "لا توجد شروط مباشرة خارج الدالة المركزية.")
 
     for func_name, min_calls in [
-        ("assign_logic", 1),
+        ("assign_logic_core", 1),
         ("update_available_subs_smart_core", 1),
         ("get_falcon_eye_candidates", 1),
     ]:
@@ -1730,7 +1730,7 @@ def check_exemptions_phase3ha2(app_path: Path, app_text: str, results: list[Chec
             distribution_text = distribution_path.read_text(encoding="utf-8-sig")
 
     critical_sources = app_text + "\n" + distribution_text
-    critical_callers = ["assign_logic", "update_available_subs_smart_core", "get_falcon_eye_candidates"]
+    critical_callers = ["assign_logic_core", "update_available_subs_smart_core", "get_falcon_eye_candidates"]
     missing_calls = []
     for fn in critical_callers:
         body = function_body(critical_sources, fn)
@@ -1740,7 +1740,7 @@ def check_exemptions_phase3ha2(app_path: Path, app_text: str, results: list[Chec
         results,
         "3H-a-2: دوال الترشيح ما زالت تستخدم is_teacher_exempt_for_slot",
         "PASS" if not missing_calls else "FAIL",
-        "assign_logic/update_available_subs_smart_core/get_falcon_eye_candidates تستدعي دالة الإعفاء المركزية." if not missing_calls else f"ناقص أو غير واضح: {missing_calls}",
+        "assign_logic_core/update_available_subs_smart_core/get_falcon_eye_candidates تستدعي دالة الإعفاء المركزية." if not missing_calls else f"ناقص أو غير واضح: {missing_calls}",
     )
 
     try:
@@ -3200,11 +3200,17 @@ def check_distribution_phase3ja1(app_path: Path, app_text: str, results: list[Ch
     )
 
     required_imports = [
-        "from storage import teachers_db, daily_db, SCHOOL_WEEK_DAYS",
+        "teachers_db",
+        "daily_db",
+        "SCHOOL_WEEK_DAYS",
         "from config import ADMIN_ROLES",
-        "from schedules import resolve_effective_dept, format_teacher_name",
+        "resolve_effective_dept",
+        "format_teacher_name",
         "from exemptions import is_teacher_exempt_for_slot",
-        "from swaps import get_date_of_weekday, get_current_day_oman, get_class_dna, check_teacher_load",
+        "get_date_of_weekday",
+        "get_current_day_oman",
+        "get_class_dna",
+        "check_teacher_load",
     ]
     missing_imports = [marker for marker in required_imports if marker not in distribution_text]
     add(
@@ -3225,11 +3231,13 @@ def check_distribution_phase3ja1(app_path: Path, app_text: str, results: list[Ch
         add(results, "3J-a1: تحليل AST للـdistribution.py", "FAIL", f"تعذر التحليل: {exc}")
         return
 
+    allowed_locked_defs = {"assign_logic_core"}
+    unexpected_locked_defs = [name for name in locked_defs if name not in allowed_locked_defs]
     add(
         results,
         "3J-a1: لا توجد @state_locked في الدوال النظيفة",
-        "PASS" if not locked_defs else "FAIL",
-        "لا توجد @state_locked داخل distribution.py." if not locked_defs else f"دوال مقفلة دون حاجة: {locked_defs}",
+        "PASS" if not unexpected_locked_defs else "FAIL",
+        "لا توجد @state_locked غير مبررة داخل distribution.py." if not unexpected_locked_defs else f"دوال مقفلة دون حاجة: {unexpected_locked_defs}",
     )
 
     try:
@@ -3659,9 +3667,10 @@ def check_assign_prereqs_phase3jc1fix(path: Path, app_text: str, results: list[C
         "لا توجد إعادة تعيين مباشرة في app.py أو distribution.py." if not app_local_state_def and not app_indented_reassign and not distribution_reassign else f"app top={app_local_state_def[:10]}, app indented={app_indented_reassign[:10]}, distribution={distribution_reassign[:10]}",
     )
 
-    no_global_last = "global last_assigned_teachers" not in app_text
-    clear_count = app_text.count("last_assigned_teachers.clear()")
-    extend_count = app_text.count("last_assigned_teachers.extend(")
+    no_global_last = "global last_assigned_teachers" not in app_text and "global last_assigned_teachers" not in distribution_text
+    combined_state_text = app_text + "\n" + distribution_text
+    clear_count = combined_state_text.count("last_assigned_teachers.clear()")
+    extend_count = combined_state_text.count("last_assigned_teachers.extend(")
     add(
         results,
         "3J-c1-fix: last_assigned_teachers يستخدم in-place mutation",
@@ -3689,6 +3698,150 @@ def check_assign_prereqs_phase3jc1fix(path: Path, app_text: str, results: list[C
         "PASS" if no_app_import_in_storage and audit_uses_write else "FAIL",
         "storage.py لا يستورد app.py و_flush_audit_changes يستدعي write_audit_log." if no_app_import_in_storage and audit_uses_write else f"no_app_import={no_app_import_in_storage}, audit_uses_write={audit_uses_write}",
     )
+
+
+def check_assign_logic_phase3jc2(path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص Phase 3J-c2: تقسيم assign_logic إلى core/wrapper بالخيار C."""
+    distribution_path = path.with_name("distribution.py")
+    storage_path = path.with_name("storage.py")
+    if not distribution_path.exists():
+        add(results, "3J-c2: وجود distribution.py", "FAIL", f"غير موجود: {distribution_path}")
+        return
+
+    try:
+        distribution_text = distribution_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        distribution_text = distribution_path.read_text(encoding="utf-8-sig")
+    try:
+        storage_text = storage_path.read_text(encoding="utf-8") if storage_path.exists() else ""
+    except UnicodeDecodeError:
+        storage_text = storage_path.read_text(encoding="utf-8-sig")
+
+    core_exists = re.search(r"^def\s+assign_logic_core\s*\(", distribution_text, flags=re.MULTILINE) is not None
+    wrapper_exists = re.search(r"^def\s+assign_logic\s*\(", app_text, flags=re.MULTILINE) is not None
+    core_in_app = re.search(r"^def\s+assign_logic_core\s*\(", app_text, flags=re.MULTILINE) is not None
+    wrapper_in_distribution = re.search(r"^def\s+assign_logic\s*\(", distribution_text, flags=re.MULTILINE) is not None
+    add(
+        results,
+        "3J-c2: core/wrapper في المواضع الصحيحة",
+        "PASS" if core_exists and wrapper_exists and not core_in_app and not wrapper_in_distribution else "FAIL",
+        "assign_logic_core في distribution.py وassign_logic wrapper في app.py دون تكرار." if core_exists and wrapper_exists and not core_in_app and not wrapper_in_distribution else f"core_exists={core_exists}, wrapper_exists={wrapper_exists}, core_in_app={core_in_app}, wrapper_in_distribution={wrapper_in_distribution}",
+    )
+
+    core_body = function_body(distribution_text, "assign_logic_core")
+    wrapper_body = function_body(app_text, "assign_logic")
+
+    forbidden_patterns = [
+        (r"gr\.update", "gr.update"),
+        (r"import\s+gradio", "import gradio"),
+        (r"gr\.SelectData", "gr.SelectData"),
+        (r"import\s+app", "import app"),
+        (r"from\s+app\s+import", "from app import"),
+    ]
+    forbidden = []
+    for pattern, label in forbidden_patterns:
+        lines = line_numbers_for_pattern(distribution_text, pattern)
+        if lines:
+            forbidden.append(f"{label}: {lines[:10]}")
+    add(
+        results,
+        "3J-c2: distribution.py بلا Gradio ولا app.py",
+        "PASS" if not forbidden else "FAIL",
+        "لا يحتوي distribution.py على Gradio ولا app.py." if not forbidden else "; ".join(forbidden),
+    )
+
+    try:
+        dist_tree = ast.parse(distribution_text)
+        core_node = next((n for n in ast.walk(dist_tree) if isinstance(n, ast.FunctionDef) and n.name == "assign_logic_core"), None)
+        has_locked = bool(core_node and any(getattr(dec, "id", "") == "state_locked" or getattr(getattr(dec, "func", None), "id", "") == "state_locked" for dec in core_node.decorator_list))
+        returns = [n for n in ast.walk(core_node) if isinstance(n, ast.Return)] if core_node else []
+        returns_dict = bool(returns) and all(isinstance(r.value, ast.Dict) for r in returns)
+    except Exception as exc:
+        add(results, "3J-c2: تحليل AST للـcore", "FAIL", f"تعذر التحليل: {exc}")
+        has_locked = False
+        returns_dict = False
+    add(
+        results,
+        "3J-c2: core مقفلة وترجع dict خامًا",
+        "PASS" if has_locked and returns_dict else "FAIL",
+        "assign_logic_core عليها @state_locked وترجع dict خامًا." if has_locked and returns_dict else f"has_locked={has_locked}, returns_dict={returns_dict}",
+    )
+
+    wrapper_has_locked = "@state_locked\ndef assign_logic" in app_text or "@state_locked\r\ndef assign_logic" in app_text
+    wrapper_markers = [
+        "assign_logic_core(",
+        "refresh_ui_on_change(",
+        'result["refresh_dept"]',
+        'result["refresh_day"]',
+        'result["refresh_is_admin"]',
+        'result.get("refresh_current_abs")',
+    ]
+    missing_wrapper = [m for m in wrapper_markers if m not in wrapper_body]
+    add(
+        results,
+        "3J-c2: wrapper يستدعي core ثم refresh_ui_on_change",
+        "PASS" if not wrapper_has_locked and not missing_wrapper else "FAIL",
+        "wrapper بلا @state_locked ويستدعي core ثم refresh_ui_on_change بالقيم الأربع." if not wrapper_has_locked and not missing_wrapper else f"wrapper_locked={wrapper_has_locked}, missing={missing_wrapper}",
+    )
+
+    required_core_markers = [
+        "daily_db.clear()",
+        "daily_db.extend(",
+        "processed_absences.add(",
+        "last_assigned_teachers.clear()",
+        "last_assigned_teachers.extend(",
+        "save_db()",
+        "save_daily_db()",
+        "_queue_audit_change(",
+        "_flush_audit_changes(",
+        "is_teacher_exempt_for_slot(",
+    ]
+    missing_core = [m for m in required_core_markers if m not in core_body]
+    add(
+        results,
+        "3J-c2: منطق state/audit محفوظ داخل core",
+        "PASS" if not missing_core else "FAIL",
+        "core يحتوي منطق daily_db/processed_absences/last_assigned/audit والحفظ." if not missing_core else f"ناقص: {missing_core}",
+    )
+
+    combined = app_text + "\n" + distribution_text
+    direct_reassign = line_numbers_for_pattern(combined, r"^\s+last_assigned_teachers\s*=")
+    top_reassign_app = line_numbers_for_pattern(app_text, r"^last_assigned_teachers\s*=")
+    top_reassign_dist = line_numbers_for_pattern(distribution_text, r"^last_assigned_teachers\s*=")
+    add(
+        results,
+        "3J-c2: لا إعادة تعيين last_assigned_teachers",
+        "PASS" if not direct_reassign and not top_reassign_app and not top_reassign_dist else "FAIL",
+        "لا توجد إعادة تعيين مباشرة لـ last_assigned_teachers." if not direct_reassign and not top_reassign_app and not top_reassign_dist else f"direct={direct_reassign[:10]}, app_top={top_reassign_app[:10]}, dist_top={top_reassign_dist[:10]}",
+    )
+
+    required_imports = [
+        "processed_absences",
+        "last_assigned_teachers",
+        "save_db",
+        "save_daily_db",
+        "state_locked",
+        "_queue_audit_change",
+        "_flush_audit_changes",
+        "random",
+    ]
+    missing_imports = [m for m in required_imports if m not in distribution_text]
+    add(
+        results,
+        "3J-c2: اعتماديات assign_logic_core موجودة",
+        "PASS" if not missing_imports else "FAIL",
+        "اعتماديات core الأساسية موجودة في distribution.py." if not missing_imports else f"ناقص: {missing_imports}",
+    )
+
+    no_local_audit_in_app = not re.search(r"^def\s+_queue_audit_change\s*\(", app_text, flags=re.MULTILINE) and not re.search(r"^def\s+_flush_audit_changes\s*\(", app_text, flags=re.MULTILINE)
+    audit_in_storage = "def _queue_audit_change" in storage_text and "def _flush_audit_changes" in storage_text
+    add(
+        results,
+        "3J-c2: audit helpers ما زالت في storage.py",
+        "PASS" if no_local_audit_in_app and audit_in_storage else "FAIL",
+        "audit helpers في storage.py ولا توجد تعريفات محلية في app.py." if no_local_audit_in_app and audit_in_storage else f"no_local={no_local_audit_in_app}, in_storage={audit_in_storage}",
+    )
+
 
 def parse_expected_symbols(raw: str | None) -> dict[str, int]:
     if not raw:
@@ -3782,6 +3935,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_distribution_phase3ja3(path, app_text, results)
     check_distribution_phase3jb1(path, app_text, results)
     check_assign_prereqs_phase3jc1fix(path, app_text, results)
+    check_assign_logic_phase3jc2(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
