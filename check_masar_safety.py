@@ -3238,6 +3238,120 @@ def check_distribution_phase3ja1(app_path: Path, app_text: str, results: list[Ch
     except Exception as exc:
         add(results, "3J-a1: py_compile distribution.py", "FAIL", f"فشل py_compile: {exc}")
 
+def check_distribution_phase3ja2fix(path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص Phase 3J-a2-fix: نقل الدوال النظيفة المتبقية التي يعتمد عليها refresh_ui_on_change."""
+    distribution_path = path.with_name("distribution.py")
+    if not distribution_path.exists():
+        add(results, "3J-a2-fix: وجود distribution.py", "FAIL", f"غير موجود: {distribution_path}")
+        return
+
+    try:
+        distribution_text = distribution_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        distribution_text = distribution_path.read_text(encoding="utf-8-sig")
+
+    moved_functions = [
+        "detect_absence_assignment_conflicts_for_context",
+        "generate_styled_html_table",
+        "generate_whatsapp_html",
+    ]
+
+    missing_in_distribution = [
+        name for name in moved_functions
+        if not re.search(rf"^def\s+{re.escape(name)}\s*\(", distribution_text, flags=re.MULTILINE)
+    ]
+    add(
+        results,
+        "3J-a2-fix: الدوال الثلاث المتبقية موجودة في distribution.py",
+        "PASS" if not missing_in_distribution else "FAIL",
+        "الدوال الثلاث موجودة في distribution.py." if not missing_in_distribution else f"ناقص: {missing_in_distribution}",
+    )
+
+    duplicated_in_app = [
+        name for name in moved_functions
+        if re.search(rf"^def\s+{re.escape(name)}\s*\(", app_text, flags=re.MULTILINE)
+    ]
+    add(
+        results,
+        "3J-a2-fix: لا توجد نسخ مكررة للدوال الثلاث في app.py",
+        "PASS" if not duplicated_in_app else "FAIL",
+        "لا توجد تعريفات محلية للدوال الثلاث داخل app.py." if not duplicated_in_app else f"مكررة في app.py: {duplicated_in_app}",
+    )
+
+    required_imports = [
+        "import urllib.parse",
+        "format_elegant_class",
+    ]
+    missing_imports = [marker for marker in required_imports if marker not in distribution_text]
+    add(
+        results,
+        "3J-a2-fix: اعتماديات الدوال الثلاث موجودة",
+        "PASS" if not missing_imports else "FAIL",
+        "اعتماديات urllib.parse و format_elegant_class موجودة." if not missing_imports else f"ناقص: {missing_imports}",
+    )
+
+    forbidden_patterns = [
+        (r"gr\.update", "gr.update"),
+        (r"import\s+gradio", "import gradio"),
+        (r"gr\.SelectData", "gr.SelectData"),
+        (r"import\s+app", "import app"),
+        (r"from\s+app\s+import", "from app import"),
+    ]
+    offenders = []
+    for pattern, label in forbidden_patterns:
+        lines = line_numbers_for_pattern(distribution_text, pattern)
+        if lines:
+            offenders.append(f"{label}: {lines[:10]}")
+    add(
+        results,
+        "3J-a2-fix: distribution.py لا يزال نظيفًا من Gradio و app.py",
+        "PASS" if not offenders else "FAIL",
+        "لا يحتوي distribution.py على Gradio ولا app.py بعد نقل الدوال الثلاث." if not offenders else "; ".join(offenders),
+    )
+
+    has_distribution_import = all(name in app_text for name in moved_functions)
+    add(
+        results,
+        "3J-a2-fix: app.py يستورد الدوال الثلاث من distribution.py",
+        "PASS" if has_distribution_import else "FAIL",
+        "أسماء الدوال الثلاث موجودة في استيراد app.py من distribution.py." if has_distribution_import else "بعض أسماء الدوال الثلاث غير موجودة في app.py.",
+    )
+
+    locked_defs = []
+    try:
+        tree = ast.parse(distribution_text)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name in moved_functions:
+                if any(getattr(dec, "id", "") == "state_locked" or getattr(getattr(dec, "func", None), "id", "") == "state_locked" for dec in node.decorator_list):
+                    locked_defs.append(node.name)
+    except SyntaxError as exc:
+        add(results, "3J-a2-fix: تحليل AST للـdistribution.py", "FAIL", f"تعذر التحليل: {exc}")
+        return
+
+    add(
+        results,
+        "3J-a2-fix: الدوال الثلاث بلا @state_locked",
+        "PASS" if not locked_defs else "FAIL",
+        "الدوال الثلاث قراءة/تنسيق فقط ولا تحتوي @state_locked." if not locked_defs else f"دوال مقفلة دون حاجة: {locked_defs}",
+    )
+
+    heavy_must_stay = [
+        "refresh_ui_on_change",
+        "assign_logic",
+        "update_available_subs_smart",
+        "draw_schedule_image",
+    ]
+    heavy_in_distribution = [
+        name for name in heavy_must_stay
+        if re.search(rf"^def\s+{re.escape(name)}\s*\(", distribution_text, flags=re.MULTILINE)
+    ]
+    add(
+        results,
+        "3J-a2-fix: الدوال الثقيلة ما زالت خارج distribution.py",
+        "PASS" if not heavy_in_distribution else "FAIL",
+        "refresh_ui_on_change والدوال الثقيلة لم تُنقل في هذه المرحلة." if not heavy_in_distribution else f"نُقلت بالخطأ: {heavy_in_distribution}",
+    )
+
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
     warn = sum(r.status == "WARN" for r in results)
@@ -3351,6 +3465,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_export_swaps_excel_phase3ia6a(path, app_text, results)
     check_generate_swap_table_image_phase3ia6b(path, app_text, results)
     check_distribution_phase3ja1(path, app_text, results)
+    check_distribution_phase3ja2fix(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
