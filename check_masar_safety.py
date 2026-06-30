@@ -3377,6 +3377,145 @@ def print_results(results: list[CheckResult]) -> None:
         print("\nالنتيجة: ناجح. الملف اجتاز شبكة الأمان الأساسية.")
 
 
+
+def check_distribution_phase3ja3(path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص Phase 3J-a3: تقسيم refresh_ui_on_change إلى core/wrapper مع عقد 27 عنصرًا."""
+    distribution_path = path.with_name("distribution.py")
+    if not distribution_path.exists():
+        add(results, "3J-a3: وجود distribution.py", "FAIL", f"غير موجود: {distribution_path}")
+        return
+
+    try:
+        distribution_text = distribution_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        distribution_text = distribution_path.read_text(encoding="utf-8-sig")
+
+    core_in_distribution = re.search(r"^def\s+refresh_ui_on_change_core\s*\(", distribution_text, flags=re.MULTILINE) is not None
+    core_in_app = re.search(r"^def\s+refresh_ui_on_change_core\s*\(", app_text, flags=re.MULTILINE) is not None
+    wrapper_in_app = re.search(r"^def\s+refresh_ui_on_change\s*\(", app_text, flags=re.MULTILINE) is not None
+
+    add(
+        results,
+        "3J-a3: core موجودة في distribution.py فقط",
+        "PASS" if core_in_distribution and not core_in_app else "FAIL",
+        "refresh_ui_on_change_core موجودة في distribution.py ولا توجد نسخة في app.py." if core_in_distribution and not core_in_app else "core غير موجودة أو مكررة في app.py.",
+    )
+    add(
+        results,
+        "3J-a3: wrapper باقية في app.py",
+        "PASS" if wrapper_in_app else "FAIL",
+        "refresh_ui_on_change باقية في app.py كـwrapper." if wrapper_in_app else "wrapper غير موجودة في app.py.",
+    )
+
+    core_body = function_body(distribution_text, "refresh_ui_on_change_core")
+    wrapper_body = function_body(app_text, "refresh_ui_on_change")
+
+    forbidden = []
+    for pattern, desc in [
+        (r"gr\.update", "gr.update"),
+        (r"import\s+gradio", "import gradio"),
+        (r"gr\.SelectData", "gr.SelectData"),
+        (r"import\s+app", "import app"),
+    ]:
+        lines = line_numbers_for_pattern(distribution_text, pattern)
+        if lines:
+            forbidden.append(f"{desc} في الأسطر {lines[:10]}")
+    add(
+        results,
+        "3J-a3: distribution.py بلا Gradio ولا app.py",
+        "PASS" if not forbidden else "FAIL",
+        "لا يحتوي distribution.py على Gradio ولا import app." if not forbidden else "; ".join(forbidden),
+    )
+
+    required_markers = [
+        "refresh_ui_on_change_core",
+        "get_day_table_updates_core",
+        "get_updated_balance",
+        "get_updated_absences",
+        "get_updated_shortcomings",
+        "load_db",
+        "load_daily_db",
+    ]
+    missing_markers = [marker for marker in required_markers if marker not in distribution_text]
+    add(
+        results,
+        "3J-a3: اعتماديات refresh core موجودة",
+        "PASS" if not missing_markers else "FAIL",
+        "اعتماديات core الأساسية موجودة في distribution.py." if not missing_markers else f"ناقص: {missing_markers}",
+    )
+
+    wrapper_uses_core = "refresh_ui_on_change_core" in wrapper_body
+    wrapper_guard = "expected 27" in wrapper_body and "len(refresh_values)" in wrapper_body
+    add(
+        results,
+        "3J-a3: wrapper يستدعي core ويحرس عقد 27",
+        "PASS" if wrapper_uses_core and wrapper_guard else "FAIL",
+        "wrapper يستدعي core ويتحقق من عدد 27 مخرجًا." if wrapper_uses_core and wrapper_guard else "wrapper لا يستدعي core أو لا يحرس عدد المخرجات.",
+    )
+
+    update_outputs_ok = re.search(r"update_outputs\s*=\s*\[", app_text) is not None and "error_updates = [gr.update()] * 27" in app_text
+    add(
+        results,
+        "3J-a3: update_outputs/error_updates محفوظة",
+        "PASS" if update_outputs_ok else "FAIL",
+        "update_outputs موجودة و error_updates ما زالت 27." if update_outputs_ok else "لم يتم تأكيد update_outputs أو error_updates=27.",
+    )
+
+    try:
+        app_tree = ast.parse(app_text)
+        wrapper_node = next((n for n in app_tree.body if isinstance(n, ast.FunctionDef) and n.name == "refresh_ui_on_change"), None)
+        return_counts = []
+        if wrapper_node:
+            for n in ast.walk(wrapper_node):
+                if isinstance(n, ast.Return):
+                    if isinstance(n.value, ast.Tuple):
+                        return_counts.append(len(n.value.elts))
+                    else:
+                        return_counts.append(1)
+        ok_returns = return_counts == [27]
+        add(
+            results,
+            "3J-a3: wrapper يرجع 27 عنصرًا",
+            "PASS" if ok_returns else "FAIL",
+            f"أعداد عناصر return في wrapper: {return_counts}",
+        )
+    except Exception as exc:
+        add(results, "3J-a3: تحليل AST للـwrapper", "FAIL", f"تعذر التحليل: {exc}")
+
+    try:
+        dist_tree = ast.parse(distribution_text)
+        core_node = next((n for n in dist_tree.body if isinstance(n, ast.FunctionDef) and n.name == "refresh_ui_on_change_core"), None)
+        locked = bool(core_node and core_node.decorator_list)
+        add(
+            results,
+            "3J-a3: core بلا @state_locked",
+            "PASS" if not locked else "FAIL",
+            "core بلا decorators لأنها قراءة/عرض فقط." if not locked else "core تحتوي decorator غير متوقع.",
+        )
+    except Exception as exc:
+        add(results, "3J-a3: تحليل AST للـcore", "FAIL", f"تعذر التحليل: {exc}")
+
+    direct_wrapper_dependency = "get_day_table_updates(" in core_body
+    direct_core_dependency = "get_day_table_updates_core" in core_body
+    add(
+        results,
+        "3J-a3: core يستخدم get_day_table_updates_core لا wrapper",
+        "PASS" if direct_core_dependency and not direct_wrapper_dependency else "FAIL",
+        "core يستدعي get_day_table_updates_core مباشرة." if direct_core_dependency and not direct_wrapper_dependency else "core قد يستدعي wrapper أو لا يستدعي core المطلوب.",
+    )
+
+    heavy_names = ["assign_logic", "update_available_subs_smart", "draw_schedule_image", "process_admin_action", "update_manual_count", "cancel_teacher_absence"]
+    moved_heavy = [
+        name for name in heavy_names
+        if re.search(rf"^def\s+{re.escape(name)}\s*\(", distribution_text, flags=re.MULTILINE)
+    ]
+    add(
+        results,
+        "3J-a3: الدوال الثقيلة الأخرى بقيت خارج distribution.py",
+        "PASS" if not moved_heavy else "FAIL",
+        "الدوال الثقيلة الأخرى لم تُنقل في هذه المرحلة." if not moved_heavy else f"نُقلت بالخطأ: {moved_heavy}",
+    )
+
 def parse_expected_symbols(raw: str | None) -> dict[str, int]:
     if not raw:
         return dict(EXPECTED_SYMBOL_COUNTS)
@@ -3466,6 +3605,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_generate_swap_table_image_phase3ia6b(path, app_text, results)
     check_distribution_phase3ja1(path, app_text, results)
     check_distribution_phase3ja2fix(path, app_text, results)
+    check_distribution_phase3ja3(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
