@@ -3619,6 +3619,77 @@ def check_distribution_phase3jb1(path: Path, app_text: str, results: list[CheckR
     except Exception as exc:
         add(results, "3J-b1: تحليل AST للـcore", "FAIL", f"تعذر التحليل: {exc}")
 
+
+def check_assign_prereqs_phase3jc1fix(path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص Phase 3J-c1-fix: تجهيز اعتماديات assign_logic قبل تقسيمها."""
+    storage_path = path.with_name("storage.py")
+    distribution_path = path.with_name("distribution.py")
+    if not storage_path.exists():
+        add(results, "3J-c1-fix: وجود storage.py", "FAIL", f"غير موجود: {storage_path}")
+        return
+
+    try:
+        storage_text = storage_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        storage_text = storage_path.read_text(encoding="utf-8-sig")
+
+    distribution_text = ""
+    if distribution_path.exists():
+        try:
+            distribution_text = distribution_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            distribution_text = distribution_path.read_text(encoding="utf-8-sig")
+
+    has_state = re.search(r"^last_assigned_teachers\s*=\s*\[\s*\]", storage_text, flags=re.MULTILINE) is not None
+    imported_in_app = "last_assigned_teachers" in app_text and "from storage import" in app_text
+    add(
+        results,
+        "3J-c1-fix: last_assigned_teachers في storage.py",
+        "PASS" if has_state and imported_in_app else "FAIL",
+        "last_assigned_teachers معرفة في storage.py ومستوردة في app.py." if has_state and imported_in_app else f"has_state={has_state}, imported_in_app={imported_in_app}",
+    )
+
+    app_local_state_def = line_numbers_for_pattern(app_text, r"^last_assigned_teachers\s*=")
+    app_indented_reassign = line_numbers_for_pattern(app_text, r"^\s+last_assigned_teachers\s*=")
+    distribution_reassign = line_numbers_for_pattern(distribution_text, r"^\s*last_assigned_teachers\s*=") if distribution_text else []
+    add(
+        results,
+        "3J-c1-fix: منع إعادة تعيين last_assigned_teachers خارج storage.py",
+        "PASS" if not app_local_state_def and not app_indented_reassign and not distribution_reassign else "FAIL",
+        "لا توجد إعادة تعيين مباشرة في app.py أو distribution.py." if not app_local_state_def and not app_indented_reassign and not distribution_reassign else f"app top={app_local_state_def[:10]}, app indented={app_indented_reassign[:10]}, distribution={distribution_reassign[:10]}",
+    )
+
+    no_global_last = "global last_assigned_teachers" not in app_text
+    clear_count = app_text.count("last_assigned_teachers.clear()")
+    extend_count = app_text.count("last_assigned_teachers.extend(")
+    add(
+        results,
+        "3J-c1-fix: last_assigned_teachers يستخدم in-place mutation",
+        "PASS" if no_global_last and clear_count >= 3 and extend_count >= 1 else "FAIL",
+        f"global ممنوع={not no_global_last}, clear={clear_count}, extend={extend_count}.",
+    )
+
+    storage_has_queue = re.search(r"^def\s+_queue_audit_change\s*\(", storage_text, flags=re.MULTILINE) is not None
+    storage_has_flush = re.search(r"^def\s+_flush_audit_changes\s*\(", storage_text, flags=re.MULTILINE) is not None
+    app_has_queue_def = re.search(r"^def\s+_queue_audit_change\s*\(", app_text, flags=re.MULTILINE) is not None
+    app_has_flush_def = re.search(r"^def\s+_flush_audit_changes\s*\(", app_text, flags=re.MULTILINE) is not None
+    app_imports_audit_helpers = "_queue_audit_change" in app_text and "_flush_audit_changes" in app_text and "from storage import" in app_text
+    add(
+        results,
+        "3J-c1-fix: audit queue helpers في storage.py فقط",
+        "PASS" if storage_has_queue and storage_has_flush and not app_has_queue_def and not app_has_flush_def and app_imports_audit_helpers else "FAIL",
+        "_queue_audit_change/_flush_audit_changes موجودتان في storage.py ومستورَدتان دون تعريف محلي في app.py." if storage_has_queue and storage_has_flush and not app_has_queue_def and not app_has_flush_def and app_imports_audit_helpers else f"storage_queue={storage_has_queue}, storage_flush={storage_has_flush}, app_queue_def={app_has_queue_def}, app_flush_def={app_has_flush_def}, imported={app_imports_audit_helpers}",
+    )
+
+    no_app_import_in_storage = "import app" not in storage_text and "from app import" not in storage_text
+    audit_uses_write = "write_audit_log(" in function_body(storage_text, "_flush_audit_changes")
+    add(
+        results,
+        "3J-c1-fix: storage.py بلا اعتماد عكسي و audit يستخدم write_audit_log",
+        "PASS" if no_app_import_in_storage and audit_uses_write else "FAIL",
+        "storage.py لا يستورد app.py و_flush_audit_changes يستدعي write_audit_log." if no_app_import_in_storage and audit_uses_write else f"no_app_import={no_app_import_in_storage}, audit_uses_write={audit_uses_write}",
+    )
+
 def parse_expected_symbols(raw: str | None) -> dict[str, int]:
     if not raw:
         return dict(EXPECTED_SYMBOL_COUNTS)
@@ -3710,6 +3781,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_distribution_phase3ja2fix(path, app_text, results)
     check_distribution_phase3ja3(path, app_text, results)
     check_distribution_phase3jb1(path, app_text, results)
+    check_assign_prereqs_phase3jc1fix(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
