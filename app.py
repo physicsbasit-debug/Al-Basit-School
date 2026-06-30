@@ -3321,7 +3321,16 @@ def run_main_generation(absent_list, day_name, dept_filter, max_reserves, is_adm
         run_list = [name for name in cleaned if name not in prev_absents]
 
     if run_list:
-        assign_logic(run_list, day_name, dept_filter, max_reserves, False, is_admin_logged_in, actor_name, actor_role)
+        assign_logic_core(
+            run_list,
+            day_name,
+            dept_filter,
+            max_reserves,
+            False,
+            is_admin_logged_in,
+            actor_name=actor_name,
+            actor_role=actor_role,
+        )
 
     new_state = {
         "day": day_name,
@@ -3346,7 +3355,16 @@ def run_full_regeneration(absent_list, day_name, dept_filter, max_reserves, is_a
         return tuple(ui) + (btn_upd, regen_upd, generation_state)
 
     rollback_auto_assignments_for_absentees(cleaned, day_name, actor_name, actor_role)
-    assign_logic(cleaned, day_name, dept_filter, max_reserves, False, is_admin_logged_in, actor_name, actor_role)
+    assign_logic_core(
+        cleaned,
+        day_name,
+        dept_filter,
+        max_reserves,
+        False,
+        is_admin_logged_in,
+        actor_name=actor_name,
+        actor_role=actor_role,
+    )
 
     new_state = {
         "day": day_name,
