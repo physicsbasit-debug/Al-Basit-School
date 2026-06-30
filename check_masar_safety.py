@@ -1721,10 +1721,19 @@ def check_exemptions_phase3ha2(app_path: Path, app_text: str, results: list[Chec
         "save_teacher_rules باقية في app.py ولم تنتقل قبل 3H-a-3." if save_teacher_rules_still_app and not save_teacher_rules_wrongly_moved else f"in_app={save_teacher_rules_still_app}, in_exemptions={save_teacher_rules_wrongly_moved}",
     )
 
+    distribution_path = app_path.with_name("distribution.py")
+    distribution_text = ""
+    if distribution_path.exists():
+        try:
+            distribution_text = distribution_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            distribution_text = distribution_path.read_text(encoding="utf-8-sig")
+
+    critical_sources = app_text + "\n" + distribution_text
     critical_callers = ["assign_logic", "update_available_subs_smart", "get_falcon_eye_candidates"]
     missing_calls = []
     for fn in critical_callers:
-        body = function_body(app_text, fn)
+        body = function_body(critical_sources, fn)
         if not body or "is_teacher_exempt_for_slot" not in body:
             missing_calls.append(fn)
     add(
@@ -3108,6 +3117,127 @@ def check_generate_swap_table_image_phase3ia6b(app_path: Path, app_text: str, re
     except Exception as exc:
         add(results, "3I-a-6b: py_compile app.py و swaps.py", "FAIL", f"فشل py_compile: {exc}")
 
+
+def check_distribution_phase3ja1(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص Phase 3J-a1: إنشاء distribution.py ونقل الدوال النظيفة دون Gradio أو تكرار."""
+    distribution_path = app_path.with_name("distribution.py")
+    if not distribution_path.exists():
+        add(results, "3J-a1: وجود distribution.py", "FAIL", f"غير موجود: {distribution_path}")
+        return
+
+    try:
+        distribution_text = distribution_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        distribution_text = distribution_path.read_text(encoding="utf-8-sig")
+
+    add(results, "3J-a1: وجود distribution.py", "PASS", f"موجود: {distribution_path}")
+
+    moved_functions = [
+        "get_falcon_eye_candidates",
+        "format_sub_display",
+        "format_sub_display_for_image",
+        "normalize_absent_names",
+        "build_generation_signature",
+        "same_generation_context",
+        "get_empty_generation_state",
+        "get_existing_absents_for_context",
+        "detect_conflicted_absence_slots",
+        "build_absence_conflict_warning_html",
+        "get_teacher_schedule_choices",
+        "resolve_teacher_display_value",
+        "resolve_teacher_display_values",
+        "get_dynamic_header",
+        "get_initial_header",
+    ]
+
+    missing_in_distribution = [
+        name for name in moved_functions
+        if not re.search(rf"^def\s+{re.escape(name)}\s*\(", distribution_text, flags=re.MULTILINE)
+    ]
+    add(
+        results,
+        "3J-a1: الدوال النظيفة موجودة في distribution.py",
+        "PASS" if not missing_in_distribution else "FAIL",
+        "كل الدوال الـ15 موجودة في distribution.py." if not missing_in_distribution else f"ناقص: {missing_in_distribution}",
+    )
+
+    duplicated_in_app = [
+        name for name in moved_functions
+        if re.search(rf"^def\s+{re.escape(name)}\s*\(", app_text, flags=re.MULTILINE)
+    ]
+    add(
+        results,
+        "3J-a1: لا توجد نسخ مكررة في app.py",
+        "PASS" if not duplicated_in_app else "FAIL",
+        "لا توجد تعريفات محلية للدوال المنقولة داخل app.py." if not duplicated_in_app else f"مكررة في app.py: {duplicated_in_app}",
+    )
+
+    forbidden_patterns = [
+        (r"gr\.update", "gr.update"),
+        (r"import\s+gradio", "import gradio"),
+        (r"gr\.SelectData", "gr.SelectData"),
+        (r"import\s+app", "import app"),
+        (r"from\s+app\s+import", "from app import"),
+    ]
+    offenders = []
+    for pattern, label in forbidden_patterns:
+        lines = line_numbers_for_pattern(distribution_text, pattern)
+        if lines:
+            offenders.append(f"{label}: {lines[:10]}")
+    add(
+        results,
+        "3J-a1: distribution.py نظيف من Gradio و app.py",
+        "PASS" if not offenders else "FAIL",
+        "لا يحتوي distribution.py على Gradio ولا app.py." if not offenders else "; ".join(offenders),
+    )
+
+    has_import = "from distribution import" in app_text
+    add(
+        results,
+        "3J-a1: app.py يستورد من distribution.py",
+        "PASS" if has_import else "FAIL",
+        "يوجد from distribution import داخل app.py." if has_import else "لا يوجد استيراد من distribution.py داخل app.py.",
+    )
+
+    required_imports = [
+        "from storage import teachers_db, daily_db, SCHOOL_WEEK_DAYS",
+        "from config import ADMIN_ROLES",
+        "from schedules import resolve_effective_dept, format_teacher_name",
+        "from exemptions import is_teacher_exempt_for_slot",
+        "from swaps import get_date_of_weekday, get_current_day_oman, get_class_dna, check_teacher_load",
+    ]
+    missing_imports = [marker for marker in required_imports if marker not in distribution_text]
+    add(
+        results,
+        "3J-a1: اعتماديات distribution.py الصريحة موجودة",
+        "PASS" if not missing_imports else "FAIL",
+        "كل استيرادات 3J-a1 المطلوبة موجودة." if not missing_imports else f"ناقص: {missing_imports}",
+    )
+
+    locked_defs = []
+    try:
+        tree = ast.parse(distribution_text)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                if any(getattr(dec, "id", "") == "state_locked" or getattr(getattr(dec, "func", None), "id", "") == "state_locked" for dec in node.decorator_list):
+                    locked_defs.append(node.name)
+    except SyntaxError as exc:
+        add(results, "3J-a1: تحليل AST للـdistribution.py", "FAIL", f"تعذر التحليل: {exc}")
+        return
+
+    add(
+        results,
+        "3J-a1: لا توجد @state_locked في الدوال النظيفة",
+        "PASS" if not locked_defs else "FAIL",
+        "لا توجد @state_locked داخل distribution.py." if not locked_defs else f"دوال مقفلة دون حاجة: {locked_defs}",
+    )
+
+    try:
+        py_compile.compile(str(distribution_path), doraise=True)
+        add(results, "3J-a1: py_compile distribution.py", "PASS", "distribution.py بلا أخطاء نحوية.")
+    except Exception as exc:
+        add(results, "3J-a1: py_compile distribution.py", "FAIL", f"فشل py_compile: {exc}")
+
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
     warn = sum(r.status == "WARN" for r in results)
@@ -3168,7 +3298,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     app_text = read_text(path)
     style_text = collect_style_text(path)
     extra_module_texts = []
-    for module_name in ("school_data.py", "schedules.py", "balances.py", "exemptions.py", "swaps.py", "storage.py", "auth.py"):
+    for module_name in ("school_data.py", "schedules.py", "balances.py", "exemptions.py", "swaps.py", "distribution.py", "storage.py", "auth.py"):
         module_path = path.with_name(module_name)
         if module_path.exists():
             try:
@@ -3220,6 +3350,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_swap_filter_periods_phase3ia5b(path, app_text, results)
     check_export_swaps_excel_phase3ia6a(path, app_text, results)
     check_generate_swap_table_image_phase3ia6b(path, app_text, results)
+    check_distribution_phase3ja1(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
