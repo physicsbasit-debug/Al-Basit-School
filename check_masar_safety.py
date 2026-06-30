@@ -2980,6 +2980,134 @@ def check_export_swaps_excel_phase3ia6a(app_path: Path, app_text: str, results: 
         add(results, "3I-a-6a: py_compile app.py و swaps.py", "FAIL", f"فشل py_compile: {exc}")
 
 
+
+def check_generate_swap_table_image_phase3ia6b(app_path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3I-a-6b: تقسيم generate_swap_table_image إلى core/wrapper."""
+    swaps_path = app_path.with_name("swaps.py")
+    if not swaps_path.exists():
+        add(results, "3I-a-6b: وجود swaps.py", "FAIL", f"غير موجود: {swaps_path}")
+        return
+
+    swaps_text = swaps_path.read_text(encoding="utf-8")
+
+    required = ["generate_swap_table_image_core", "get_date_of_weekday"]
+    missing = [fn for fn in required if not re.search(rf"^def\s+{re.escape(fn)}\s*\(", swaps_text, re.MULTILINE)]
+    duplicated_core = bool(re.search(r"^def\s+generate_swap_table_image_core\s*\(", app_text, re.MULTILINE))
+    add(
+        results,
+        "3I-a-6b: core ودالة التاريخ موجودان في swaps.py",
+        "PASS" if not missing and not duplicated_core else "FAIL",
+        "generate_swap_table_image_core و get_date_of_weekday متوفران في swaps.py ولا توجد core مكررة في app.py." if not missing and not duplicated_core else f"missing={missing}, duplicated_core={duplicated_core}",
+    )
+
+    app_date_def = bool(re.search(r"^def\s+get_date_of_weekday\s*\(", app_text, re.MULTILINE))
+    app_imports_date = "get_date_of_weekday," in app_text and "from swaps import" in app_text
+    add(
+        results,
+        "3I-a-6b Fix: get_date_of_weekday مصدر واحد",
+        "PASS" if not app_date_def and app_imports_date else "FAIL",
+        "get_date_of_weekday لم تعد معرفة محليًا في app.py وتُستخدم من swaps.py كمصدر واحد." if not app_date_def and app_imports_date else f"app_date_def={app_date_def}, app_imports_date={app_imports_date}",
+    )
+
+    wrapper_body = function_body(app_text, "generate_swap_table_image")
+    wrapper_ok = (
+        "generate_swap_table_image_core(" in wrapper_body
+        and "return gr.update(value=filename)" in wrapper_body
+        and "SYSTEM_NAME" in wrapper_body
+        and "SYSTEM_SUBTITLE" in wrapper_body
+        and "THEME_COLOR" in wrapper_body
+        and "ACCENT_COLOR" in wrapper_body
+    )
+    add(
+        results,
+        "3I-a-6b: wrapper يمرر الهوية الديناميكية ويرجع gr.update مفردًا",
+        "PASS" if wrapper_ok else "FAIL",
+        "wrapper يمرر SYSTEM_NAME/SYSTEM_SUBTITLE/THEME_COLOR/ACCENT_COLOR للـcore ويرجع gr.update(value=filename)." if wrapper_ok else "wrapper لا يحافظ على تمرير الهوية الديناميكية أو عقد gr.update المفرد.",
+    )
+
+    core_body = function_body(swaps_text, "generate_swap_table_image_core")
+    relative_image_ok = "filename = os.path.join(" in core_body and "SWAP_IMG_DIR" in core_body and "swap_table_" in core_body
+    no_exports_dir = "EXPORTS_DIR" not in core_body
+    add(
+        results,
+        "3I-a-6b: الحفاظ على مسار/اسم صورة التبادل",
+        "PASS" if relative_image_ok and no_exports_dir else "FAIL",
+        "core يحفظ الصورة في SWAP_IMG_DIR بنفس نمط الاسم swap_table_ ولا يستخدم EXPORTS_DIR." if relative_image_ok and no_exports_dir else f"relative_image_ok={relative_image_ok}, no_exports_dir={no_exports_dir}",
+    )
+
+    deps_ok = all(token in swaps_text for token in [
+        "from PIL import Image, ImageDraw, ImageFont",
+        "from config import APP_DIR",
+        "SWAP_IMG_DIR",
+        "ensure_data_directories",
+        "image_font_path",
+        "font_path",
+        "get_now_oman",
+    ])
+    add(
+        results,
+        "3I-a-6b: اعتماديات الصورة متوفرة في swaps.py",
+        "PASS" if deps_ok else "FAIL",
+        "PIL و APP_DIR و SWAP_IMG_DIR و ensure_data_directories والخطوط متوفرة للـcore." if deps_ok else "تنقص إحدى اعتماديات توليد الصورة.",
+    )
+
+    no_state_lock = not bool(re.search(r"@state_locked\s*\ndef\s+generate_swap_table_image_core\s*\(", swaps_text))
+    no_reverse_import = "import app" not in swaps_text and "from app import" not in swaps_text
+    swaps_no_gradio = "gr.update" not in swaps_text and "import gradio" not in swaps_text and "from gradio" not in swaps_text and "gr.SelectData" not in swaps_text
+    add(
+        results,
+        "3I-a-6b: core بلا @state_locked و swaps.py بلا Gradio/import app",
+        "PASS" if no_state_lock and no_reverse_import and swaps_no_gradio else "FAIL",
+        "لا توجد @state_locked ولا اعتماد Gradio أو app داخل swaps.py." if no_state_lock and no_reverse_import and swaps_no_gradio else f"no_state_lock={no_state_lock}, no_reverse_import={no_reverse_import}, swaps_no_gradio={swaps_no_gradio}",
+    )
+
+    try:
+        app_tree = ast.parse(app_text)
+        wrapper_returns = []
+        for node in ast.walk(app_tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "generate_swap_table_image":
+                wrapper_returns = [r for r in ast.walk(node) if isinstance(r, ast.Return)]
+        wrapper_single = bool(wrapper_returns) and all(not isinstance(r.value, ast.Tuple) for r in wrapper_returns)
+        add(
+            results,
+            "3I-a-6b: wrapper يرجع عنصرًا واحدًا",
+            "PASS" if wrapper_single else "FAIL",
+            "generate_swap_table_image يرجع gr.update مفردًا كما في العقد القديم." if wrapper_single else "wrapper لا يرجع عنصرًا مفردًا.",
+        )
+    except SyntaxError as exc:
+        add(results, "3I-a-6b: تحليل AST للـwrapper", "FAIL", f"تعذر تحليل app.py: {exc}")
+
+    try:
+        swaps_tree = ast.parse(swaps_text)
+        core_returns = []
+        for node in ast.walk(swaps_tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "generate_swap_table_image_core":
+                core_returns = [child for child in node.body if isinstance(child, ast.Return)]
+                for child in node.body:
+                    if isinstance(child, ast.If):
+                        core_returns.extend(r for r in child.body + child.orelse if isinstance(r, ast.Return))
+                    if isinstance(child, ast.Try):
+                        core_returns.extend(r for r in child.body + child.orelse + child.finalbody if isinstance(r, ast.Return))
+                        for handler in child.handlers:
+                            core_returns.extend(r for r in handler.body if isinstance(r, ast.Return))
+        core_single = bool(core_returns) and all(not isinstance(r.value, ast.Tuple) for r in core_returns)
+        returns_raw = all(isinstance(r.value, (ast.Constant, ast.Name)) for r in core_returns)
+        add(
+            results,
+            "3I-a-6b: core يرجع قيمة خامة مفردة",
+            "PASS" if core_single and returns_raw else "FAIL",
+            "core يرجع None أو filename فقط دون tuple أو gr.update." if core_single and returns_raw else f"core_single={core_single}, returns_raw={returns_raw}",
+        )
+    except SyntaxError as exc:
+        add(results, "3I-a-6b: تحليل AST للـcore", "FAIL", f"تعذر تحليل swaps.py: {exc}")
+
+    try:
+        py_compile.compile(str(app_path), doraise=True)
+        py_compile.compile(str(swaps_path), doraise=True)
+        add(results, "3I-a-6b: py_compile app.py و swaps.py", "PASS", "app.py و swaps.py بلا أخطاء نحوية بعد 3I-a-6b.")
+    except Exception as exc:
+        add(results, "3I-a-6b: py_compile app.py و swaps.py", "FAIL", f"فشل py_compile: {exc}")
+
 def summarize(results: list[CheckResult]) -> tuple[int, int, int, int]:
     fail = sum(r.status == "FAIL" for r in results)
     warn = sum(r.status == "WARN" for r in results)
@@ -3091,6 +3219,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_swap_context_phase3ia5a(path, app_text, results)
     check_swap_filter_periods_phase3ia5b(path, app_text, results)
     check_export_swaps_excel_phase3ia6a(path, app_text, results)
+    check_generate_swap_table_image_phase3ia6b(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
