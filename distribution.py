@@ -209,6 +209,45 @@ def assign_logic_core(absent_list, day_name, dept_filter, max_reserves, is_alt, 
 
 
 @state_locked
+def rollback_auto_assignments_for_absentees_core(absent_list, day_name, actor_name="", actor_role=""):
+    cleaned = set(normalize_absent_names(absent_list))
+    if not cleaned or not day_name:
+        return
+
+    audit_entries = []
+    target_date = get_date_of_weekday(day_name)
+    kept_rows = []
+
+    for row in daily_db:
+        if row["date"] == target_date and row["المعلم الغائب"] in cleaned:
+            old_sub = str(row.get("المعلم البديل", "")).replace(" 🔄", "").replace("🔄", "").strip()
+            old_status = row.get("حالة_التكليف", "")
+
+            if old_sub != "إشراف إداري" and old_sub in teachers_db and old_status == "":
+                old_count = int(teachers_db[old_sub].get("cover_count", 0) or 0)
+                new_count = max(0, old_count - 1)
+                teachers_db[old_sub]["cover_count"] = new_count
+                _queue_audit_change(
+                    audit_entries,
+                    "تعديل رصيد الاحتياط",
+                    old_sub,
+                    old_count,
+                    new_count,
+                    f"إلغاء إسناد آلي أثناء إعادة التوليد ليوم {day_name}",
+                )
+            continue
+
+        kept_rows.append(row)
+
+    daily_db.clear()
+    daily_db.extend(kept_rows)
+    save_db()
+    save_daily_db()
+    _flush_audit_changes(audit_entries, actor_name, actor_role)
+    return
+
+
+@state_locked
 def cancel_teacher_absence_core(abs_t, day_name, dept_filter, is_admin_logged_in, current_abs, actor_name="", actor_role=""):
     if not abs_t or not day_name:
         return {
