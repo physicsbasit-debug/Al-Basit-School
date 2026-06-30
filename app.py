@@ -196,6 +196,9 @@ from swaps import (
     get_teacher_periods_safe_core,
     export_confirmed_swaps_excel_core,
     generate_swap_table_image_core,
+    draw_schedule_image_core,
+    font_path,
+    image_font_path,
     get_date_of_weekday,
     SWAP_EMPTY_MSG,
 )
@@ -1442,12 +1445,6 @@ def refresh_schedule_from_reference(dept_name, current_day, is_owner=False):
 
 
     
-candidate_font_paths = [
-    os.path.join(APP_DIR, "Cairo-Regular.ttf"),
-    "/app/Cairo-Regular.ttf",
-    "./Cairo-Regular.ttf",
-]
-font_path = next((p for p in candidate_font_paths if os.path.exists(p)), None)
 if font_path:
     print(f"font ok: {font_path}")
     arabic_font = fm.FontProperties(fname=font_path)
@@ -1455,12 +1452,6 @@ else:
     print("font warning: Cairo-Regular.ttf not found")
     arabic_font = fm.FontProperties()
 
-image_font_candidate_paths = [
-    os.path.join(APP_DIR, "Amiri-Regular.ttf"),
-    "/app/Amiri-Regular.ttf",
-    "./Amiri-Regular.ttf",
-]
-image_font_path = next((p for p in image_font_candidate_paths if os.path.exists(p)), None)
 if image_font_path:
     print(f"image font ok: {image_font_path}")
     image_font = fm.FontProperties(fname=image_font_path)
@@ -3103,241 +3094,7 @@ def get_teacher_weekly_schedule_html(teacher_name):
 
 
 def draw_schedule_image(df, day_name):
-    target_date = get_date_of_weekday(day_name)
-    absent_list = df["المعلم الغائب"].astype(str).unique().tolist() if df is not None and not df.empty else []
-    absent_list = [str(name).strip() for name in absent_list if str(name).strip()]
-
-    def chunk_absent_names(names, chunk_size=3):
-        if not names:
-            return ["لا يوجد"]
-        return ["، ".join(names[i:i + chunk_size]) for i in range(0, len(names), chunk_size)]
-
-    absent_lines = chunk_absent_names(absent_list, 3)
-
-    display_df = df[["المعلم الغائب", "الصف", "الحصة", "المعلم البديل عرض"]].copy()
-    display_df.columns = ["المعلم الغائب", "الصف", "الحصة", "المعلم البديل"]
-
-    title_text = f"📅 {day_name} | {target_date}"
-    absent_label_text = "المعلمون الغائبون:"
-
-    pil_font_path = None
-    for candidate in [image_font_path, os.path.join(APP_DIR, "Amiri-Regular.ttf"), "/app/Amiri-Regular.ttf", "./Amiri-Regular.ttf"]:
-        if candidate and os.path.exists(candidate):
-            pil_font_path = candidate
-            break
-
-    def load_font(size, bold=False):
-        try:
-            if pil_font_path:
-                return ImageFont.truetype(pil_font_path, size=size)
-        except Exception:
-            pass
-        try:
-            fallback = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-            return ImageFont.truetype(fallback, size=size)
-        except Exception:
-            return ImageFont.load_default()
-
-    font_title = load_font(40, bold=True)
-    font_subtitle = load_font(28, bold=False)
-    font_header = load_font(26, bold=True)
-    font_cell = load_font(24, bold=False)
-
-    temp_img = Image.new("RGB", (10, 10), "white")
-    temp_draw = ImageDraw.Draw(temp_img)
-
-    def text_size(value, font):
-        bbox = temp_draw.textbbox((0, 0), str(value), font=font)
-        return bbox[2] - bbox[0], bbox[3] - bbox[1]
-
-    def draw_text_right(draw, x_right, y_top, value, font, fill):
-        text = "" if value is None else str(value)
-        w, h = text_size(text, font)
-        draw.text((x_right - w, y_top), text, font=font, fill=fill)
-        return w, h
-
-    def wrap_text_by_width(value, font, max_width):
-        text = "" if value is None else str(value).strip()
-        if not text:
-            return [""]
-        words = text.split()
-        if len(words) <= 1:
-            return [text]
-
-        lines = []
-        current = words[0]
-        for word in words[1:]:
-            trial = current + " " + word
-            trial_w, _ = text_size(trial, font)
-            if trial_w <= max_width:
-                current = trial
-            else:
-                lines.append(current)
-                current = word
-        lines.append(current)
-        return lines if lines else [text]
-
-    def draw_multiline_right(draw, x_right, y_top, lines, font, fill, line_gap=4):
-        y = y_top
-        max_w = 0
-        total_h = 0
-        for line in lines:
-            w, h = text_size(line, font)
-            draw.text((x_right - w, y), line, font=font, fill=fill)
-            y += h + line_gap
-            total_h += h + line_gap
-            max_w = max(max_w, w)
-        if total_h > 0:
-            total_h -= line_gap
-        return max_w, total_h
-
-    def sanitize_image_substitute_display(value):
-        """تنظيف نص المعلم البديل في الصورة فقط دون تغيير منطق التبادل أو الواجهة."""
-        text = "" if value is None else str(value)
-        text = text.replace(chr(0x1F91D), "")
-        text = re.sub(r"\s+\)", ")", text)
-        text = re.sub(r"\(\s+", "(", text)
-        text = re.sub(r"\s{2,}", " ", text).strip()
-        return text
-
-    pad_x = 40
-    pad_y = 30
-    title_h = text_size(title_text, font_title)[1]
-    label_h = text_size(absent_label_text, font_subtitle)[1]
-    absent_line_h = text_size("نص", font_subtitle)[1]
-    absent_line_gap = 6
-    header_h = 28 + title_h + 14 + label_h + 8 + (len(absent_lines) * absent_line_h) + max(0, len(absent_lines) - 1) * absent_line_gap + 24
-    header_h = max(130, header_h)
-    gap_after_header = 20
-    base_row_h = 58
-    border_color = "#cfd8dc"
-    outer_border = "#b0bec5"
-    header_bg = "#004d40"
-    header_fg = "#ffffff"
-    alt_bg = "#f8faf8"
-    white_bg = "#ffffff"
-    red_bg = "#ffebee"
-    teal_bg = "#e0f2f1"
-    orange_bg = "#ffebee"
-    text_dark = "#1f2937"
-    title_fg = "#ffffff"
-
-    columns = [
-        ("المعلم الغائب", 280),
-        ("الصف", 360),
-        ("الحصة", 110),
-        ("المعلم البديل", 340),
-    ]
-    col_width_map = dict(columns)
-
-    prepared_rows = []
-    row_heights = []
-    line_height = text_size("نص", font_cell)[1]
-
-    for _, row in display_df.iterrows():
-        sub_display = str(row.get("المعلم البديل", ""))
-        status = ""
-        if "❌" in sub_display:
-            status = "تقصير"
-        elif "🤝" in sub_display:
-            status = "تبادل"
-        elif "إشراف" in sub_display:
-            status = "إشراف"
-
-        class_lines = wrap_text_by_width(
-            str(row.get("الصف", "")),
-            font_cell,
-            max_width=col_width_map["الصف"] - 24
-        )
-
-        row_values = {
-            "المعلم الغائب": str(row.get("المعلم الغائب", "")),
-            "الصف": class_lines,
-            "الحصة": str(row.get("الحصة", "")),
-            "المعلم البديل": sanitize_image_substitute_display(sub_display),
-            "_status": status,
-        }
-        prepared_rows.append(row_values)
-        dynamic_h = max(base_row_h, (len(class_lines) * line_height) + 22)
-        row_heights.append(dynamic_h)
-
-    table_w = sum(width for _, width in columns)
-    img_w = table_w + pad_x * 2
-    img_h = header_h + gap_after_header + base_row_h + sum(row_heights) + pad_y * 2 + 10
-
-    image = Image.new("RGB", (img_w, img_h), "white")
-    draw = ImageDraw.Draw(image)
-
-    draw.rounded_rectangle((pad_x, pad_y, img_w - pad_x, pad_y + header_h), radius=18, fill=header_bg)
-    header_x_right = img_w - pad_x - 20
-    title_y = pad_y + 18
-    draw_text_right(draw, header_x_right, title_y, title_text, font_title, title_fg)
-
-    label_y = title_y + title_h + 14
-    draw_text_right(draw, header_x_right, label_y, absent_label_text, font_subtitle, title_fg)
-
-    line_y = label_y + label_h + 8
-    for line in absent_lines:
-        draw_text_right(draw, header_x_right, line_y, line, font_subtitle, title_fg)
-        line_y += absent_line_h + absent_line_gap
-
-    table_top = pad_y + header_h + gap_after_header
-    header_y2 = table_top + base_row_h
-
-    x_cursor = img_w - pad_x
-    for col_name, col_w in columns:
-        x1 = x_cursor - col_w
-        x2 = x_cursor
-        draw.rectangle((x1, table_top, x2, header_y2), fill=header_bg, outline=outer_border, width=1)
-        draw_text_right(draw, x2 - 16, table_top + 12, col_name, font_header, header_fg)
-        x_cursor = x1
-
-    current_y = header_y2
-    for idx, row in enumerate(prepared_rows, start=1):
-        row_h = row_heights[idx - 1]
-        y1 = current_y
-        y2 = y1 + row_h
-
-        status = row["_status"]
-        if status == "تقصير":
-            row_bg = red_bg
-        elif status == "تبادل":
-            row_bg = teal_bg
-        elif status == "إشراف":
-            row_bg = orange_bg
-        else:
-            row_bg = alt_bg if idx % 2 == 0 else white_bg
-
-        row_values = [
-            row["المعلم الغائب"],
-            row["الصف"],
-            row["الحصة"],
-            row["المعلم البديل"],
-        ]
-
-        x_cursor = img_w - pad_x
-        for (_, col_w), value in zip(columns, row_values):
-            x1 = x_cursor - col_w
-            x2 = x_cursor
-            draw.rectangle((x1, y1, x2, y2), fill=row_bg, outline=border_color, width=1)
-
-            if isinstance(value, list):
-                content_h = (len(value) * line_height) + ((len(value) - 1) * 4)
-                text_y = y1 + max(10, (row_h - content_h) / 2)
-                draw_multiline_right(draw, x2 - 12, text_y, value, font_cell, text_dark, line_gap=4)
-            else:
-                _, text_h = text_size(value, font_cell)
-                text_y = y1 + max(10, (row_h - text_h) / 2)
-                draw_text_right(draw, x2 - 12, text_y, value, font_cell, text_dark)
-
-            x_cursor = x1
-
-        current_y = y2
-
-    ensure_data_directories()
-    filename = os.path.join(IMG_DIR, f"output_{day_name}_{target_date}_{datetime.datetime.now(tz_oman).strftime('%H%M%S_%f')}.png")
-    image.save(filename)
-    return filename
+    return draw_schedule_image_core(df, day_name)
 
 
 
