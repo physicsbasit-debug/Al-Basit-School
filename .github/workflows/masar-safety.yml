@@ -19,5 +19,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install test dependencies
+        run: python -m pip install "pytest>=8,<9"
+
       - name: Run Masar safety check
         run: python check_masar_safety.py app.py
+
+      - name: Run pytest
+        run: python -m pytest -q
