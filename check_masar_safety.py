@@ -4879,6 +4879,209 @@ def check_data_center_reference_refresh_phase3k(path: Path, app_text: str, resul
         "لم يرجع school_data_tab.select أو select_tab_js لمركز البيانات." if red_lines_clean else "وجد نمط ممنوع في ربط مركز البيانات.")
 
 
+def check_school_settings_core_phase3k(path, app_text, results):
+    """فحص 3K-school-settings-core: فصل save_school_operational_settings إلى core/wrapper."""
+
+    sd_path = path.parent / "school_data.py"
+    if not sd_path.exists():
+        add(results, "3K-school-settings: school_data.py موجود", "FAIL", "")
+        return
+    sd_text = sd_path.read_text(encoding="utf-8")
+
+    # 1. وجود core في school_data.py
+    core_exists = re.search(r"^def\s+save_school_operational_settings_core\s*\(", sd_text, flags=re.MULTILINE) is not None
+    add(results, "3K-school-settings: save_school_operational_settings_core في school_data.py", "PASS" if core_exists else "FAIL", "")
+    if not core_exists:
+        return
+
+    # 2. @state_locked مرة واحدة على core
+    sd_tree = ast.parse(sd_text)
+    core_nodes = [n for n in ast.walk(sd_tree) if isinstance(n, ast.FunctionDef) and n.name == "save_school_operational_settings_core"]
+    core_node = core_nodes[0]
+    core_decs = [d.id for d in core_node.decorator_list if isinstance(d, ast.Name)]
+    has_one_lock = core_decs == ["state_locked"]
+    add(results, "3K-school-settings: @state_locked مرة واحدة على core", "PASS" if has_one_lock else "FAIL", f"ديكوريتورات: {core_decs}")
+
+    # 3. core بلا gr.update فعلي (في الكود لا التعليقات/docstring)
+    core_body_lines = sd_text.splitlines()[core_node.lineno - 1 : core_node.end_lineno]
+    # فحص gr.update عبر AST لتجنب التعليقات وdocstrings
+    gr_count = 0
+    for ast_node in ast.walk(core_node):
+        if isinstance(ast_node, ast.Attribute) and ast_node.attr == "update":
+            if isinstance(ast_node.value, ast.Name) and ast_node.value.id == "gr":
+                gr_count += 1
+    add(results, "3K-school-settings: core بلا gr.update فعلي", "PASS" if gr_count == 0 else "FAIL", f"count={gr_count}")
+
+    # 4. لا إعادة تعيين خطرة لـSCHOOL_CONFIG
+    core_body = "\n".join(core_body_lines)
+    dangerous = "SCHOOL_CONFIG = dict(" in core_body
+    add(results, "3K-school-settings: core بلا SCHOOL_CONFIG = dict(…) الخطرة", "PASS" if not dangerous else "FAIL", "لا يوجد" if not dangerous else "موجود!")
+
+    # 5. school_data.py لا يستورد app.py
+    no_import_app = "import app" not in sd_text and "from app" not in sd_text
+    add(results, "3K-school-settings: school_data.py لا يستورد app.py", "PASS" if no_import_app else "FAIL", "")
+
+    # 6. wrapper في app.py بلا @state_locked
+    app_tree = ast.parse(app_text)
+    wrapper_nodes = [n for n in ast.walk(app_tree) if isinstance(n, ast.FunctionDef) and n.name == "save_school_operational_settings"]
+    wrapper_exists = len(wrapper_nodes) > 0
+    add(results, "3K-school-settings: save_school_operational_settings wrapper في app.py", "PASS" if wrapper_exists else "FAIL", "")
+    if not wrapper_exists:
+        return
+    wrapper_node = wrapper_nodes[0]
+    wrapper_decs = [d.id for d in wrapper_node.decorator_list if isinstance(d, ast.Name)]
+    wrapper_no_lock = "state_locked" not in wrapper_decs
+    add(results, "3K-school-settings: wrapper بلا @state_locked", "PASS" if wrapper_no_lock else "FAIL", f"ديكوريتورات: {wrapper_decs}")
+
+    # 7. wrapper يرجع 4 عناصر
+    wrapper_returns = [len(stmt.value.elts) for stmt in ast.walk(wrapper_node) if isinstance(stmt, ast.Return) and isinstance(stmt.value, ast.Tuple)]
+    correct = all(c == 4 for c in wrapper_returns) and len(wrapper_returns) > 0
+    add(results, "3K-school-settings: wrapper يرجع 4 عناصر", "PASS" if correct else "FAIL", f"{wrapper_returns}")
+
+    # 8. wrapper يستدعي core
+    wrapper_body = "\n".join(app_text.splitlines()[wrapper_node.lineno - 1 : wrapper_node.end_lineno])
+    calls_core = "save_school_operational_settings_core(" in wrapper_body
+    add(results, "3K-school-settings: wrapper يستدعي save_school_operational_settings_core", "PASS" if calls_core else "FAIL", "")
+
+
+def check_identity_reference_fix_phase3k(path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3K-identity-reference-fix: إصلاح كسر مرجع SCHOOL_CONFIG داخل _apply_school_identity_globals."""
+
+    app_tree = ast.parse(app_text)
+
+    # 1. تأكيد وجود الدوال الأربع في app.py
+    identity_funcs = ["save_school_identity_settings", "reset_school_identity_settings",
+                      "_identity_full_output", "_apply_school_identity_globals"]
+    found = {n.name for n in ast.walk(app_tree) if isinstance(n, ast.FunctionDef)}
+    for fn in identity_funcs:
+        exists = fn in found
+        add(results, f"3K-identity-fix: {fn} باقية في app.py", "PASS" if exists else "FAIL", "")
+
+    # 2. تأكيد غياب دوال الهوية من school_data.py
+    sd_path = path.parent / "school_data.py"
+    if sd_path.exists():
+        sd_text = sd_path.read_text(encoding="utf-8")
+        for fn in ["save_school_identity_settings", "reset_school_identity_settings", "_identity_full_output"]:
+            in_sd = re.search(rf"^def\s+{re.escape(fn)}\s*\(", sd_text, flags=re.MULTILINE) is not None
+            add(results, f"3K-identity-fix: {fn} لم تُنقَل إلى school_data.py", "PASS" if not in_sd else "FAIL", "")
+        # تأكيد بقاء save_school_operational_settings_core من المرحلة السابقة
+        core_still = re.search(r"^def\s+save_school_operational_settings_core\s*\(", sd_text, flags=re.MULTILINE) is not None
+        add(results, "3K-identity-fix: save_school_operational_settings_core ما زالت في school_data.py", "PASS" if core_still else "FAIL", "")
+
+    # 3. فحص _apply_school_identity_globals بالـAST بدقة
+    globals_nodes = [n for n in ast.walk(app_tree) if isinstance(n, ast.FunctionDef) and n.name == "_apply_school_identity_globals"]
+    if not globals_nodes:
+        add(results, "3K-identity-fix: _apply_school_identity_globals موجودة", "FAIL", "")
+        return
+
+    func_node = globals_nodes[0]
+    func_lines = app_text.splitlines()[func_node.lineno - 1 : func_node.end_lineno]
+    func_body = "\n".join(func_lines)
+
+    # 3a. لا توجد إعادة تعيين مباشرة لـSCHOOL_CONFIG
+    dangerous = False
+    for node in ast.walk(func_node):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "SCHOOL_CONFIG":
+                    dangerous = True
+    add(results, "3K-identity-fix: لا إعادة تعيين SCHOOL_CONFIG داخل _apply_school_identity_globals", "PASS" if not dangerous else "FAIL",
+        "لا توجد" if not dangerous else "موجودة! خطر كسر المرجع")
+
+    # 3b. لا يوجد SCHOOL_CONFIG = dict(…) نصياً
+    dict_assign = "SCHOOL_CONFIG = dict(" in func_body
+    add(results, "3K-identity-fix: لا SCHOOL_CONFIG = dict(…) نصياً", "PASS" if not dict_assign else "FAIL", "")
+
+    # 3c. وجود SCHOOL_CONFIG.clear()
+    has_clear = "SCHOOL_CONFIG.clear()" in func_body
+    add(results, "3K-identity-fix: SCHOOL_CONFIG.clear() موجودة", "PASS" if has_clear else "FAIL", "")
+
+    # 3d. وجود SCHOOL_CONFIG.update(…)
+    has_update = re.search(r"SCHOOL_CONFIG\.update\s*\(", func_body) is not None
+    add(results, "3K-identity-fix: SCHOOL_CONFIG.update(…) موجودة", "PASS" if has_update else "FAIL", "")
+
+    # 3e. global SCHOOL_CONFIG حُذف (لم يعد ضرورياً بعد التعديل)
+    has_global_school = any(
+        isinstance(n, ast.Global) and "SCHOOL_CONFIG" in n.names
+        for n in ast.walk(func_node)
+    )
+    add(results, "3K-identity-fix: global SCHOOL_CONFIG أُزيل من _apply_school_identity_globals", "PASS" if not has_global_school else "WARN",
+        "غير موجود (صحيح)" if not has_global_school else "لا يزال موجوداً (غير خطر لكن غير ضروري)")
+
+
+def check_identity_core_phase3k(path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """فحص 3K-identity-core: فصل save/reset_school_identity_settings إلى core/wrapper."""
+
+    sd_path = path.parent / "school_data.py"
+    if not sd_path.exists():
+        add(results, "3K-identity-core: school_data.py موجود", "FAIL", "")
+        return
+    sd_text = sd_path.read_text(encoding="utf-8")
+    sd_tree = ast.parse(sd_text)
+    app_tree = ast.parse(app_text)
+
+    # 1. وجود الـcores في school_data.py
+    for core_name in ["save_school_identity_settings_core", "reset_school_identity_settings_core"]:
+        exists = any(n.name == core_name for n in ast.walk(sd_tree) if isinstance(n, ast.FunctionDef))
+        add(results, f"3K-identity-core: {core_name} في school_data.py", "PASS" if exists else "FAIL", "")
+
+    # 2. وجود wrappers في app.py بلا @state_locked
+    for wrapper_name in ["save_school_identity_settings", "reset_school_identity_settings"]:
+        nodes = [n for n in ast.walk(app_tree) if isinstance(n, ast.FunctionDef) and n.name == wrapper_name]
+        if not nodes:
+            add(results, f"3K-identity-core: {wrapper_name} wrapper في app.py", "FAIL", "")
+            continue
+        node = nodes[0]
+        decs = [d.id for d in node.decorator_list if isinstance(d, ast.Name)]
+        no_lock = "state_locked" not in decs
+        add(results, f"3K-identity-core: {wrapper_name} wrapper بلا @state_locked", "PASS" if no_lock else "FAIL", f"decs={decs}")
+        # يستدعي core
+        body = "\n".join(app_text.splitlines()[node.lineno-1:node.end_lineno])
+        calls_core = f"{wrapper_name}_core(" in body
+        add(results, f"3K-identity-core: {wrapper_name} يستدعي core", "PASS" if calls_core else "FAIL", "")
+
+    # 3. cores عليها @state_locked مرة واحدة وصفر gr.update
+    for core_name in ["save_school_identity_settings_core", "reset_school_identity_settings_core"]:
+        nodes = [n for n in ast.walk(sd_tree) if isinstance(n, ast.FunctionDef) and n.name == core_name]
+        if not nodes:
+            continue
+        core_node = nodes[0]
+        core_decs = [d.id for d in core_node.decorator_list if isinstance(d, ast.Name)]
+        one_lock = core_decs == ["state_locked"]
+        add(results, f"3K-identity-core: {core_name} @state_locked مرة واحدة", "PASS" if one_lock else "FAIL", f"decs={core_decs}")
+        gr_count = sum(1 for n in ast.walk(core_node) if isinstance(n, ast.Attribute) and n.attr == "update" and isinstance(n.value, ast.Name) and n.value.id == "gr")
+        add(results, f"3K-identity-core: {core_name} بلا gr.update", "PASS" if gr_count == 0 else "FAIL", f"count={gr_count}")
+
+    # 4. school_data.py لا يستورد app.py
+    no_import_app = "import app" not in sd_text and "from app" not in sd_text
+    add(results, "3K-identity-core: school_data.py لا يستورد app.py", "PASS" if no_import_app else "FAIL", "")
+
+    # 5. بقاء _identity_full_output و _apply_school_identity_globals و _current_identity_config في app.py
+    for fn_name in ["_identity_full_output", "_apply_school_identity_globals", "_current_identity_config"]:
+        in_app = any(n.name == fn_name for n in ast.walk(app_tree) if isinstance(n, ast.FunctionDef))
+        in_sd = re.search(rf"^def\s+{re.escape(fn_name)}\s*\(", sd_text, flags=re.MULTILINE) is not None
+        add(results, f"3K-identity-core: {fn_name} باقية في app.py", "PASS" if in_app else "FAIL", "")
+        add(results, f"3K-identity-core: {fn_name} لم تُنقَل لـschool_data.py", "PASS" if not in_sd else "FAIL", "")
+
+    # 6. _identity_full_output لا تزال ترجع 17 عنصراً
+    id_nodes = [n for n in ast.walk(app_tree) if isinstance(n, ast.FunctionDef) and n.name == "_identity_full_output"]
+    if id_nodes:
+        id_node = id_nodes[0]
+        ret_counts = [len(s.value.elts) for s in ast.walk(id_node) if isinstance(s, ast.Return) and isinstance(s.value, ast.Tuple)]
+        correct_17 = ret_counts == [17]
+        add(results, "3K-identity-core: _identity_full_output ترجع 17 عنصراً", "PASS" if correct_17 else "FAIL", f"{ret_counts}")
+
+    # 7. دوال مساعدة منقولة موجودة في school_data.py
+    for helper in ["_save_uploaded_identity_logo", "_is_valid_identity_logo_value", "_normalize_identity_text", "_normalize_hex_color"]:
+        exists = re.search(rf"^def\s+{re.escape(helper)}\s*\(", sd_text, flags=re.MULTILINE) is not None
+        add(results, f"3K-identity-core: {helper} موجودة في school_data.py", "PASS" if exists else "FAIL", "")
+
+    # 8. لا SCHOOL_CONFIG = dict(…) في cores
+    no_dangerous = "SCHOOL_CONFIG = dict(" not in sd_text
+    add(results, "3K-identity-core: لا SCHOOL_CONFIG = dict(…) في school_data.py", "PASS" if no_dangerous else "FAIL", "")
+
+
+
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Masar safety checker")
     parser.add_argument("source", nargs="?", default="app.py", help="مسار ملف app.py أو نسخة منظومة مسار")
@@ -4966,6 +5169,9 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_generation_orchestration_phase3je2fix(path, app_text, results)
     check_rollback_auto_assignments_phase3je3(path, app_text, results)
     check_potential_dead_code_admin_excel_phase3j_final(path, app_text, results)
+    check_school_settings_core_phase3k(path, app_text, results)
+    check_identity_reference_fix_phase3k(path, app_text, results)
+    check_identity_core_phase3k(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
