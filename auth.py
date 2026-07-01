@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import html as html_lib
 import hmac
 import json
 import os
@@ -21,6 +22,8 @@ from storage import (
     AUTH_DB_FILE,
     AUTH_ACCOUNTS_FILE,
     safe_write_json,
+    state_locked,
+    write_audit_log,
 )
 
 # v1.3 — أدوار وصلاحيات مركزية
@@ -127,6 +130,11 @@ def _account_display_name(record):
         return f"{role} — {dept}"
     return role or "حساب غير مسمى"
 
+
+
+
+def _clean_account_profile_value(value):
+    return str(value or "").strip()
 
 def _make_legacy_account_id(record, index):
     raw = "|".join([
@@ -435,3 +443,374 @@ def get_permissions_from_flags(is_admin=False, is_owner=False):
 def get_ui_visibility_updates(pin, role, is_owner):
     # pin موجود للتوافق مع الربط القديم، والصلاحية تُبنى من الدور والمالك.
     return get_permissions(role=role, is_owner=is_owner)
+
+@state_locked
+def save_auth_account_profile_core(
+    account_id,
+    display_name,
+    official_title,
+    welcome_title,
+    department_label,
+    welcome_phrase,
+    welcome_template,
+    whatsapp_title,
+    is_owner=False,
+    actor_name="",
+    actor_role="",
+):
+    account_id = str(account_id or "").strip()
+    if not bool(is_owner):
+        return {
+            "ok": False,
+            "mode": "error",
+            "account_id": account_id,
+            "status_html": "<div style='color:#b91c1c;font-weight:800;'>هذه العملية مخصصة لمالك النظام فقط.</div>",
+        }
+
+    payload = load_auth_accounts()
+    account = payload.get("accounts", {}).get(account_id)
+    if not isinstance(account, dict):
+        return {
+            "ok": False,
+            "mode": "error",
+            "account_id": account_id,
+            "status_html": "<div style='color:#b91c1c;font-weight:800;'>اختر حسابًا صالحًا.</div>",
+        }
+
+    old_profile = {
+        "display_name": account.get("display_name", ""),
+        "official_title": account.get("official_title", ""),
+        "welcome_title": account.get("welcome_title", ""),
+        "department_label": account.get("department_label", ""),
+        "welcome_phrase": account.get("welcome_phrase", ""),
+        "welcome_template": account.get("welcome_template", ""),
+        "whatsapp_title": account.get("whatsapp_title", ""),
+    }
+
+    account["display_name"] = _clean_account_profile_value(display_name)
+    account["official_title"] = _clean_account_profile_value(official_title)
+    account["welcome_title"] = _clean_account_profile_value(welcome_title)
+    account["department_label"] = _clean_account_profile_value(department_label)
+    account["welcome_phrase"] = _clean_account_profile_value(welcome_phrase)
+    account["welcome_template"] = _clean_account_profile_value(welcome_template)
+    account["whatsapp_title"] = _clean_account_profile_value(whatsapp_title)
+    account["updated_at"] = _auth_now_text()
+    account["profile_updated_at"] = account["updated_at"]
+
+    if not save_auth_accounts(payload):
+        return {
+            "ok": False,
+            "mode": "error",
+            "account_id": account_id,
+            "status_html": "<div style='color:#b91c1c;font-weight:800;'>تعذر حفظ تخصيص الحساب.</div>",
+        }
+
+    new_profile = {
+        "display_name": account.get("display_name", ""),
+        "official_title": account.get("official_title", ""),
+        "welcome_title": account.get("welcome_title", ""),
+        "department_label": account.get("department_label", ""),
+        "welcome_phrase": account.get("welcome_phrase", ""),
+        "welcome_template": account.get("welcome_template", ""),
+        "whatsapp_title": account.get("whatsapp_title", ""),
+    }
+
+    write_audit_log(
+        "تعديل تخصيص حساب دخول",
+        target_teacher="",
+        old_value=old_profile,
+        new_value=new_profile,
+        details=f"تعديل هيدر ومسمى حساب: {_account_display_name(account)}",
+        actor_name=actor_name,
+        actor_role=actor_role,
+    )
+
+    return {
+        "ok": True,
+        "mode": "success",
+        "account_id": account_id,
+        "account": dict(account),
+        "choices": get_auth_account_choices(),
+        "status_html": (
+            "<div style='color:#166534;background:#dcfce7;padding:10px;"
+            "border-radius:8px;font-weight:800;'>"
+            "تم حفظ تخصيص الترحيب والمسميات بنجاح. سيظهر الهيدر الجديد في تسجيل الدخول القادم."
+            "</div>"
+        ),
+    }
+
+
+@state_locked
+def change_own_account_pin_core(
+    account_id,
+    current_pin,
+    new_pin,
+    confirm_pin,
+    actor_name="",
+    actor_role="",
+    is_owner=False,
+):
+    if bool(is_owner) or str(account_id) == OWNER_ACCOUNT_ID:
+        return {
+            "ok": False,
+            "mode": "clear_inputs",
+            "status_html": (
+                "<div style='color:#9a3412;background:#fff7ed;padding:10px;"
+                "border-radius:8px;font-weight:800;'>"
+                "رمز مالك النظام يُغيّر من Secret الاستضافة، وليس من داخل المنظومة."
+                "</div>"
+            ),
+        }
+
+    account_id = str(account_id or "").strip()
+    payload = load_auth_accounts()
+    account = payload.get("accounts", {}).get(account_id)
+
+    if not isinstance(account, dict):
+        return {
+            "ok": False,
+            "mode": "clear_inputs",
+            "status_html": "<div style='color:#b91c1c;font-weight:800;'>تعذر تحديد حساب الجلسة الحالية.</div>",
+        }
+
+    if not bool(account.get("enabled", True)):
+        return {
+            "ok": False,
+            "mode": "clear_inputs",
+            "status_html": "<div style='color:#b91c1c;font-weight:800;'>الحساب معطل.</div>",
+        }
+
+    if not _verify_pin_hash(current_pin, account.get("pin_hash", "")):
+        return {
+            "ok": False,
+            "mode": "clear_inputs",
+            "status_html": "<div style='color:#b91c1c;font-weight:800;'>الرمز الحالي غير صحيح.</div>",
+        }
+
+    valid, validation_message = _validate_new_pin(new_pin)
+    if not valid:
+        return {
+            "ok": False,
+            "mode": "noop",
+            "status_html": f"<div style='color:#b91c1c;font-weight:800;'>{html_lib.escape(validation_message)}</div>",
+        }
+
+    if str(new_pin) != str(confirm_pin):
+        return {
+            "ok": False,
+            "mode": "noop",
+            "status_html": "<div style='color:#b91c1c;font-weight:800;'>تأكيد الرمز الجديد غير مطابق.</div>",
+        }
+
+    if _verify_pin_hash(new_pin, account.get("pin_hash", "")):
+        return {
+            "ok": False,
+            "mode": "noop",
+            "status_html": "<div style='color:#a16207;font-weight:800;'>الرمز الجديد مطابق للرمز الحالي.</div>",
+        }
+
+    if _pin_is_used_by_another_account(
+        new_pin,
+        exclude_account_id=account_id,
+    ):
+        return {
+            "ok": False,
+            "mode": "noop",
+            "status_html": "<div style='color:#b91c1c;font-weight:800;'>هذا الرمز مستخدم لحساب آخر.</div>",
+        }
+
+    account["pin_hash"] = _pin_hash(new_pin)
+    account["must_change_pin"] = False
+    account["updated_at"] = _auth_now_text()
+    account["pin_changed_at"] = account["updated_at"]
+
+    if not save_auth_accounts(payload):
+        return {
+            "ok": False,
+            "mode": "noop",
+            "status_html": "<div style='color:#b91c1c;font-weight:800;'>تعذر حفظ الرمز الجديد.</div>",
+        }
+
+    write_audit_log(
+        "تغيير رمز دخول",
+        target_teacher="",
+        old_value="رمز مشفر",
+        new_value="رمز مشفر",
+        details=f"غيّر المستخدم رمز حساب: {_account_display_name(account)}",
+        actor_name=actor_name,
+        actor_role=actor_role,
+    )
+
+    return {
+        "ok": True,
+        "mode": "clear_inputs",
+        "status_html": (
+            "<div style='color:#166534;background:#dcfce7;padding:10px;"
+            "border-radius:8px;font-weight:800;'>"
+            "تم تغيير رمز الدخول بنجاح. استخدم الرمز الجديد في الدخول القادم."
+            "</div>"
+        ),
+    }
+
+
+@state_locked
+def owner_reset_account_pin_core(
+    account_id,
+    requested_pin,
+    is_owner=False,
+    actor_name="",
+    actor_role="",
+):
+    account_id = str(account_id or "").strip()
+    if not bool(is_owner):
+        return {
+            "ok": False,
+            "mode": "blank_pin",
+            "account_id": account_id,
+            "new_pin": "",
+            "status_html": "<div style='color:#b91c1c;font-weight:800;'>هذه العملية للمالك فقط.</div>",
+        }
+
+    payload = load_auth_accounts()
+    account = payload.get("accounts", {}).get(account_id)
+
+    if not isinstance(account, dict):
+        return {
+            "ok": False,
+            "mode": "blank_pin",
+            "account_id": account_id,
+            "new_pin": "",
+            "status_html": "<div style='color:#b91c1c;font-weight:800;'>اختر حسابًا صالحًا.</div>",
+        }
+
+    new_pin = str(requested_pin or "").strip()
+    if not new_pin:
+        new_pin = "".join(secrets.choice("0123456789") for _ in range(6))
+
+    valid, validation_message = _validate_new_pin(new_pin)
+    if not valid:
+        return {
+            "ok": False,
+            "mode": "noop_pin",
+            "account_id": account_id,
+            "new_pin": "",
+            "status_html": f"<div style='color:#b91c1c;font-weight:800;'>{html_lib.escape(validation_message)}</div>",
+        }
+
+    if _pin_is_used_by_another_account(
+        new_pin,
+        exclude_account_id=account_id,
+    ):
+        return {
+            "ok": False,
+            "mode": "noop_pin",
+            "account_id": account_id,
+            "new_pin": "",
+            "status_html": "<div style='color:#b91c1c;font-weight:800;'>هذا الرمز مستخدم لحساب آخر.</div>",
+        }
+
+    account["pin_hash"] = _pin_hash(new_pin)
+    account["must_change_pin"] = True
+    account["updated_at"] = _auth_now_text()
+    account["pin_reset_at"] = account["updated_at"]
+    account["pin_reset_by"] = str(actor_name or "مالك النظام")
+
+    if not save_auth_accounts(payload):
+        return {
+            "ok": False,
+            "mode": "noop_pin",
+            "account_id": account_id,
+            "new_pin": "",
+            "status_html": "<div style='color:#b91c1c;font-weight:800;'>تعذر حفظ إعادة التعيين.</div>",
+        }
+
+    write_audit_log(
+        "إعادة تعيين رمز دخول",
+        target_teacher="",
+        old_value="رمز مشفر",
+        new_value="رمز مؤقت مشفر",
+        details=f"إعادة تعيين حساب: {_account_display_name(account)}",
+        actor_name=actor_name,
+        actor_role=actor_role,
+    )
+
+    return {
+        "ok": True,
+        "mode": "success",
+        "account_id": account_id,
+        "new_pin": new_pin,
+        "choices": get_auth_account_choices(),
+        "status_html": (
+            "<div style='color:#166534;background:#dcfce7;padding:10px;"
+            "border-radius:8px;font-weight:800;'>"
+            "تمت إعادة التعيين. يظهر الرمز الجديد في خانة «الرمز الجديد لمرة واحدة»."
+            "</div>"
+        ),
+    }
+
+
+@state_locked
+def owner_toggle_account_status_core(
+    account_id,
+    is_owner=False,
+    actor_name="",
+    actor_role="",
+):
+    account_id = str(account_id or "").strip()
+    if not bool(is_owner):
+        return {
+            "ok": False,
+            "mode": "error",
+            "account_id": account_id,
+            "status_html": "<div style='color:#b91c1c;font-weight:800;'>هذه العملية للمالك فقط.</div>",
+        }
+
+    payload = load_auth_accounts()
+    account = payload.get("accounts", {}).get(account_id)
+
+    if not isinstance(account, dict):
+        return {
+            "ok": False,
+            "mode": "error",
+            "account_id": account_id,
+            "status_html": "<div style='color:#b91c1c;font-weight:800;'>اختر حسابًا صالحًا.</div>",
+        }
+
+    new_enabled = not bool(account.get("enabled", True))
+    account["enabled"] = new_enabled
+    account["updated_at"] = _auth_now_text()
+
+    if not save_auth_accounts(payload):
+        return {
+            "ok": False,
+            "mode": "error",
+            "account_id": account_id,
+            "status_html": "<div style='color:#b91c1c;font-weight:800;'>تعذر تحديث حالة الحساب.</div>",
+        }
+
+    action_name = "تفعيل حساب دخول" if new_enabled else "تعطيل حساب دخول"
+    write_audit_log(
+        action_name,
+        target_teacher="",
+        old_value="معطل" if new_enabled else "مفعل",
+        new_value="مفعل" if new_enabled else "معطل",
+        details=f"{action_name}: {_account_display_name(account)}",
+        actor_name=actor_name,
+        actor_role=actor_role,
+    )
+
+    status_word = "تفعيل" if new_enabled else "تعطيل"
+    return {
+        "ok": True,
+        "mode": "success",
+        "account_id": account_id,
+        "enabled": new_enabled,
+        "choices": get_auth_account_choices(),
+        "status_html": (
+            "<div style='color:#166534;background:#dcfce7;padding:10px;"
+            "border-radius:8px;font-weight:800;'>"
+            f"تم {status_word} الحساب بنجاح."
+            "</div>"
+        ),
+    }
+
