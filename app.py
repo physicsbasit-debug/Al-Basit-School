@@ -111,6 +111,10 @@ from auth import (
     get_permissions,
     get_permissions_from_flags,
     get_ui_visibility_updates,
+    save_auth_account_profile_core,
+    change_own_account_pin_core,
+    owner_reset_account_pin_core,
+    owner_toggle_account_status_core,
 )
 
 from school_data import (
@@ -744,7 +748,6 @@ def load_auth_account_profile_for_editor(account_id, is_owner=False):
     )
 
 
-@state_locked
 def save_auth_account_profile(
     account_id,
     display_name,
@@ -758,74 +761,28 @@ def save_auth_account_profile(
     actor_name="",
     actor_role="",
 ):
-    if not bool(is_owner):
-        return (
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            "<div style='color:#b91c1c;font-weight:800;'>هذه العملية مخصصة لمالك النظام فقط.</div>",
-        )
-
-    account_id = str(account_id or "").strip()
-    payload = load_auth_accounts()
-    account = payload.get("accounts", {}).get(account_id)
-    if not isinstance(account, dict):
-        return (
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            "<div style='color:#b91c1c;font-weight:800;'>اختر حسابًا صالحًا.</div>",
-        )
-
-    old_profile = {
-        "display_name": account.get("display_name", ""),
-        "official_title": account.get("official_title", ""),
-        "welcome_title": account.get("welcome_title", ""),
-        "department_label": account.get("department_label", ""),
-        "welcome_phrase": account.get("welcome_phrase", ""),
-        "welcome_template": account.get("welcome_template", ""),
-        "whatsapp_title": account.get("whatsapp_title", ""),
-    }
-
-    account["display_name"] = _clean_account_profile_value(display_name)
-    account["official_title"] = _clean_account_profile_value(official_title)
-    account["welcome_title"] = _clean_account_profile_value(welcome_title)
-    account["department_label"] = _clean_account_profile_value(department_label)
-    account["welcome_phrase"] = _clean_account_profile_value(welcome_phrase)
-    account["welcome_template"] = _clean_account_profile_value(welcome_template)
-    account["whatsapp_title"] = _clean_account_profile_value(whatsapp_title)
-    account["updated_at"] = _auth_now_text()
-    account["profile_updated_at"] = account["updated_at"]
-
-    if not save_auth_accounts(payload):
-        return (
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            "<div style='color:#b91c1c;font-weight:800;'>تعذر حفظ تخصيص الحساب.</div>",
-        )
-
-    new_profile = {
-        "display_name": account.get("display_name", ""),
-        "official_title": account.get("official_title", ""),
-        "welcome_title": account.get("welcome_title", ""),
-        "department_label": account.get("department_label", ""),
-        "welcome_phrase": account.get("welcome_phrase", ""),
-        "welcome_template": account.get("welcome_template", ""),
-        "whatsapp_title": account.get("whatsapp_title", ""),
-    }
-
-    write_audit_log(
-        "تعديل تخصيص حساب دخول",
-        target_teacher="",
-        old_value=old_profile,
-        new_value=new_profile,
-        details=f"تعديل هيدر ومسمى حساب: {_account_display_name(account)}",
+    result = save_auth_account_profile_core(
+        account_id,
+        display_name,
+        official_title,
+        welcome_title,
+        department_label,
+        welcome_phrase,
+        welcome_template,
+        whatsapp_title,
+        is_owner=is_owner,
         actor_name=actor_name,
         actor_role=actor_role,
     )
+    if not result.get("ok"):
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            result.get("status_html", ""),
+        )
 
-    choices = get_auth_account_choices()
+    account = result.get("account") or {}
     preview = render_account_profile_preview_html(
         account.get("display_name", ""),
         account.get("official_title", ""),
@@ -837,14 +794,9 @@ def save_auth_account_profile(
     )
     return (
         gr.update(value=render_auth_accounts_html(True)),
-        gr.update(choices=choices, value=account_id),
+        gr.update(choices=result.get("choices", []), value=result.get("account_id")),
         gr.update(value=preview),
-        (
-            "<div style='color:#166534;background:#dcfce7;padding:10px;"
-            "border-radius:8px;font-weight:800;'>"
-            "تم حفظ تخصيص الترحيب والمسميات بنجاح. سيظهر الهيدر الجديد في تسجيل الدخول القادم."
-            "</div>"
-        ),
+        result.get("status_html", ""),
     )
 
 def render_auth_accounts_html(is_owner=False):
@@ -941,7 +893,6 @@ def refresh_owner_accounts_panel(is_owner=False):
         gr.update(value=""),
     )
 
-@state_locked
 def change_own_account_pin(
     account_id,
     current_pin,
@@ -951,119 +902,30 @@ def change_own_account_pin(
     actor_role="",
     is_owner=False,
 ):
-    if bool(is_owner) or str(account_id) == OWNER_ACCOUNT_ID:
-        return (
-            gr.update(value=""),
-            gr.update(value=""),
-            gr.update(value=""),
-            (
-                "<div style='color:#9a3412;background:#fff7ed;padding:10px;"
-                "border-radius:8px;font-weight:800;'>"
-                "رمز مالك النظام يُغيّر من Secret الاستضافة، وليس من داخل المنظومة."
-                "</div>"
-            ),
-        )
-
-    account_id = str(account_id or "").strip()
-    payload = load_auth_accounts()
-    account = payload.get("accounts", {}).get(account_id)
-
-    if not isinstance(account, dict):
-        return (
-            gr.update(value=""),
-            gr.update(value=""),
-            gr.update(value=""),
-            "<div style='color:#b91c1c;font-weight:800;'>تعذر تحديد حساب الجلسة الحالية.</div>",
-        )
-
-    if not bool(account.get("enabled", True)):
-        return (
-            gr.update(value=""),
-            gr.update(value=""),
-            gr.update(value=""),
-            "<div style='color:#b91c1c;font-weight:800;'>الحساب معطل.</div>",
-        )
-
-    if not _verify_pin_hash(current_pin, account.get("pin_hash", "")):
-        return (
-            gr.update(value=""),
-            gr.update(value=""),
-            gr.update(value=""),
-            "<div style='color:#b91c1c;font-weight:800;'>الرمز الحالي غير صحيح.</div>",
-        )
-
-    valid, validation_message = _validate_new_pin(new_pin)
-    if not valid:
-        return (
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            f"<div style='color:#b91c1c;font-weight:800;'>{html_lib.escape(validation_message)}</div>",
-        )
-
-    if str(new_pin) != str(confirm_pin):
-        return (
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            "<div style='color:#b91c1c;font-weight:800;'>تأكيد الرمز الجديد غير مطابق.</div>",
-        )
-
-    if _verify_pin_hash(new_pin, account.get("pin_hash", "")):
-        return (
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            "<div style='color:#a16207;font-weight:800;'>الرمز الجديد مطابق للرمز الحالي.</div>",
-        )
-
-    if _pin_is_used_by_another_account(
+    result = change_own_account_pin_core(
+        account_id,
+        current_pin,
         new_pin,
-        exclude_account_id=account_id,
-    ):
-        return (
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            "<div style='color:#b91c1c;font-weight:800;'>هذا الرمز مستخدم لحساب آخر.</div>",
-        )
-
-    account["pin_hash"] = _pin_hash(new_pin)
-    account["must_change_pin"] = False
-    account["updated_at"] = _auth_now_text()
-    account["pin_changed_at"] = account["updated_at"]
-
-    if not save_auth_accounts(payload):
-        return (
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            "<div style='color:#b91c1c;font-weight:800;'>تعذر حفظ الرمز الجديد.</div>",
-        )
-
-    write_audit_log(
-        "تغيير رمز دخول",
-        target_teacher="",
-        old_value="رمز مشفر",
-        new_value="رمز مشفر",
-        details=f"غيّر المستخدم رمز حساب: {_account_display_name(account)}",
+        confirm_pin,
         actor_name=actor_name,
         actor_role=actor_role,
+        is_owner=is_owner,
     )
-
+    status_html = result.get("status_html", "")
+    if result.get("mode") == "clear_inputs":
+        return (
+            gr.update(value=""),
+            gr.update(value=""),
+            gr.update(value=""),
+            status_html,
+        )
     return (
-        gr.update(value=""),
-        gr.update(value=""),
-        gr.update(value=""),
-        (
-            "<div style='color:#166534;background:#dcfce7;padding:10px;"
-            "border-radius:8px;font-weight:800;'>"
-            "تم تغيير رمز الدخول بنجاح. استخدم الرمز الجديد في الدخول القادم."
-            "</div>"
-        ),
+        gr.update(),
+        gr.update(),
+        gr.update(),
+        status_html,
     )
 
-@state_locked
 def owner_reset_account_pin(
     account_id,
     requested_pin,
@@ -1071,155 +933,63 @@ def owner_reset_account_pin(
     actor_name="",
     actor_role="",
 ):
-    if not bool(is_owner):
-        return (
-            gr.update(),
-            gr.update(),
-            gr.update(value=""),
-            gr.update(value=""),
-            "<div style='color:#b91c1c;font-weight:800;'>هذه العملية للمالك فقط.</div>",
-        )
-
-    account_id = str(account_id or "").strip()
-    payload = load_auth_accounts()
-    account = payload.get("accounts", {}).get(account_id)
-
-    if not isinstance(account, dict):
-        return (
-            gr.update(),
-            gr.update(),
-            gr.update(value=""),
-            gr.update(value=""),
-            "<div style='color:#b91c1c;font-weight:800;'>اختر حسابًا صالحًا.</div>",
-        )
-
-    new_pin = str(requested_pin or "").strip()
-    if not new_pin:
-        new_pin = "".join(secrets.choice("0123456789") for _ in range(6))
-
-    valid, validation_message = _validate_new_pin(new_pin)
-    if not valid:
-        return (
-            gr.update(),
-            gr.update(),
-            gr.update(value=""),
-            gr.update(),
-            f"<div style='color:#b91c1c;font-weight:800;'>{html_lib.escape(validation_message)}</div>",
-        )
-
-    if _pin_is_used_by_another_account(
-        new_pin,
-        exclude_account_id=account_id,
-    ):
-        return (
-            gr.update(),
-            gr.update(),
-            gr.update(value=""),
-            gr.update(),
-            "<div style='color:#b91c1c;font-weight:800;'>هذا الرمز مستخدم لحساب آخر.</div>",
-        )
-
-    account["pin_hash"] = _pin_hash(new_pin)
-    account["must_change_pin"] = True
-    account["updated_at"] = _auth_now_text()
-    account["pin_reset_at"] = account["updated_at"]
-    account["pin_reset_by"] = str(actor_name or "مالك النظام")
-
-    if not save_auth_accounts(payload):
-        return (
-            gr.update(),
-            gr.update(),
-            gr.update(value=""),
-            gr.update(),
-            "<div style='color:#b91c1c;font-weight:800;'>تعذر حفظ إعادة التعيين.</div>",
-        )
-
-    write_audit_log(
-        "إعادة تعيين رمز دخول",
-        target_teacher="",
-        old_value="رمز مشفر",
-        new_value="رمز مؤقت مشفر",
-        details=f"إعادة تعيين حساب: {_account_display_name(account)}",
+    result = owner_reset_account_pin_core(
+        account_id,
+        requested_pin,
+        is_owner=is_owner,
         actor_name=actor_name,
         actor_role=actor_role,
     )
-
-    choices = get_auth_account_choices()
+    status_html = result.get("status_html", "")
+    if result.get("ok"):
+        return (
+            gr.update(value=render_auth_accounts_html(True)),
+            gr.update(choices=result.get("choices", []), value=result.get("account_id")),
+            gr.update(value=""),
+            gr.update(value=result.get("new_pin", "")),
+            status_html,
+        )
+    if result.get("mode") == "blank_pin":
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(value=""),
+            gr.update(value=""),
+            status_html,
+        )
     return (
-        gr.update(value=render_auth_accounts_html(True)),
-        gr.update(choices=choices, value=account_id),
+        gr.update(),
+        gr.update(),
         gr.update(value=""),
-        gr.update(value=new_pin),
-        (
-            "<div style='color:#166534;background:#dcfce7;padding:10px;"
-            "border-radius:8px;font-weight:800;'>"
-            "تمت إعادة التعيين. يظهر الرمز الجديد في خانة «الرمز الجديد لمرة واحدة»."
-            "</div>"
-        ),
+        gr.update(),
+        status_html,
     )
 
-@state_locked
 def owner_toggle_account_status(
     account_id,
     is_owner=False,
     actor_name="",
     actor_role="",
 ):
-    if not bool(is_owner):
-        return (
-            gr.update(),
-            gr.update(),
-            gr.update(value=""),
-            "<div style='color:#b91c1c;font-weight:800;'>هذه العملية للمالك فقط.</div>",
-        )
-
-    account_id = str(account_id or "").strip()
-    payload = load_auth_accounts()
-    account = payload.get("accounts", {}).get(account_id)
-
-    if not isinstance(account, dict):
-        return (
-            gr.update(),
-            gr.update(),
-            gr.update(value=""),
-            "<div style='color:#b91c1c;font-weight:800;'>اختر حسابًا صالحًا.</div>",
-        )
-
-    new_enabled = not bool(account.get("enabled", True))
-    account["enabled"] = new_enabled
-    account["updated_at"] = _auth_now_text()
-
-    if not save_auth_accounts(payload):
-        return (
-            gr.update(),
-            gr.update(),
-            gr.update(value=""),
-            "<div style='color:#b91c1c;font-weight:800;'>تعذر تحديث حالة الحساب.</div>",
-        )
-
-    action_name = "تفعيل حساب دخول" if new_enabled else "تعطيل حساب دخول"
-    write_audit_log(
-        action_name,
-        target_teacher="",
-        old_value="معطل" if new_enabled else "مفعل",
-        new_value="مفعل" if new_enabled else "معطل",
-        details=f"{action_name}: {_account_display_name(account)}",
+    result = owner_toggle_account_status_core(
+        account_id,
+        is_owner=is_owner,
         actor_name=actor_name,
         actor_role=actor_role,
     )
-
-    choices = get_auth_account_choices()
-    status_word = "تفعيل" if new_enabled else "تعطيل"
+    status_html = result.get("status_html", "")
+    if result.get("ok"):
+        return (
+            gr.update(value=render_auth_accounts_html(True)),
+            gr.update(choices=result.get("choices", []), value=result.get("account_id")),
+            gr.update(value=""),
+            status_html,
+        )
     return (
-        gr.update(value=render_auth_accounts_html(True)),
-        gr.update(choices=choices, value=account_id),
+        gr.update(),
+        gr.update(),
         gr.update(value=""),
-        (
-            "<div style='color:#166534;background:#dcfce7;padding:10px;"
-            "border-radius:8px;font-weight:800;'>"
-            f"تم {status_word} الحساب بنجاح."
-            "</div>"
-        ),
+        status_html,
     )
 
 
