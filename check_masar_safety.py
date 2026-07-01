@@ -5198,6 +5198,66 @@ def check_auth_core_phase3l(path: Path, app_text: str, results: list[CheckResult
         ok = bool(counts) and all(count == expected for count in counts)
         add(results, f"3L-auth-core: wrapper {wrapper_name} يرجع {expected} عناصر", "PASS" if ok else "FAIL", f"returns={counts}")
 
+
+def check_final_safety_note_phase3m(path: Path, app_text: str, results: list[CheckResult]) -> None:
+    """Phase 3M final safety note: document intentional final exceptions."""
+    try:
+        app_tree = ast.parse(app_text)
+    except SyntaxError as exc:
+        add(results, "3M-final-safety-note: تحليل app.py", "FAIL", str(exc))
+        return
+
+    app_funcs = {node.name: node for node in app_tree.body if isinstance(node, ast.FunctionDef)}
+
+    def decorator_names(node: ast.FunctionDef | None) -> list[str]:
+        names: list[str] = []
+        if node is None:
+            return names
+        for deco in getattr(node, "decorator_list", []):
+            if isinstance(deco, ast.Name):
+                names.append(deco.id)
+            elif isinstance(deco, ast.Attribute):
+                names.append(deco.attr)
+            elif isinstance(deco, ast.Call):
+                func = deco.func
+                names.append(getattr(func, "id", getattr(func, "attr", "")))
+        return names
+
+    clear_node = app_funcs.get("clear_all_data")
+    add(results, "3M-final-safety-note: clear_all_data موجودة في app.py", "PASS" if clear_node else "FAIL", "system reset مؤجلة عمدًا")
+
+    clear_lock_count = decorator_names(clear_node).count("state_locked") if clear_node else 0
+    add(results, "3M-final-safety-note: clear_all_data تحمل @state_locked", "PASS" if clear_lock_count == 1 else "FAIL", f"count={clear_lock_count}")
+
+    locked_funcs = [name for name, node in app_funcs.items() if "state_locked" in decorator_names(node)]
+    add(results, "3M-final-safety-note: clear_all_data هي الدالة الوحيدة المقفلة في app.py", "PASS" if locked_funcs == ["clear_all_data"] else "FAIL", f"locked={locked_funcs}")
+
+    school_path = path.with_name("school_data.py")
+    legacy_ref_funcs = {"save_admin_reference_file", "save_phones_reference_file", "save_schedule_reference_file"}
+    if not school_path.exists():
+        add(results, "3M-final-safety-note: school_data.py موجود", "FAIL", str(school_path))
+    else:
+        school_text = read_text(school_path)
+        try:
+            school_tree = ast.parse(school_text)
+            school_funcs = {node.name: node for node in school_tree.body if isinstance(node, ast.FunctionDef)}
+            gr_update_locations: list[str] = []
+            for func_name, func_node in school_funcs.items():
+                for sub in ast.walk(func_node):
+                    if isinstance(sub, ast.Call):
+                        call_func = sub.func
+                        if isinstance(call_func, ast.Attribute) and isinstance(call_func.value, ast.Name):
+                            if call_func.value.id == "gr" and call_func.attr == "update":
+                                gr_update_locations.append(func_name)
+            unique_locations = sorted(set(gr_update_locations))
+            confined = bool(unique_locations) and set(unique_locations).issubset(legacy_ref_funcs)
+            add(results, "3M-final-safety-note: gr.update في school_data.py محصور في دوال 3E-a المرجعية", "PASS" if confined else "FAIL", f"functions={unique_locations}")
+        except SyntaxError as exc:
+            add(results, "3M-final-safety-note: تحليل school_data.py", "FAIL", str(exc))
+
+    add(results, "3M-final-safety-note: clear_all_data مؤجلة عمدًا", "INFO", "system reset شاملة بعقد كبير؛ لا تُفصل الآن.")
+    add(results, "3M-final-safety-note: gr.update في school_data.py موروث وموثق", "INFO", "محصور في دوال حفظ الملفات المرجعية من 3E-a ومقبول مؤقتًا.")
+
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Masar safety checker")
     parser.add_argument("source", nargs="?", default="app.py", help="مسار ملف app.py أو نسخة منظومة مسار")
@@ -5289,6 +5349,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     check_identity_reference_fix_phase3k(path, app_text, results)
     check_identity_core_phase3k(path, app_text, results)
     check_auth_core_phase3l(path, app_text, results)
+    check_final_safety_note_phase3m(path, app_text, results)
 
     if args.json:
         print(json.dumps([asdict(r) for r in results], ensure_ascii=False, indent=2))
