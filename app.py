@@ -138,6 +138,9 @@ from school_data import (
     process_uploaded_excel_core,
     _normalize_schedule_header_text,
     _excel_column_label_zero_based,
+    save_school_operational_settings_core,
+    save_school_identity_settings_core,
+    reset_school_identity_settings_core,
 )
 
 from schedules import (
@@ -1928,12 +1931,12 @@ def _identity_directorate_full_name(region=None):
     return f"{DEFAULT_SCHOOL_CONFIG['directorate_prefix']} {region_clean}".strip()
 
 def _apply_school_identity_globals(config):
-    global SCHOOL_CONFIG
     global MINISTRY_NAME, DIRECTORATE_PREFIX, DIRECTORATE_REGION, DIRECTORATE_FULL_NAME
     global SYSTEM_NAME, SYSTEM_SUBTITLE, SCHOOL_NAME, DEVELOPER_CREDIT
     global SCHOOL_LOGO_URL, THEME_COLOR, THEME_COLOR_2, ACCENT_COLOR
 
-    SCHOOL_CONFIG = dict(config)
+    SCHOOL_CONFIG.clear()
+    SCHOOL_CONFIG.update(config)
 
     MINISTRY_NAME = str(DEFAULT_SCHOOL_CONFIG["ministry_name"])
     DIRECTORATE_PREFIX = str(DEFAULT_SCHOOL_CONFIG["directorate_prefix"])
@@ -2287,65 +2290,15 @@ def render_school_config_summary_html(config=None):
 """
 
 
-@state_locked
 def save_school_operational_settings(periods_per_day, is_owner=False, actor_name="", actor_role=""):
-    current_config = load_school_config()
-    current_saved = get_config_periods_per_day(current_config)
-
-    if not bool(is_owner):
-        return (
-            gr.update(value=current_saved),
-            "<div style='color:#b91c1c;font-weight:800;'>رفض الحفظ: إعدادات التشغيل مخصصة لمالك النظام فقط.</div>",
-            gr.update(value=render_school_config_summary_html(current_config)),
-            gr.update(value=render_operational_settings_status_html(current_config)),
-        )
-
-    new_periods = _coerce_periods_per_day(periods_per_day, current_saved)
-    if new_periods not in (7, 8):
-        return (
-            gr.update(value=current_saved),
-            "<div style='color:#b91c1c;font-weight:800;'>عدد الحصص يجب أن يكون 7 أو 8 فقط.</div>",
-            gr.update(value=render_school_config_summary_html(current_config)),
-            gr.update(value=render_operational_settings_status_html(current_config)),
-        )
-
-    old_periods = current_saved
-    current_config["periods_per_day"] = int(new_periods)
-
-    if not safe_write_json(SCHOOL_CONFIG_FILE, current_config):
-        return (
-            gr.update(value=old_periods),
-            "<div style='color:#b91c1c;font-weight:800;'>تعذر حفظ إعداد عدد الحصص في ملف المدرسة.</div>",
-            gr.update(value=render_school_config_summary_html(current_config)),
-            gr.update(value=render_operational_settings_status_html(current_config)),
-        )
-
-    if old_periods != new_periods:
-        write_audit_log(
-            "تعديل إعداد عدد الحصص اليومية",
-            target_teacher="",
-            old_value=old_periods,
-            new_value=new_periods,
-            details="تحديث عدد الحصص اليومية من إعدادات التشغيل المدرسية. يلزم إعادة تشغيل المنظومة للتطبيق.",
-            actor_name=actor_name,
-            actor_role=actor_role,
-        )
-
-    saved_config = load_school_config()
-    reboot_note = ""
-    if int(MAX_PERIODS) != int(new_periods):
-        reboot_note = "<br>⚠️ يلزم عمل Restart / Factory reboot حتى تعمل المنظومة بعدد الحصص الجديد."
-
+    raw = save_school_operational_settings_core(
+        periods_per_day, is_owner=is_owner, actor_name=actor_name, actor_role=actor_role
+    )
     return (
-        gr.update(value=int(new_periods)),
-        (
-            "<div style='color:#166534;background:#dcfce7;padding:10px;"
-            "border-radius:8px;font-weight:800;line-height:1.8;'>"
-            f"تم حفظ عدد الحصص اليومية: {int(new_periods)}.{reboot_note}"
-            "</div>"
-        ),
-        gr.update(value=render_school_config_summary_html(saved_config)),
-        gr.update(value=render_operational_settings_status_html(saved_config)),
+        gr.update(value=raw["periods_value"]),
+        raw["message"],
+        gr.update(value=render_school_config_summary_html(raw["summary_config"])),
+        gr.update(value=render_operational_settings_status_html(raw["status_config"])),
     )
 
 def render_school_identity_preview_html(
@@ -2471,7 +2424,6 @@ def _identity_full_output(config, status_html):
         gr.update(value=render_school_config_summary_html(config)),
     )
 
-@state_locked
 def save_school_identity_settings(
     system_name,
     system_subtitle,
@@ -2485,110 +2437,25 @@ def save_school_identity_settings(
     accent_color,
     is_owner=False,
 ):
-    if not bool(is_owner):
-        return _identity_full_output(
-            _current_identity_config(),
-            "<div style='color:#b91c1c;font-weight:800;'>رفض الحفظ: إعدادات الهوية مخصصة لمالك النظام فقط.</div>",
-        )
-
-    school_name_clean = _normalize_identity_text(school_name, "", 140)
-    directorate_region_clean = _normalize_identity_text(
-        directorate_region,
-        DEFAULT_SCHOOL_CONFIG["directorate_region"],
-        80,
+    config, status_html, apply_globals = save_school_identity_settings_core(
+        school_name=school_name,
+        directorate_region=directorate_region,
+        logo_url=logo_url,
+        logo_upload=logo_upload,
+        theme_color=theme_color,
+        theme_color_2=theme_color_2,
+        accent_color=accent_color,
+        is_owner=is_owner,
     )
-    if not school_name_clean:
-        return _identity_full_output(
-            _current_identity_config(),
-            "<div style='color:#b91c1c;font-weight:800;'>اسم المدرسة حقل إلزامي.</div>",
-        )
+    if apply_globals:
+        _apply_school_identity_globals(config)
+    return _identity_full_output(_current_identity_config(), status_html)
 
-    colors = {
-        "theme_color": str(theme_color or "").strip(),
-        "theme_color_2": str(theme_color_2 or "").strip(),
-        "accent_color": str(accent_color or "").strip(),
-    }
-    invalid_colors = [
-        key for key, value in colors.items()
-        if not re.fullmatch(r"#[0-9a-fA-F]{6}", value)
-    ]
-    if invalid_colors:
-        return _identity_full_output(
-            _current_identity_config(),
-            "<div style='color:#b91c1c;font-weight:800;'>ألوان الهوية يجب أن تكون بصيغة HEX مثل #004d40.</div>",
-        )
-
-    saved_logo_value = str(logo_url or "").strip()
-    try:
-        uploaded_logo = _save_uploaded_identity_logo(logo_upload)
-        if uploaded_logo:
-            saved_logo_value = uploaded_logo
-    except Exception as exc:
-        return _identity_full_output(
-            _current_identity_config(),
-            f"<div style='color:#b91c1c;font-weight:800;'>{html_lib.escape(str(exc))}</div>",
-        )
-
-    if not saved_logo_value:
-        saved_logo_value = str(DEFAULT_SCHOOL_CONFIG["logo_url"])
-
-    if not _is_valid_identity_logo_value(saved_logo_value):
-        return _identity_full_output(
-            _current_identity_config(),
-            "<div style='color:#b91c1c;font-weight:800;'>رابط أو ملف الشعار غير صالح.</div>",
-        )
-
-    new_config = load_school_config()
-    for fixed_key in FIXED_IDENTITY_KEYS:
-        new_config[fixed_key] = DEFAULT_SCHOOL_CONFIG[fixed_key]
-
-    new_config.update({
-        "school_name": school_name_clean,
-        "directorate_region": directorate_region_clean,
-        "logo_url": saved_logo_value,
-        "theme_color": colors["theme_color"].lower(),
-        "theme_color_2": colors["theme_color_2"].lower(),
-        "accent_color": colors["accent_color"].lower(),
-    })
-
-    if not safe_write_json(SCHOOL_CONFIG_FILE, new_config):
-        return _identity_full_output(
-            _current_identity_config(),
-            "<div style='color:#b91c1c;font-weight:800;'>تعذر حفظ ملف إعدادات المدرسة.</div>",
-        )
-
-    _apply_school_identity_globals(new_config)
-    return _identity_full_output(
-        _current_identity_config(),
-        "<div style='color:#166534;background:#dcfce7;padding:10px;border-radius:8px;font-weight:800;'>تم حفظ هوية المدرسة بنجاح. العناصر الثابتة بقيت كما هي، وتغيرت المدرسة والمحافظة والشعار والألوان فقط.</div>",
-    )
-
-@state_locked
 def reset_school_identity_settings(is_owner=False):
-    if not bool(is_owner):
-        return _identity_full_output(
-            _current_identity_config(),
-            "<div style='color:#b91c1c;font-weight:800;'>رفض الاستعادة: هذه الأداة مخصصة لمالك النظام فقط.</div>",
-        )
-
-    config = load_school_config()
-
-    for key in FIXED_IDENTITY_KEYS:
-        config[key] = DEFAULT_SCHOOL_CONFIG[key]
-    for key in IDENTITY_CONFIG_KEYS:
-        config[key] = DEFAULT_SCHOOL_CONFIG[key]
-
-    if not safe_write_json(SCHOOL_CONFIG_FILE, config):
-        return _identity_full_output(
-            _current_identity_config(),
-            "<div style='color:#b91c1c;font-weight:800;'>تعذر استعادة الهوية الافتراضية.</div>",
-        )
-
-    _apply_school_identity_globals(config)
-    return _identity_full_output(
-        _current_identity_config(),
-        "<div style='color:#166534;background:#dcfce7;padding:10px;border-radius:8px;font-weight:800;'>تمت استعادة الهوية الافتراضية. تُطبق الألوان العامة بالكامل بعد إعادة تشغيل التطبيق.</div>",
-    )
+    config, status_html, apply_globals = reset_school_identity_settings_core(is_owner=is_owner)
+    if apply_globals:
+        _apply_school_identity_globals(config)
+    return _identity_full_output(_current_identity_config(), status_html)
 
 
         
