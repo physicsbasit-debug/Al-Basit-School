@@ -14,21 +14,28 @@ import os
 import re
 import shutil
 import html as html_lib
+import urllib.parse
+from pathlib import Path
 
+from PIL import Image
 import pandas as pd
 import gradio as gr
 
-from config import ADMIN_ROLES
+from config import ADMIN_ROLES, DEFAULT_SCHOOL_CONFIG
 from storage import (
     ADMIN_FILE,
     PHONES_FILE,
     REFERENCE_STATUS_FILE,
     SCHEDULE_FILES,
+    SCHOOL_CONFIG_FILE,
+    BRANDING_DIR,
     MAX_PERIODS,
     SCHOOL_WEEK_DAYS,
     OFFICIAL_DEPTS,
     ensure_data_directories,
     safe_write_json,
+    load_school_config,
+    write_audit_log,
     teachers_db,
     save_db,
     state_locked,
@@ -1170,3 +1177,309 @@ def refresh_schedule_from_reference_core(dept_name, current_day, is_owner=False)
             True,
         )
 
+
+
+@state_locked
+def save_school_operational_settings_core(
+    periods_per_day,
+    is_owner=False,
+    actor_name="",
+    actor_role="",
+):
+    """
+    ينفذ منطق حفظ إعدادات التشغيل (عدد الحصص اليومية) ويُرجع قيمًا خامة
+    كافية للـwrapper لإنتاج نفس مخرجات Gradio القديمة.
+    لا يحتوي gr.update. لا يستورد gradio. لا يستورد app.py.
+    """
+    current_config = load_school_config()
+
+    def _get_current_periods(cfg):
+        try:
+            raw = cfg.get("periods_per_day", DEFAULT_SCHOOL_CONFIG["periods_per_day"])
+            parsed = int(str(raw).strip())
+        except Exception:
+            parsed = int(DEFAULT_SCHOOL_CONFIG["periods_per_day"])
+        return parsed if parsed in (7, 8) else int(DEFAULT_SCHOOL_CONFIG["periods_per_day"])
+
+    def _coerce(value, default):
+        try:
+            parsed = int(str(value).strip())
+        except Exception:
+            parsed = default if default is not None else int(DEFAULT_SCHOOL_CONFIG["periods_per_day"])
+        if parsed not in (7, 8):
+            parsed = default if default in (7, 8) else int(DEFAULT_SCHOOL_CONFIG["periods_per_day"])
+        return int(parsed)
+
+    current_saved = _get_current_periods(current_config)
+
+    if not bool(is_owner):
+        return {
+            "periods_value": current_saved,
+            "message": "<div style='color:#b91c1c;font-weight:800;'>رفض الحفظ: إعدادات التشغيل مخصصة لمالك النظام فقط.</div>",
+            "summary_config": current_config,
+            "status_config": current_config,
+        }
+
+    new_periods = _coerce(periods_per_day, current_saved)
+    if new_periods not in (7, 8):
+        return {
+            "periods_value": current_saved,
+            "message": "<div style='color:#b91c1c;font-weight:800;'>عدد الحصص يجب أن يكون 7 أو 8 فقط.</div>",
+            "summary_config": current_config,
+            "status_config": current_config,
+        }
+
+    old_periods = current_saved
+    current_config["periods_per_day"] = int(new_periods)
+
+    if not safe_write_json(SCHOOL_CONFIG_FILE, current_config):
+        return {
+            "periods_value": old_periods,
+            "message": "<div style='color:#b91c1c;font-weight:800;'>تعذر حفظ إعداد عدد الحصص في ملف المدرسة.</div>",
+            "summary_config": current_config,
+            "status_config": current_config,
+        }
+
+    if old_periods != new_periods:
+        write_audit_log(
+            "تعديل إعداد عدد الحصص اليومية",
+            target_teacher="",
+            old_value=old_periods,
+            new_value=new_periods,
+            details="تحديث عدد الحصص اليومية من إعدادات التشغيل المدرسية. يلزم إعادة تشغيل المنظومة للتطبيق.",
+            actor_name=actor_name,
+            actor_role=actor_role,
+        )
+
+    saved_config = load_school_config()
+    reboot_note = ""
+    if int(MAX_PERIODS) != int(new_periods):
+        reboot_note = "<br>⚠️ يلزم عمل Restart / Factory reboot حتى تعمل المنظومة بعدد الحصص الجديد."
+
+    return {
+        "periods_value": int(new_periods),
+        "message": (
+            "<div style='color:#166534;background:#dcfce7;padding:10px;"
+            "border-radius:8px;font-weight:800;line-height:1.8;'>"
+            f"تم حفظ عدد الحصص اليومية: {int(new_periods)}.{reboot_note}"
+            "</div>"
+        ),
+        "summary_config": saved_config,
+        "status_config": saved_config,
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 3K-identity-core: دوال هوية المدرسة (منطق خالص بلا Gradio)
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ثوابت هوية المدرسة (مستقلة عن app.py)
+IDENTITY_CONFIG_KEYS = (
+    "school_name",
+    "directorate_region",
+    "logo_url",
+    "theme_color",
+    "theme_color_2",
+    "accent_color",
+)
+
+FIXED_IDENTITY_KEYS = (
+    "ministry_name",
+    "directorate_prefix",
+    "system_name",
+    "system_subtitle",
+    "developer_credit",
+)
+
+
+def _normalize_identity_text(value, fallback="", max_length=220):
+    """تنظيف وتقليم نص الهوية."""
+    cleaned = re.sub(r"\s+", " ", str(value or "").strip())
+    if not cleaned:
+        cleaned = str(fallback or "").strip()
+    return cleaned[:max_length]
+
+
+def _normalize_hex_color(value, fallback):
+    """تطبيع لون HEX مع fallback آمن."""
+    raw = str(value or "").strip()
+    if re.fullmatch(r"#[0-9a-fA-F]{6}", raw):
+        return raw.lower()
+    fallback_raw = str(fallback or "#004d40").strip()
+    return fallback_raw.lower() if re.fullmatch(r"#[0-9a-fA-F]{6}", fallback_raw) else "#004d40"
+
+
+def _is_valid_identity_logo_value(value):
+    """التحقق من صلاحية قيمة الشعار (URL أو مسار ملف أو base64)."""
+    raw = str(value or "").strip()
+    if not raw:
+        return False
+    if raw.startswith("data:image/"):
+        return True
+    parsed = urllib.parse.urlparse(raw)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return True
+    path = os.path.abspath(raw)
+    return os.path.isfile(path)
+
+
+def _save_uploaded_identity_logo(uploaded_file):
+    """حفظ ملف شعار مرفوع إلى مجلد branding وإرجاع المسار النسبي."""
+    if uploaded_file is None:
+        return None
+
+    source_path = getattr(uploaded_file, "name", uploaded_file)
+    source_path = str(source_path or "").strip()
+    if not source_path or not os.path.isfile(source_path):
+        raise ValueError("ملف الشعار المرفوع غير صالح.")
+
+    try:
+        with Image.open(source_path) as image:
+            image.verify()
+    except Exception as exc:
+        raise ValueError("الملف المرفوع ليس صورة صالحة.") from exc
+
+    ext = Path(source_path).suffix.lower()
+    if ext not in {".png", ".jpg", ".jpeg", ".webp"}:
+        ext = ".png"
+
+    ensure_data_directories()
+    destination = os.path.join(BRANDING_DIR, f"school_logo{ext}")
+    shutil.copy2(source_path, destination)
+    return os.path.relpath(destination, os.getcwd())
+
+
+@state_locked
+def save_school_identity_settings_core(
+    school_name,
+    directorate_region,
+    logo_url,
+    logo_upload,
+    theme_color,
+    theme_color_2,
+    accent_color,
+    is_owner=False,
+):
+    """
+    ينفذ منطق حفظ إعدادات هوية المدرسة ويرجع (config, status_html, apply_globals).
+    لا يحتوي gr.update. لا يستورد gradio. لا يستورد app.py.
+    لا يستدعي _identity_full_output ولا _apply_school_identity_globals.
+    """
+    if not bool(is_owner):
+        return (
+            load_school_config(),
+            "<div style='color:#b91c1c;font-weight:800;'>رفض الحفظ: إعدادات الهوية مخصصة لمالك النظام فقط.</div>",
+            False,
+        )
+
+    school_name_clean = _normalize_identity_text(school_name, "", 140)
+    directorate_region_clean = _normalize_identity_text(
+        directorate_region,
+        DEFAULT_SCHOOL_CONFIG["directorate_region"],
+        80,
+    )
+    if not school_name_clean:
+        return (
+            load_school_config(),
+            "<div style='color:#b91c1c;font-weight:800;'>اسم المدرسة حقل إلزامي.</div>",
+            False,
+        )
+
+    colors = {
+        "theme_color": str(theme_color or "").strip(),
+        "theme_color_2": str(theme_color_2 or "").strip(),
+        "accent_color": str(accent_color or "").strip(),
+    }
+    invalid_colors = [
+        key for key, value in colors.items()
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", value)
+    ]
+    if invalid_colors:
+        return (
+            load_school_config(),
+            "<div style='color:#b91c1c;font-weight:800;'>ألوان الهوية يجب أن تكون بصيغة HEX مثل #004d40.</div>",
+            False,
+        )
+
+    saved_logo_value = str(logo_url or "").strip()
+    try:
+        uploaded_logo = _save_uploaded_identity_logo(logo_upload)
+        if uploaded_logo:
+            saved_logo_value = uploaded_logo
+    except Exception as exc:
+        return (
+            load_school_config(),
+            f"<div style='color:#b91c1c;font-weight:800;'>{html_lib.escape(str(exc))}</div>",
+            False,
+        )
+
+    if not saved_logo_value:
+        saved_logo_value = str(DEFAULT_SCHOOL_CONFIG["logo_url"])
+
+    if not _is_valid_identity_logo_value(saved_logo_value):
+        return (
+            load_school_config(),
+            "<div style='color:#b91c1c;font-weight:800;'>رابط أو ملف الشعار غير صالح.</div>",
+            False,
+        )
+
+    new_config = load_school_config()
+    for fixed_key in FIXED_IDENTITY_KEYS:
+        new_config[fixed_key] = DEFAULT_SCHOOL_CONFIG[fixed_key]
+
+    new_config.update({
+        "school_name": school_name_clean,
+        "directorate_region": directorate_region_clean,
+        "logo_url": saved_logo_value,
+        "theme_color": colors["theme_color"].lower(),
+        "theme_color_2": colors["theme_color_2"].lower(),
+        "accent_color": colors["accent_color"].lower(),
+    })
+
+    if not safe_write_json(SCHOOL_CONFIG_FILE, new_config):
+        return (
+            load_school_config(),
+            "<div style='color:#b91c1c;font-weight:800;'>تعذر حفظ ملف إعدادات المدرسة.</div>",
+            False,
+        )
+
+    return (
+        new_config,
+        "<div style='color:#166534;background:#dcfce7;padding:10px;border-radius:8px;font-weight:800;'>تم حفظ هوية المدرسة بنجاح. العناصر الثابتة بقيت كما هي، وتغيرت المدرسة والمحافظة والشعار والألوان فقط.</div>",
+        True,
+    )
+
+
+@state_locked
+def reset_school_identity_settings_core(is_owner=False):
+    """
+    ينفذ منطق إعادة ضبط هوية المدرسة للإعدادات الافتراضية.
+    يرجع (config, status_html, apply_globals).
+    لا يحتوي gr.update. لا يستورد gradio. لا يستورد app.py.
+    """
+    if not bool(is_owner):
+        return (
+            load_school_config(),
+            "<div style='color:#b91c1c;font-weight:800;'>رفض الاستعادة: هذه الأداة مخصصة لمالك النظام فقط.</div>",
+            False,
+        )
+
+    config = load_school_config()
+
+    for key in FIXED_IDENTITY_KEYS:
+        config[key] = DEFAULT_SCHOOL_CONFIG[key]
+    for key in IDENTITY_CONFIG_KEYS:
+        config[key] = DEFAULT_SCHOOL_CONFIG[key]
+
+    if not safe_write_json(SCHOOL_CONFIG_FILE, config):
+        return (
+            load_school_config(),
+            "<div style='color:#b91c1c;font-weight:800;'>تعذر استعادة الهوية الافتراضية.</div>",
+            False,
+        )
+
+    return (
+        config,
+        "<div style='color:#166534;background:#dcfce7;padding:10px;border-radius:8px;font-weight:800;'>تمت استعادة الهوية الافتراضية. تُطبق الألوان العامة بالكامل بعد إعادة تشغيل التطبيق.</div>",
+        True,
+    )
