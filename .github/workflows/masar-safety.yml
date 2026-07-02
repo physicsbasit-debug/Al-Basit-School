@@ -36,5 +36,5 @@ jobs:
       - name: Run Masar safety check
         run: python check_masar_safety.py app.py
 
-      - name: Run pytest
-        run: python -m pytest -vv --tb=short
+      - name: Run pytest with coverage
+        run: python -m pytest -vv --tb=short --cov=auth --cov=storage --cov=config --cov=school_data --cov=schedules --cov=exemptions --cov=swaps --cov=distribution --cov-report=term-missing
