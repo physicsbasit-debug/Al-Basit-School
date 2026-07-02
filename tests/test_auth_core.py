@@ -146,3 +146,67 @@ def test_save_auth_account_profile_success_updates_account_and_writes_real_audit
     assert record["new_value"]["welcome_phrase"] == "العبارة الجديدة"
     assert record["source"]
 
+
+def test_owner_toggle_account_status_success_disables_enabled_account_and_writes_real_audit_log(tmp_path, monkeypatch):
+    account_id = "account-toggle-success"
+    auth_accounts_file = tmp_path / "auth_accounts.json"
+    audit_log_file = tmp_path / "audit_log.json"
+
+    monkeypatch.setattr(auth, "AUTH_ACCOUNTS_FILE", str(auth_accounts_file))
+    monkeypatch.setattr(storage, "AUDIT_LOG_FILE", str(audit_log_file))
+    monkeypatch.setattr(storage, "BACKUPS_DIR", str(tmp_path / "backups"))
+
+    initial_payload = {
+        "version": auth.AUTH_ACCOUNTS_VERSION,
+        "accounts": {
+            account_id: {
+                "account_id": account_id,
+                "role": "مدير المدرسة",
+                "dept": "الكل",
+                "name": "أ. وليد",
+                "display_name": "أ. وليد",
+                "official_title": "مدير المدرسة",
+                "enabled": True,
+                "is_owner": False,
+                "pin_hash": "hash-placeholder",
+            }
+        },
+    }
+    assert auth.save_auth_accounts(initial_payload) is True
+
+    result = auth.owner_toggle_account_status_core(
+        account_id,
+        is_owner=True,
+        actor_name="مالك الاختبار",
+        actor_role="صاحب النظام",
+    )
+
+    assert result["ok"] is True
+    assert result["mode"] == "success"
+    assert result["account_id"] == account_id
+    assert result["enabled"] is False
+    assert any(choice[1] == account_id and "معطل" in choice[0] for choice in result["choices"])
+    assert "تم تعطيل الحساب بنجاح" in result["status_html"]
+
+    with open(auth_accounts_file, "r", encoding="utf-8") as accounts_file:
+        saved_payload = json.load(accounts_file)
+    saved_account = saved_payload["accounts"][account_id]
+    assert saved_account["enabled"] is False
+    assert saved_account.get("updated_at")
+
+    assert audit_log_file.exists()
+    with open(audit_log_file, "r", encoding="utf-8") as audit_file:
+        audit_records = json.load(audit_file)
+
+    assert len(audit_records) == 1
+    record = audit_records[0]
+    assert record["action"] == "تعطيل حساب دخول"
+    assert record["actor_name"] == "مالك الاختبار"
+    assert record["actor_role"] == "صاحب النظام"
+    assert record["target_teacher"] == ""
+    assert record["old_value"] == "مفعل"
+    assert record["new_value"] == "معطل"
+    assert "تعطيل حساب دخول" in record["details"]
+    assert "أ. وليد" in record["details"]
+    assert record["source"]
+
