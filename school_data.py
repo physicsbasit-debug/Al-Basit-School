@@ -288,6 +288,12 @@ def render_schedule_reference_cards():
 
 @state_locked
 def refresh_admins_from_reference_core(dept_filter, is_owner=False):
+    """
+    يقرأ ملف الإداريين المرجعي بصيغة Excel أو CSV اعتمادًا على أعمدة الهاتف والدور والاسم،
+    ويضيف أو يحدّث كل اسم داخل teachers_db بقسم "الهيئة الإدارية". التنفيذ مقصور على مالك النظام؛
+    الملف غير الموجود أو is_owner=False ينتج عنه رسالة خطأ بلا تغيير. ترجع الدالة tuple طويلًا
+    بقيمة قريبة من مخرجات Gradio مثل choices/value، لا حمولة بيانات خام.
+    """
     if not bool(is_owner):
         return (
             "<div style='color:red; font-weight:bold;'>❌ تحديث بيانات الإداريين متاح لمالك النظام فقط.</div>",
@@ -1361,7 +1367,9 @@ def save_school_identity_settings_core(
     is_owner=False,
 ):
     """
-    ينفذ منطق حفظ إعدادات هوية المدرسة ويرجع (config, status_html, apply_globals).
+    ينفذ منطق حفظ إعدادات هوية المدرسة، مثل الاسم والمديرية والشعار والألوان، ويرجع
+    (config, status_html, apply_globals). ترفض الدالة غير المالك، والاسم الفارغ، وأي لون ليس
+    بصيغة HEX صحيحة (#rrggbb)، مع apply_globals=False ودون حفظ.
     لا يحتوي gr.update. لا يستورد gradio. لا يستورد app.py.
     لا يستدعي _identity_full_output ولا _apply_school_identity_globals.
     """
