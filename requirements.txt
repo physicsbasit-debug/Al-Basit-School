@@ -4,6 +4,6 @@ openpyxl>=3.1,<4
 matplotlib>=3.8,<4
 arabic-reshaper>=3.0.0,<4
 python-bidi>=0.4.2,<1
-pillow>=10,<12
+pillow>=12.2,<13
 pytest>=8,<9
 pytest-cov>=5,<6
