@@ -322,3 +322,62 @@ def test_process_admin_action_core_normal_action_switches_substitute_and_counts(
     assert distribution.teachers_db[old_sub]["cover_count"] == 0
     assert distribution.teachers_db[new_sub]["cover_count"] == 1
     assert result["refresh_current_abs"] == [absent]
+
+
+def test_rollback_auto_assignments_returns_none_and_leaves_state_unchanged_when_no_absentees():
+    untouched_row = {
+        "date": TARGET_DATE,
+        "dept": DEPT,
+        "المعلم الغائب": "معلم غير مستهدف",
+        "الصف": "تاسع 1",
+        "الحصة": "1",
+        "المعلم البديل": "بديل غير مستهدف",
+        "حالة_التكليف": "",
+    }
+    distribution.daily_db.append(dict(untouched_row))
+    distribution.teachers_db["بديل غير مستهدف"] = _teacher(cover_count=3)
+
+    result = distribution.rollback_auto_assignments_for_absentees_core([], DAY_NAME)
+
+    assert result is None
+    assert distribution.daily_db == [untouched_row]
+    assert distribution.teachers_db["بديل غير مستهدف"]["cover_count"] == 3
+
+
+def test_rollback_auto_assignments_keeps_unrelated_rows_and_counts():
+    target_absent = "المعلم الغائب"
+    unrelated_absent = "معلم غير مستهدف"
+    target_sub = "بديل مستهدف"
+    unrelated_sub = "بديل غير مستهدف"
+
+    distribution.teachers_db[target_sub] = _teacher(cover_count=1)
+    distribution.teachers_db[unrelated_sub] = _teacher(cover_count=7)
+
+    target_row = {
+        "date": TARGET_DATE,
+        "dept": DEPT,
+        "المعلم الغائب": target_absent,
+        "الصف": "تاسع 1",
+        "الحصة": "1",
+        "المعلم البديل": target_sub,
+        "حالة_التكليف": "",
+    }
+    unrelated_row = {
+        "date": TARGET_DATE,
+        "dept": DEPT,
+        "المعلم الغائب": unrelated_absent,
+        "الصف": "تاسع 2",
+        "الحصة": "2",
+        "المعلم البديل": unrelated_sub,
+        "حالة_التكليف": "",
+    }
+    distribution.daily_db.extend([dict(target_row), dict(unrelated_row)])
+
+    result = distribution.rollback_auto_assignments_for_absentees_core([target_absent], DAY_NAME)
+
+    assert result is None
+    assert target_row not in distribution.daily_db
+    assert distribution.daily_db == [unrelated_row]
+    assert distribution.teachers_db[target_sub]["cover_count"] == 0
+    assert distribution.teachers_db[unrelated_sub]["cover_count"] == 7
+
