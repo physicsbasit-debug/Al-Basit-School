@@ -178,7 +178,7 @@ def _prune_old_backups(file_path, max_keep=MAX_BACKUPS_PER_FILE):
         print(f"_prune_old_backups error for {file_path}: {e}")
 
 
-def safe_write_json(file_path, data, *, make_backup=True):
+def safe_write_json(file_path: str, data: object, *, make_backup: bool = True) -> bool:
     """
     v1.6 — حفظ JSON آمن ومتزامن:
     1) قفل خاص بكل ملف.
