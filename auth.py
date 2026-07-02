@@ -458,6 +458,11 @@ def save_auth_account_profile_core(
     actor_name="",
     actor_role="",
 ):
+    """
+    يحدّث حقول تخصيص واجهة حساب دخول محدد account_id، مثل الاسم الظاهر والمسمى
+    وعبارات الترحيب ونصوص واتساب. التنفيذ مقصور على مالك النظام؛ الحساب غير الموجود أو is_owner=False
+    ينتج عنه رفض بلا تغيير. عند النجاح تسجل الدالة التغيير في audit_log وترجع dict يحتوي ok/mode/status_html.
+    """
     account_id = str(account_id or "").strip()
     if not bool(is_owner):
         return {
