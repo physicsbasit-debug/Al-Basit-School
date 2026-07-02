@@ -26,4 +26,4 @@ jobs:
         run: python check_masar_safety.py app.py
 
       - name: Run pytest
-        run: python -m pytest -q
+        run: python -m pytest -vv --tb=short
