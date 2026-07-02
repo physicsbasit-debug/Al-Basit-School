@@ -6,6 +6,11 @@ school_balances.json
 daily_assignments.json
 friendly_swaps.json
 
+# Masar auth/config secrets — أضيفت في 4K بعد اكتشاف الفجوة
+auth_accounts.json
+auth_db.json
+school_config.json
+
 data/audit_log.json
 data/exemptions_log.json
 data/backups/
