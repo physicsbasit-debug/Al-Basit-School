@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import json
+
 import auth
+import storage
 
 
 def test_change_own_account_pin_rejects_owner_secret_flow():
@@ -64,3 +67,82 @@ def test_save_auth_account_profile_rejects_non_owner():
     )
     assert result["ok"] is False
     assert "مالك النظام" in result["status_html"]
+
+
+def test_save_auth_account_profile_success_updates_account_and_writes_real_audit_log(tmp_path, monkeypatch):
+    account_id = "account-profile-success"
+    auth_accounts_file = tmp_path / "auth_accounts.json"
+    audit_log_file = tmp_path / "audit_log.json"
+
+    monkeypatch.setattr(auth, "AUTH_ACCOUNTS_FILE", str(auth_accounts_file))
+    monkeypatch.setattr(storage, "AUDIT_LOG_FILE", str(audit_log_file))
+    monkeypatch.setattr(storage, "BACKUPS_DIR", str(tmp_path / "backups"))
+
+    initial_payload = {
+        "version": auth.AUTH_ACCOUNTS_VERSION,
+        "accounts": {
+            account_id: {
+                "account_id": account_id,
+                "role": "مدير المدرسة",
+                "dept": "الكل",
+                "name": "أ. وليد",
+                "display_name": "الاسم القديم",
+                "official_title": "المسمى القديم",
+                "welcome_title": "الترحيب القديم",
+                "department_label": "القسم القديم",
+                "welcome_phrase": "العبارة القديمة",
+                "welcome_template": "القالب القديم",
+                "whatsapp_title": "واتساب قديم",
+                "enabled": True,
+                "is_owner": False,
+                "pin_hash": "hash-placeholder",
+            }
+        },
+    }
+    assert auth.save_auth_accounts(initial_payload) is True
+
+    result = auth.save_auth_account_profile_core(
+        account_id,
+        "الاسم الجديد",
+        "المسمى الجديد",
+        "الترحيب الجديد",
+        "القسم الجديد",
+        "العبارة الجديدة",
+        "القالب الجديد",
+        "واتساب جديد",
+        is_owner=True,
+        actor_name="مالك الاختبار",
+        actor_role="صاحب النظام",
+    )
+
+    assert result["ok"] is True
+    assert result["mode"] == "success"
+    assert result["account_id"] == account_id
+    assert result["account"]["display_name"] == "الاسم الجديد"
+    assert result["account"]["official_title"] == "المسمى الجديد"
+    assert any(choice[1] == account_id for choice in result["choices"])
+
+    with open(auth_accounts_file, "r", encoding="utf-8") as accounts_file:
+        saved_payload = json.load(accounts_file)
+    saved_account = saved_payload["accounts"][account_id]
+    assert saved_account["display_name"] == "الاسم الجديد"
+    assert saved_account["welcome_template"] == "القالب الجديد"
+    assert saved_account["whatsapp_title"] == "واتساب جديد"
+    assert saved_account.get("profile_updated_at")
+
+    assert audit_log_file.exists()
+    with open(audit_log_file, "r", encoding="utf-8") as audit_file:
+        audit_records = json.load(audit_file)
+
+    assert len(audit_records) == 1
+    record = audit_records[0]
+    assert record["action"] == "تعديل تخصيص حساب دخول"
+    assert record["actor_name"] == "مالك الاختبار"
+    assert record["actor_role"] == "صاحب النظام"
+    assert record["target_teacher"] == ""
+    assert "تعديل هيدر ومسمى حساب" in record["details"]
+    assert record["old_value"]["display_name"] == "الاسم القديم"
+    assert record["new_value"]["display_name"] == "الاسم الجديد"
+    assert record["new_value"]["welcome_phrase"] == "العبارة الجديدة"
+    assert record["source"]
+
