@@ -6,3 +6,4 @@ arabic-reshaper>=3.0.0,<4
 python-bidi>=0.4.2,<1
 pillow>=10,<12
 pytest>=8,<9
+pytest-cov>=5,<6
