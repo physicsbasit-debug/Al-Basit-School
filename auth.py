@@ -454,10 +454,10 @@ def save_auth_account_profile_core(
     welcome_phrase,
     welcome_template,
     whatsapp_title,
-    is_owner=False,
-    actor_name="",
-    actor_role="",
-):
+    is_owner: bool = False,
+    actor_name: str = "",
+    actor_role: str = "",
+) -> dict[str, object]:
     """
     يحدّث حقول تخصيص واجهة حساب دخول محدد account_id، مثل الاسم الظاهر والمسمى
     وعبارات الترحيب ونصوص واتساب. التنفيذ مقصور على مالك النظام؛ الحساب غير الموجود أو is_owner=False
@@ -551,10 +551,10 @@ def change_own_account_pin_core(
     current_pin,
     new_pin,
     confirm_pin,
-    actor_name="",
-    actor_role="",
-    is_owner=False,
-):
+    actor_name: str = "",
+    actor_role: str = "",
+    is_owner: bool = False,
+) -> dict[str, object]:
     if bool(is_owner) or str(account_id) == OWNER_ACCOUNT_ID:
         return {
             "ok": False,
@@ -662,10 +662,10 @@ def change_own_account_pin_core(
 def owner_reset_account_pin_core(
     account_id,
     requested_pin,
-    is_owner=False,
-    actor_name="",
-    actor_role="",
-):
+    is_owner: bool = False,
+    actor_name: str = "",
+    actor_role: str = "",
+) -> dict[str, object]:
     account_id = str(account_id or "").strip()
     if not bool(is_owner):
         return {
@@ -757,10 +757,10 @@ def owner_reset_account_pin_core(
 @state_locked
 def owner_toggle_account_status_core(
     account_id,
-    is_owner=False,
-    actor_name="",
-    actor_role="",
-):
+    is_owner: bool = False,
+    actor_name: str = "",
+    actor_role: str = "",
+) -> dict[str, object]:
     account_id = str(account_id or "").strip()
     if not bool(is_owner):
         return {
