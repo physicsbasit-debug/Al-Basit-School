@@ -22,6 +22,17 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -r requirements.txt "pytest>=8,<9"
 
+      - name: Verify conftest filename
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          matches = [p.name for p in Path("tests").glob("conftest.py*")]
+          print("conftest matches:", [repr(name) for name in matches])
+
+          assert matches == ["conftest.py"], f"Unexpected conftest filenames: {matches!r}"
+          PY
+
       - name: Run Masar safety check
         run: python check_masar_safety.py app.py
 
