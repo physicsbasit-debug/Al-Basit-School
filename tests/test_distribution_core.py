@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import pytest
+import pandas as pd
 
 import distribution
 
@@ -150,6 +151,174 @@ def test_assign_logic_alt_regeneration_removes_old_auto_assignment_and_reassigns
     rows = _daily_rows_for(absent)
     assert len(rows) == 1
     assert rows[0]["المعلم البديل"] == new_sub
+    assert distribution.teachers_db[old_sub]["cover_count"] == 0
+    assert distribution.teachers_db[new_sub]["cover_count"] == 1
+    assert result["refresh_current_abs"] == [absent]
+
+
+def test_cancel_teacher_absence_core_returns_unchanged_for_empty_absent_name():
+    current_abs = ["المعلم الغائب"]
+
+    result = distribution.cancel_teacher_absence_core("", DAY_NAME, DEPT, True, current_abs)
+
+    assert result == {
+        "refresh_dept": DEPT,
+        "refresh_day": DAY_NAME,
+        "refresh_is_admin": True,
+        "refresh_current_abs": current_abs,
+    }
+    assert distribution.daily_db == []
+
+
+def test_cancel_teacher_absence_core_returns_unchanged_for_whitespace_absent_name():
+    current_abs = ["المعلم الغائب"]
+
+    result = distribution.cancel_teacher_absence_core("   ", DAY_NAME, DEPT, True, current_abs)
+
+    assert result == {
+        "refresh_dept": DEPT,
+        "refresh_day": DAY_NAME,
+        "refresh_is_admin": True,
+        "refresh_current_abs": current_abs,
+    }
+    assert distribution.daily_db == []
+
+
+def test_rollback_auto_assignments_removes_auto_row_and_restores_cover_count():
+    absent = _absent_teacher()
+    old_sub = "بديل آلي"
+    distribution.teachers_db[old_sub] = _teacher(cover_count=1)
+    distribution.daily_db.append(
+        {
+            "date": TARGET_DATE,
+            "dept": DEPT,
+            "المعلم الغائب": absent,
+            "الصف": "تاسع 1",
+            "الحصة": "1",
+            "المعلم البديل": old_sub,
+            "حالة_التكليف": "",
+        }
+    )
+
+    distribution.rollback_auto_assignments_for_absentees_core([absent], DAY_NAME)
+
+    assert _daily_rows_for(absent) == []
+    assert distribution.teachers_db[old_sub]["cover_count"] == 0
+
+
+def test_rollback_auto_assignments_removes_modified_row_without_changing_cover_count():
+    absent = _absent_teacher()
+    old_sub = "بديل معدل"
+    distribution.teachers_db[old_sub] = _teacher(cover_count=1)
+    distribution.daily_db.append(
+        {
+            "date": TARGET_DATE,
+            "dept": DEPT,
+            "المعلم الغائب": absent,
+            "الصف": "تاسع 1",
+            "الحصة": "1",
+            "المعلم البديل": old_sub,
+            "حالة_التكليف": "تقصير",
+        }
+    )
+
+    distribution.rollback_auto_assignments_for_absentees_core([absent], DAY_NAME)
+
+    assert _daily_rows_for(absent) == []
+    assert distribution.teachers_db[old_sub]["cover_count"] == 1
+
+
+def test_process_admin_action_core_returns_unchanged_for_empty_dataframe():
+    current_abs = ["المعلم الغائب"]
+
+    result = distribution.process_admin_action_core(
+        pd.DataFrame(),
+        "المعلم الغائب",
+        "1",
+        "بديل جديد",
+        DAY_NAME,
+        DEPT,
+        True,
+        current_abs,
+        "normal",
+    )
+
+    assert result == {
+        "refresh_dept": DEPT,
+        "refresh_day": DAY_NAME,
+        "refresh_is_admin": True,
+        "refresh_current_abs": current_abs,
+    }
+
+
+def test_process_admin_action_core_rejects_invalid_new_sub_for_normal_action():
+    absent = _absent_teacher()
+    old_sub = "بديل قديم"
+    distribution.teachers_db[old_sub] = _teacher(cover_count=1)
+    distribution.daily_db.append(
+        {
+            "date": TARGET_DATE,
+            "dept": DEPT,
+            "المعلم الغائب": absent,
+            "الصف": "تاسع 1",
+            "الحصة": "1",
+            "المعلم البديل": old_sub,
+            "حالة_التكليف": "",
+        }
+    )
+
+    result = distribution.process_admin_action_core(
+        pd.DataFrame([{"row": 1}]),
+        absent,
+        "1",
+        "⚠️ لا يوجد بديل",
+        DAY_NAME,
+        DEPT,
+        True,
+        [absent],
+        "normal",
+    )
+
+    rows = _daily_rows_for(absent)
+    assert rows[0]["المعلم البديل"] == old_sub
+    assert distribution.teachers_db[old_sub]["cover_count"] == 1
+    assert result["refresh_current_abs"] == [absent]
+
+
+def test_process_admin_action_core_normal_action_switches_substitute_and_counts():
+    absent = _absent_teacher()
+    old_sub = "بديل قديم"
+    new_sub = "بديل جديد"
+    distribution.teachers_db[old_sub] = _teacher(cover_count=1)
+    distribution.teachers_db[new_sub] = _teacher(cover_count=0)
+    distribution.daily_db.append(
+        {
+            "date": TARGET_DATE,
+            "dept": DEPT,
+            "المعلم الغائب": absent,
+            "الصف": "تاسع 1",
+            "الحصة": "1",
+            "المعلم البديل": old_sub,
+            "حالة_التكليف": "",
+        }
+    )
+
+    result = distribution.process_admin_action_core(
+        pd.DataFrame([{"row": 1}]),
+        absent,
+        "1",
+        new_sub,
+        DAY_NAME,
+        DEPT,
+        True,
+        [absent],
+        "normal",
+    )
+
+    rows = _daily_rows_for(absent)
+    assert len(rows) == 1
+    assert rows[0]["المعلم البديل"] == new_sub
+    assert rows[0]["حالة_التكليف"] == ""
     assert distribution.teachers_db[old_sub]["cover_count"] == 0
     assert distribution.teachers_db[new_sub]["cover_count"] == 1
     assert result["refresh_current_abs"] == [absent]
