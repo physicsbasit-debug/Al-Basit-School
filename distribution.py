@@ -27,6 +27,13 @@ from auth import get_permissions, get_permissions_from_flags
 
 @state_locked
 def assign_logic_core(absent_list, day_name, dept_filter, max_reserves, is_alt, is_admin_logged_in, actor_name="", actor_role=""):
+    """
+    يسجل غياب معلمي absent_list ليوم day_name، ويولّد تكليفات بديل تلقائية لكل حصة غائبة
+    ضمن نفس القسم، مع استبعاد البديل الذي تجاوز max_reserves أو لديه إعفاء أو تكليف قائم في الحصة نفسها،
+    وتفضيل الأقل رصيد احتياط. عند عدم وجود بديل مناسب يُسجل التكليف باسم "إشراف إداري".
+    is_alt=True يعيد توليد التكليفات الآلية غير المعدّلة للمعلمين أنفسهم بدل تسجيل غياب جديد.
+    تعدّل الدالة teachers_db و daily_db و processed_absences مباشرة ثم تحفظ التغييرات.
+    """
     audit_entries = []
 
     if isinstance(absent_list, str):
@@ -210,6 +217,11 @@ def assign_logic_core(absent_list, day_name, dept_filter, max_reserves, is_alt, 
 
 @state_locked
 def rollback_auto_assignments_for_absentees_core(absent_list, day_name, actor_name="", actor_role=""):
+    """
+    يحذف من daily_db تكليفات اليوم day_name لمعلمي absent_list، سواء كانت آلية أو معدّلة،
+    ويسترجع رصيد احتياط البديل فقط للتكليفات الآلية غير المعدّلة ذات حالة_التكليف="".
+    إذا كانت absent_list فارغة أو day_name فارغًا فلا تغيّر الحالة. لا تُرجع الدالة قيمة مفيدة؛ نتيجتها None.
+    """
     cleaned = set(normalize_absent_names(absent_list))
     if not cleaned or not day_name:
         return
@@ -249,6 +261,11 @@ def rollback_auto_assignments_for_absentees_core(absent_list, day_name, actor_na
 
 @state_locked
 def cancel_teacher_absence_core(abs_t, day_name, dept_filter, is_admin_logged_in, current_abs, actor_name="", actor_role=""):
+    """
+    يلغي غياب معلم واحد abs_t ليوم day_name: يحذف تكليفاته من daily_db، ويسترجع رصيد
+    احتياط البديل إذا كان التكليف آليًا غير معدّل، وينقص عداد غياب المعلم، ويزيله من processed_absences.
+    إذا كان abs_t أو day_name فارغًا أو غير صالح، ترجع الدالة بحمولة تحديث بلا تغيير في الحالة.
+    """
     if not abs_t or not day_name:
         return {
             "refresh_dept": dept_filter,
@@ -336,6 +353,12 @@ def cancel_teacher_absence_core(abs_t, day_name, dept_filter, is_admin_logged_in
 
 @state_locked
 def process_admin_action_core(df_state, abs_t, period, new_sub, day_name, dept_filter, is_admin_logged_in, current_abs, action_type, actor_name="", actor_role=""):
+    """
+    يعالج تعديلًا إداريًا يدويًا على تكليف حصة واحدة abs_t/period حسب action_type:
+    normal لتبديل البديل وتحديث أرصدة الاحتياط، و penalty لرصد تقصير على البديل الحالي،
+    و tabadul لتسجيل تبادل ودي. إذا كانت df_state فارغة/None أو كان new_sub غير صالح
+    في غير حالة penalty، ترجع الدالة بحمولة تحديث بلا تغيير.
+    """
     if df_state is None or df_state.empty or not abs_t or not period:
         return {
             "refresh_dept": dept_filter,
