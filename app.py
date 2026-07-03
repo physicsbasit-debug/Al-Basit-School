@@ -1990,6 +1990,17 @@ def update_home_hero_after_login(
     return gr.update(value=build_home_hero_html(account_record=record))
 
 
+def refresh_identity_html_on_load():
+    """إعادة بناء عناصر الهوية عند تحميل الصفحة حتى لا تعود لقيم الإقلاع القديمة بعد refresh."""
+    config = _current_identity_config()
+    return (
+        gr.update(value=build_login_branding_html(config)),
+        gr.update(value=build_login_credits_html(config)),
+        gr.update(value=build_header_html(config)),
+        gr.update(value=build_home_hero_html(config)),
+    )
+
+
 def _coerce_periods_per_day(value, default=None):
     try:
         parsed = int(str(value).strip())
@@ -4362,6 +4373,16 @@ with gr.Blocks() as app:
         admin_zone_help, edit_period, cb_cross_dept, btn_alt, btn_img
     ]
     app.load(sync_current_school_days, None, [day_in, swap_day])
+    app.load(
+        refresh_identity_html_on_load,
+        None,
+        [
+            login_branding_html,
+            login_credits_html,
+            header_branding_html,
+            home_hero_html,
+        ],
+    )
 
     btn_school_data_references_panel.click(
         lambda: show_school_data_panel("references"),
