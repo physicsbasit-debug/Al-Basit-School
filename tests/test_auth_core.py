@@ -461,3 +461,79 @@ def test_authenticate_login_pin_keeps_existing_legacy_four_digit_account_valid(t
     assert user_info["account_id"] == account_id
     assert user_info["pin_hash"] == pin_hash
 
+
+def test_authenticate_login_pin_invalid_pin_delays_once(tmp_path, monkeypatch):
+    account_id = "account-invalid-delay"
+    valid_pin = "333333"
+    auth_accounts_file = tmp_path / "auth_accounts.json"
+    sleep_calls = []
+
+    monkeypatch.setattr(auth, "AUTH_ACCOUNTS_FILE", str(auth_accounts_file))
+    monkeypatch.setattr(storage, "BACKUPS_DIR", str(tmp_path / "backups"))
+    monkeypatch.delenv("SYSTEM_OWNER_PIN", raising=False)
+    monkeypatch.setattr(auth.time, "sleep", lambda seconds: sleep_calls.append(seconds))
+
+    initial_payload = {
+        "version": auth.AUTH_ACCOUNTS_VERSION,
+        "accounts": {
+            account_id: {
+                "account_id": account_id,
+                "role": "مدير المدرسة",
+                "dept": "الكل",
+                "name": "أ. اختبار",
+                "display_name": "أ. اختبار",
+                "official_title": "مدير المدرسة",
+                "enabled": True,
+                "is_owner": False,
+                "pin_hash": auth._pin_hash(valid_pin),
+                "must_change_pin": False,
+            }
+        },
+    }
+    assert auth.save_auth_accounts(initial_payload) is True
+
+    returned_account_id, user_info, error_code = auth.authenticate_login_pin("999999")
+
+    assert returned_account_id == ""
+    assert user_info is None
+    assert error_code == "invalid"
+    assert sleep_calls == [0.5]
+
+
+def test_authenticate_login_pin_disabled_account_does_not_delay(tmp_path, monkeypatch):
+    account_id = "account-disabled-no-delay"
+    disabled_pin = "444444"
+    auth_accounts_file = tmp_path / "auth_accounts.json"
+    sleep_calls = []
+
+    monkeypatch.setattr(auth, "AUTH_ACCOUNTS_FILE", str(auth_accounts_file))
+    monkeypatch.setattr(storage, "BACKUPS_DIR", str(tmp_path / "backups"))
+    monkeypatch.delenv("SYSTEM_OWNER_PIN", raising=False)
+    monkeypatch.setattr(auth.time, "sleep", lambda seconds: sleep_calls.append(seconds))
+
+    initial_payload = {
+        "version": auth.AUTH_ACCOUNTS_VERSION,
+        "accounts": {
+            account_id: {
+                "account_id": account_id,
+                "role": "مدير المدرسة",
+                "dept": "الكل",
+                "name": "أ. حساب معطل",
+                "display_name": "أ. حساب معطل",
+                "official_title": "مدير المدرسة",
+                "enabled": False,
+                "is_owner": False,
+                "pin_hash": auth._pin_hash(disabled_pin),
+                "must_change_pin": False,
+            }
+        },
+    }
+    assert auth.save_auth_accounts(initial_payload) is True
+
+    returned_account_id, user_info, error_code = auth.authenticate_login_pin(disabled_pin)
+
+    assert returned_account_id == account_id
+    assert user_info is None
+    assert error_code == "disabled"
+    assert sleep_calls == []
+
