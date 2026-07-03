@@ -17,6 +17,7 @@ import hmac
 import json
 import os
 import secrets
+import time
 
 from storage import (
     AUTH_DB_FILE,
@@ -309,6 +310,7 @@ def authenticate_login_pin(pin_value):
         user_info["is_owner"] = False
         return str(account_id), user_info, ""
 
+    time.sleep(0.5)
     return "", None, "invalid"
 
 
