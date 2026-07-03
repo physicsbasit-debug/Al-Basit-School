@@ -356,3 +356,47 @@ def test_change_own_account_pin_success_clears_must_change_and_writes_real_audit
     assert "أ. وليد" in record["details"]
     assert record["source"]
 
+
+def test_authenticate_login_pin_success_returns_regular_account_tuple(tmp_path, monkeypatch):
+    account_id = "account-login-success"
+    login_pin = "333333"
+    auth_accounts_file = tmp_path / "auth_accounts.json"
+
+    monkeypatch.setattr(auth, "AUTH_ACCOUNTS_FILE", str(auth_accounts_file))
+    monkeypatch.setattr(storage, "BACKUPS_DIR", str(tmp_path / "backups"))
+    monkeypatch.delenv("SYSTEM_OWNER_PIN", raising=False)
+
+    pin_hash = auth._pin_hash(login_pin)
+    initial_payload = {
+        "version": auth.AUTH_ACCOUNTS_VERSION,
+        "accounts": {
+            account_id: {
+                "account_id": account_id,
+                "role": "مدير المدرسة",
+                "dept": "الكل",
+                "name": "أ. وليد",
+                "display_name": "أ. وليد",
+                "official_title": "مدير المدرسة",
+                "enabled": True,
+                "is_owner": False,
+                "pin_hash": pin_hash,
+                "must_change_pin": False,
+            }
+        },
+    }
+    assert auth.save_auth_accounts(initial_payload) is True
+
+    returned_account_id, user_info, error_code = auth.authenticate_login_pin(login_pin)
+
+    assert error_code == ""
+    assert returned_account_id == account_id
+    assert isinstance(user_info, dict)
+    assert user_info["account_id"] == account_id
+    assert user_info["is_owner"] is False
+    assert user_info["enabled"] is True
+    assert user_info["role"] == "مدير المدرسة"
+    assert user_info["dept"] == "الكل"
+    assert user_info["display_name"] == "أ. وليد"
+    assert user_info["pin_hash"] == pin_hash
+    assert "pin_hash" in user_info
+
