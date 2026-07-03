@@ -117,3 +117,57 @@ def test_reset_school_identity_settings_success_restores_defaults_and_preserves_
 
     assert saved_config["periods_per_day"] == 8
 
+
+def test_save_school_operational_settings_success_changes_periods_and_writes_real_audit_log(tmp_path, monkeypatch):
+    school_config_file = tmp_path / "school_config.json"
+    audit_log_file = tmp_path / "audit_log.json"
+
+    monkeypatch.setattr(storage, "SCHOOL_CONFIG_FILE", str(school_config_file))
+    monkeypatch.setattr(school_data, "SCHOOL_CONFIG_FILE", str(school_config_file))
+    monkeypatch.setattr(storage, "AUDIT_LOG_FILE", str(audit_log_file))
+    monkeypatch.setattr(storage, "BACKUPS_DIR", str(tmp_path / "backups"))
+
+    initial_config = dict(DEFAULT_SCHOOL_CONFIG)
+    initial_config["periods_per_day"] = 7
+    school_config_file.write_text(
+        json.dumps(initial_config, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    result = school_data.save_school_operational_settings_core(
+        8,
+        is_owner=True,
+        actor_name="مالك الاختبار",
+        actor_role="صاحب النظام",
+    )
+
+    assert set(result.keys()) == {
+        "periods_value",
+        "message",
+        "summary_config",
+        "status_config",
+    }
+    assert result["periods_value"] == 8
+    assert "تم حفظ عدد الحصص اليومية" in result["message"]
+    assert result["summary_config"]["periods_per_day"] == 8
+    assert result["status_config"]["periods_per_day"] == 8
+
+    with open(school_config_file, "r", encoding="utf-8") as config_file:
+        saved_config = json.load(config_file)
+    assert saved_config["periods_per_day"] == 8
+
+    assert audit_log_file.exists()
+    with open(audit_log_file, "r", encoding="utf-8") as audit_file:
+        audit_records = json.load(audit_file)
+
+    assert len(audit_records) == 1
+    record = audit_records[0]
+    assert record["action"] == "تعديل إعداد عدد الحصص اليومية"
+    assert record["actor_name"] == "مالك الاختبار"
+    assert record["actor_role"] == "صاحب النظام"
+    assert record["target_teacher"] == ""
+    assert record["old_value"] == 7
+    assert record["new_value"] == 8
+    assert "تحديث عدد الحصص اليومية" in record["details"]
+    assert record["source"]
+
