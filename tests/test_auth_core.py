@@ -283,3 +283,76 @@ def test_owner_reset_account_pin_success_sets_temporary_pin_and_writes_real_audi
     assert "أ. وليد" in record["details"]
     assert record["source"]
 
+
+def test_change_own_account_pin_success_clears_must_change_and_writes_real_audit_log(tmp_path, monkeypatch):
+    account_id = "account-change-pin-success"
+    current_pin = "111111"
+    new_pin = "222222"
+    auth_accounts_file = tmp_path / "auth_accounts.json"
+    audit_log_file = tmp_path / "audit_log.json"
+
+    monkeypatch.setattr(auth, "AUTH_ACCOUNTS_FILE", str(auth_accounts_file))
+    monkeypatch.setattr(storage, "AUDIT_LOG_FILE", str(audit_log_file))
+    monkeypatch.setattr(storage, "BACKUPS_DIR", str(tmp_path / "backups"))
+    monkeypatch.delenv("SYSTEM_OWNER_PIN", raising=False)
+
+    initial_payload = {
+        "version": auth.AUTH_ACCOUNTS_VERSION,
+        "accounts": {
+            account_id: {
+                "account_id": account_id,
+                "role": "مدير المدرسة",
+                "dept": "الكل",
+                "name": "أ. وليد",
+                "display_name": "أ. وليد",
+                "official_title": "مدير المدرسة",
+                "enabled": True,
+                "is_owner": False,
+                "pin_hash": auth._pin_hash(current_pin),
+                "must_change_pin": True,
+            }
+        },
+    }
+    assert auth.save_auth_accounts(initial_payload) is True
+
+    result = auth.change_own_account_pin_core(
+        account_id,
+        current_pin,
+        new_pin,
+        new_pin,
+        actor_name="أ. وليد",
+        actor_role="مدير المدرسة",
+        is_owner=False,
+    )
+
+    assert result["ok"] is True
+    assert result["mode"] == "clear_inputs"
+    assert "تم تغيير رمز الدخول بنجاح" in result["status_html"]
+    assert set(result.keys()) == {"ok", "mode", "status_html"}
+
+    with open(auth_accounts_file, "r", encoding="utf-8") as accounts_file:
+        saved_payload = json.load(accounts_file)
+    saved_account = saved_payload["accounts"][account_id]
+
+    assert saved_account["must_change_pin"] is False
+    assert saved_account["pin_changed_at"]
+    assert saved_account["updated_at"] == saved_account["pin_changed_at"]
+    assert auth._verify_pin_hash(new_pin, saved_account["pin_hash"]) is True
+    assert auth._verify_pin_hash(current_pin, saved_account["pin_hash"]) is False
+
+    assert audit_log_file.exists()
+    with open(audit_log_file, "r", encoding="utf-8") as audit_file:
+        audit_records = json.load(audit_file)
+
+    assert len(audit_records) == 1
+    record = audit_records[0]
+    assert record["action"] == "تغيير رمز دخول"
+    assert record["actor_name"] == "أ. وليد"
+    assert record["actor_role"] == "مدير المدرسة"
+    assert record["target_teacher"] == ""
+    assert record["old_value"] == "رمز مشفر"
+    assert record["new_value"] == "رمز مشفر"
+    assert "غيّر المستخدم رمز حساب" in record["details"]
+    assert "أ. وليد" in record["details"]
+    assert record["source"]
+
