@@ -400,3 +400,64 @@ def test_authenticate_login_pin_success_returns_regular_account_tuple(tmp_path, 
     assert user_info["pin_hash"] == pin_hash
     assert "pin_hash" in user_info
 
+
+def test_validate_new_pin_requires_exactly_six_numeric_digits():
+    assert auth._validate_new_pin("123456") == (True, "")
+
+    ok, message = auth._validate_new_pin("12345")
+    assert ok is False
+    assert "6 أرقام بالضبط" in message
+
+    ok, message = auth._validate_new_pin("1234567")
+    assert ok is False
+    assert "6 أرقام بالضبط" in message
+
+    ok, message = auth._validate_new_pin("12345a")
+    assert ok is False
+    assert "أرقام فقط" in message
+
+    ok, message = auth._validate_new_pin("123 56")
+    assert ok is False
+    assert "أرقام فقط" in message
+
+    ok, message = auth._validate_new_pin(" 123456")
+    assert ok is False
+    assert "مسافات" in message
+
+
+def test_authenticate_login_pin_keeps_existing_legacy_four_digit_account_valid(tmp_path, monkeypatch):
+    account_id = "account-legacy-four-digit"
+    legacy_pin = "1234"
+    auth_accounts_file = tmp_path / "auth_accounts.json"
+
+    monkeypatch.setattr(auth, "AUTH_ACCOUNTS_FILE", str(auth_accounts_file))
+    monkeypatch.setattr(storage, "BACKUPS_DIR", str(tmp_path / "backups"))
+    monkeypatch.delenv("SYSTEM_OWNER_PIN", raising=False)
+
+    pin_hash = auth._pin_hash(legacy_pin)
+    initial_payload = {
+        "version": auth.AUTH_ACCOUNTS_VERSION,
+        "accounts": {
+            account_id: {
+                "account_id": account_id,
+                "role": "مدير المدرسة",
+                "dept": "الكل",
+                "name": "أ. حساب قديم",
+                "display_name": "أ. حساب قديم",
+                "official_title": "مدير المدرسة",
+                "enabled": True,
+                "is_owner": False,
+                "pin_hash": pin_hash,
+                "must_change_pin": False,
+            }
+        },
+    }
+    assert auth.save_auth_accounts(initial_payload) is True
+
+    returned_account_id, user_info, error_code = auth.authenticate_login_pin(legacy_pin)
+
+    assert error_code == ""
+    assert returned_account_id == account_id
+    assert user_info["account_id"] == account_id
+    assert user_info["pin_hash"] == pin_hash
+
