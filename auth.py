@@ -316,12 +316,10 @@ def _validate_new_pin(pin_value):
     pin_text = str(pin_value or "")
     if pin_text != pin_text.strip():
         return False, "لا تسمح رموز الدخول بمسافات في البداية أو النهاية."
-    if len(pin_text) < 4:
-        return False, "يجب ألا يقل رمز الدخول عن 4 خانات."
-    if len(pin_text) > 20:
-        return False, "يجب ألا يزيد رمز الدخول عن 20 خانة."
-    if any(char.isspace() for char in pin_text):
-        return False, "لا يسمح بوجود مسافات داخل رمز الدخول."
+    if len(pin_text) != 6:
+        return False, "يجب أن يتكون رمز الدخول من 6 أرقام بالضبط."
+    if not pin_text.isdigit():
+        return False, "يجب أن يتكون رمز الدخول من أرقام فقط."
     return True, ""
 
 
