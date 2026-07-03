@@ -171,3 +171,73 @@ def test_save_school_operational_settings_success_changes_periods_and_writes_rea
     assert "تحديث عدد الحصص اليومية" in record["details"]
     assert record["source"]
 
+
+def test_save_school_identity_settings_success_saves_identity_without_logo_upload(tmp_path, monkeypatch):
+    school_config_file = tmp_path / "school_config.json"
+
+    monkeypatch.setattr(storage, "SCHOOL_CONFIG_FILE", str(school_config_file))
+    monkeypatch.setattr(school_data, "SCHOOL_CONFIG_FILE", str(school_config_file))
+    monkeypatch.setattr(storage, "BACKUPS_DIR", str(tmp_path / "backups"))
+
+    custom_config = dict(DEFAULT_SCHOOL_CONFIG)
+    custom_config.update(
+        {
+            "ministry_name": "وزارة معدلة",
+            "directorate_prefix": "مديرية معدلة",
+            "system_name": "نظام معدل",
+            "system_subtitle": "عنوان فرعي معدل",
+            "developer_credit": "اعتماد معدل",
+            "school_name": "مدرسة قديمة",
+            "directorate_region": "محافظة قديمة",
+            "logo_url": "https://example.com/old-logo.png",
+            "theme_color": "#111111",
+            "theme_color_2": "#222222",
+            "accent_color": "#333333",
+            "periods_per_day": 8,
+        }
+    )
+    school_config_file.write_text(
+        json.dumps(custom_config, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    new_config, status_html, apply_globals = school_data.save_school_identity_settings_core(
+        school_name="مدرسة اختبار",
+        directorate_region="محافظة اختبار",
+        logo_url="https://example.com/logo.png",
+        logo_upload=None,
+        theme_color="#004D40",
+        theme_color_2="#00695C",
+        accent_color="#FFCA28",
+        is_owner=True,
+    )
+
+    assert apply_globals is True
+    assert "تم حفظ" in status_html
+    assert "هوية" in status_html
+
+    assert new_config["school_name"] == "مدرسة اختبار"
+    assert new_config["directorate_region"] == "محافظة اختبار"
+    assert new_config["logo_url"] == "https://example.com/logo.png"
+    assert new_config["theme_color"] == "#004d40"
+    assert new_config["theme_color_2"] == "#00695c"
+    assert new_config["accent_color"] == "#ffca28"
+    assert new_config["periods_per_day"] == 8
+
+    for key in school_data.FIXED_IDENTITY_KEYS:
+        assert new_config[key] == DEFAULT_SCHOOL_CONFIG[key]
+
+    with open(school_config_file, "r", encoding="utf-8") as config_file:
+        saved_config = json.load(config_file)
+
+    assert saved_config["school_name"] == "مدرسة اختبار"
+    assert saved_config["directorate_region"] == "محافظة اختبار"
+    assert saved_config["logo_url"] == "https://example.com/logo.png"
+    assert saved_config["theme_color"] == "#004d40"
+    assert saved_config["theme_color_2"] == "#00695c"
+    assert saved_config["accent_color"] == "#ffca28"
+    assert saved_config["periods_per_day"] == 8
+
+    for key in school_data.FIXED_IDENTITY_KEYS:
+        assert saved_config[key] == DEFAULT_SCHOOL_CONFIG[key]
+
