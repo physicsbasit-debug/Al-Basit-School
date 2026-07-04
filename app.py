@@ -1803,14 +1803,31 @@ def build_login_branding_html(config=None):
         animation:logo4d 4s ease-in-out infinite;
         cursor:pointer;
     ">
-    <div style="font-size:26px;font-weight:900;color:{accent};text-shadow:0 2px 8px rgba(0,0,0,0.4);margin-bottom:6px;">
-        بوابة الدخول
+
+    <div style="
+        font-size:30px;
+        font-weight:950;
+        color:{accent};
+        text-shadow:0 3px 10px rgba(0,0,0,0.45);
+        margin-bottom:7px;
+        line-height:1.25;
+        letter-spacing:0px;
+    ">
+        {system_name}
     </div>
+
     <div style="font-size:13px;color:rgba(255,255,255,0.92);font-weight:700;">
         {school_name}
     </div>
-    <div style="font-size:11px;color:rgba(255,255,255,0.78);font-weight:600;margin-top:4px;">
-        {system_name}
+
+    <div style="
+        font-size:13px;
+        color:{accent};
+        font-weight:850;
+        margin-top:5px;
+        text-shadow:0 2px 7px rgba(0,0,0,0.35);
+    ">
+        بوابة الدخول
     </div>
 
     <div class="masar-login-wave-safe" style="--masar-wave-gold:{accent};--masar-wave-green:{theme};">
@@ -1825,6 +1842,8 @@ def build_login_branding_html(config=None):
     </div>
 </div>
 """
+
+
 
 def build_login_credits_html(config=None):
     cfg = dict(_current_identity_config())
