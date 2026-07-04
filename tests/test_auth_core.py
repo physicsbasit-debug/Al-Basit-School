@@ -401,16 +401,20 @@ def test_authenticate_login_pin_success_returns_regular_account_tuple(tmp_path, 
     assert "pin_hash" in user_info
 
 
-def test_validate_new_pin_requires_exactly_six_numeric_digits():
+def test_validate_new_pin_accepts_four_to_twelve_numeric_digits():
+    assert auth._validate_new_pin("1234") == (True, "")
+    assert auth._validate_new_pin("12345") == (True, "")
     assert auth._validate_new_pin("123456") == (True, "")
+    assert auth._validate_new_pin("1234567") == (True, "")
+    assert auth._validate_new_pin("123456789012") == (True, "")
 
-    ok, message = auth._validate_new_pin("12345")
+    ok, message = auth._validate_new_pin("123")
     assert ok is False
-    assert "6 أرقام بالضبط" in message
+    assert "4 أرقام" in message
 
-    ok, message = auth._validate_new_pin("1234567")
+    ok, message = auth._validate_new_pin("1234567890123")
     assert ok is False
-    assert "6 أرقام بالضبط" in message
+    assert "12 رقم" in message
 
     ok, message = auth._validate_new_pin("12345a")
     assert ok is False
@@ -423,6 +427,11 @@ def test_validate_new_pin_requires_exactly_six_numeric_digits():
     ok, message = auth._validate_new_pin(" 123456")
     assert ok is False
     assert "مسافات" in message
+
+    ok, message = auth._validate_new_pin("123456 ")
+    assert ok is False
+    assert "مسافات" in message
+
 
 
 def test_authenticate_login_pin_keeps_existing_legacy_four_digit_account_valid(tmp_path, monkeypatch):
