@@ -2013,11 +2013,34 @@ def update_home_hero_after_login(
 def refresh_identity_html_on_load():
     """إعادة بناء عناصر الهوية عند تحميل الصفحة حتى لا تعود لقيم الإقلاع القديمة بعد refresh."""
     config = _current_identity_config()
+    preview = render_school_identity_preview_html(
+        DEFAULT_SCHOOL_CONFIG["system_name"],
+        DEFAULT_SCHOOL_CONFIG["system_subtitle"],
+        config["school_name"],
+        DEFAULT_SCHOOL_CONFIG["developer_credit"],
+        config["logo_url"],
+        config["theme_color"],
+        config["theme_color_2"],
+        config["accent_color"],
+        config.get("directorate_region", DEFAULT_SCHOOL_CONFIG["directorate_region"]),
+    )
     return (
         gr.update(value=build_login_branding_html(config)),
         gr.update(value=build_login_credits_html(config)),
         gr.update(value=build_header_html(config)),
         gr.update(value=build_home_hero_html(config)),
+        gr.update(value=DEFAULT_SCHOOL_CONFIG["system_name"]),
+        gr.update(value=DEFAULT_SCHOOL_CONFIG["system_subtitle"]),
+        gr.update(value=config["school_name"]),
+        gr.update(value=config.get("directorate_region", DEFAULT_SCHOOL_CONFIG["directorate_region"])),
+        gr.update(value=DEFAULT_SCHOOL_CONFIG["developer_credit"]),
+        gr.update(value=config["logo_url"]),
+        gr.update(value=None),
+        gr.update(value=config["theme_color"]),
+        gr.update(value=config["theme_color_2"]),
+        gr.update(value=config["accent_color"]),
+        gr.update(value=preview),
+        gr.update(value=render_school_config_summary_html(config)),
     )
 
 
@@ -4407,6 +4430,18 @@ with gr.Blocks() as app:
             login_credits_html,
             header_branding_html,
             home_hero_html,
+            identity_system_name,
+            identity_system_subtitle,
+            identity_school_name,
+            identity_directorate_region,
+            identity_developer_credit,
+            identity_logo_url,
+            identity_logo_upload,
+            identity_theme_color,
+            identity_theme_color_2,
+            identity_accent_color,
+            identity_preview_html,
+            school_config_summary_html,
         ],
     )
 
