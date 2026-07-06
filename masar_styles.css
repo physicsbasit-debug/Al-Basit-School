@@ -1,0 +1,2052 @@
+
+
+/* Fix 6: top control dropdowns only. Higher specificity using Gradio/Svelte classes confirmed in DevTools. */
+.masar-arrow-fix .wrap-inner.svelte-1xfsv4t .secondary-wrap.svelte-1xfsv4t {
+    flex-direction: row-reverse !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+}
+.masar-arrow-fix .secondary-wrap.svelte-1xfsv4t input.svelte-1xfsv4t {
+    flex: 1 1 auto !important;
+    width: 100% !important;
+    text-align: right !important;
+}
+
+
+.masar-arrow-fix .icon-wrap {
+    right: auto !important;
+    left: 8px !important;
+}
+
+
+/* Fix 16: بطاقة أنيقة لتغيير رمز الدخول دون لمس المنطق */
+.self-pin-card {
+    direction: rtl !important;
+    background: linear-gradient(135deg, #ffffff 0%, #f4fbf8 100%) !important;
+    border: 1px solid #cfe7df !important;
+    border-radius: 18px !important;
+    padding: 16px !important;
+    margin-top: 8px !important;
+    box-shadow: 0 10px 24px rgba(0, 77, 64, 0.10) !important;
+}
+.self-pin-card-head {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 12px !important;
+    text-align: right !important;
+    margin-bottom: 10px !important;
+}
+.self-pin-card-icon {
+    width: 44px !important;
+    height: 44px !important;
+    border-radius: 14px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: #e0f2f1 !important;
+    border: 1px solid #b2dfdb !important;
+    font-size: 22px !important;
+}
+.self-pin-card-title {
+    color: #004d40 !important;
+    font-weight: 900 !important;
+    font-size: 18px !important;
+    line-height: 1.4 !important;
+}
+.self-pin-card-desc {
+    color: #375f57 !important;
+    font-weight: 700 !important;
+    font-size: 13px !important;
+    line-height: 1.6 !important;
+}
+.self-pin-card-note {
+    background: #eef6f3 !important;
+    color: #004d40 !important;
+    padding: 9px 12px !important;
+    border-radius: 12px !important;
+    border-right: 4px solid #0f766e !important;
+    font-weight: 800 !important;
+    line-height: 1.7 !important;
+    margin-bottom: 12px !important;
+}
+.self-pin-card input {
+    border-radius: 12px !important;
+}
+.self-pin-card button {
+    margin-top: 6px !important;
+}
+
+/* Fix 8: ترتيب صف تغيير الرمز بصريًا من اليسار إلى اليمين مع إبقاء النص العربي يمينًا */
+.self-pin-row-ltr {
+    direction: ltr !important;
+}
+.self-pin-row-ltr > * {
+    direction: rtl !important;
+}
+.self-pin-row-ltr input {
+    text-align: right !important;
+}
+
+/* Fix 9: ترتيب عنوان Accordion تغيير رمز دخولي فقط */
+.masar-accordion-arrow-fix > .label-wrap {
+    flex-direction: row-reverse !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+}
+.masar-accordion-arrow-fix > .label-wrap span {
+    text-align: right !important;
+}
+
+/* Fix 17: إبراز بطاقة تغيير رمز الدخول من الخارج دون لمس منطقها */
+.self-pin-accordion-card {
+    background: linear-gradient(135deg, #f8fffb, #eef8f3) !important;
+    border: 1.5px solid #c8e6c9 !important;
+    border-radius: 20px !important;
+    padding: 12px 14px !important;
+    margin: 14px 0 18px 0 !important;
+    box-shadow: 0 8px 20px rgba(0, 77, 64, 0.10) !important;
+}
+.self-pin-accordion-card > .label-wrap {
+    background: linear-gradient(135deg, #004d40, #0f766e) !important;
+    border: 1px solid rgba(255, 202, 40, 0.45) !important;
+    border-radius: 16px !important;
+    padding: 12px 18px !important;
+    min-height: 48px !important;
+    box-shadow: 0 6px 14px rgba(0, 77, 64, 0.20) !important;
+}
+.self-pin-accordion-card > .label-wrap span {
+    color: #ffca28 !important;
+    -webkit-text-fill-color: #ffca28 !important;
+    font-weight: 900 !important;
+    font-size: 16px !important;
+}
+.self-pin-accordion-card > .label-wrap svg,
+.self-pin-accordion-card > .label-wrap .icon-wrap {
+    color: #ffca28 !important;
+    fill: #ffca28 !important;
+}
+.self-pin-accordion-card > .content,
+.self-pin-accordion-card [data-testid="accordion-content"] {
+    background: transparent !important;
+}
+
+/* Fix 10: محاذاة نص عنوان رفع الملفات فقط دون تضخيم أيقونة الرفع */
+.masar-file-upload-right [data-testid="block-label"] {
+    position: static !important;
+}
+.masar-file-upload-right [data-testid="block-label"] span {
+    text-align: right !important;
+    width: 100% !important;
+    display: block !important;
+}
+
+/* Fix 15: محاذاة عناوين حقول التاريخ باستهداف span الحقيقي في DateTime */
+.masar-date-label-right span.svelte-jdcl7l {
+    display: block !important;
+    width: 100% !important;
+    text-align: right !important;
+}
+
+/* v1.8.4d Fix 1: تجميل تبويب التوزيع والاحتياط فقط */
+.distribution-controls-card {
+    background: linear-gradient(135deg, #fffde7, #fff8c6) !important;
+    border: 2px solid #ffca28 !important;
+    border-radius: 18px !important;
+    padding: 16px !important;
+    margin: 10px 0 14px 0 !important;
+    box-shadow: 0 8px 18px rgba(202, 138, 4, 0.12) !important;
+    direction: rtl !important;
+}
+.distribution-controls-title {
+    text-align: right !important;
+    color: #004d40 !important;
+    font-weight: 900 !important;
+    font-size: 18px !important;
+    margin-bottom: 10px !important;
+}
+.masar-image-label-right [data-testid="block-label"] {
+    position: static !important;
+}
+.masar-image-label-right [data-testid="block-label"] span,
+.masar-image-label-right label span,
+.masar-image-label-right span.svelte-jdcl7l {
+    display: block !important;
+    width: 100% !important;
+    text-align: right !important;
+}
+.leader-outer-card {
+    background: linear-gradient(135deg, #f8fffb, #eef8f3) !important;
+    border: 1.5px solid #b2dfdb !important;
+    border-radius: 20px !important;
+    padding: 12px 14px !important;
+    margin: 14px 0 18px 0 !important;
+    box-shadow: 0 8px 20px rgba(0, 77, 64, 0.10) !important;
+}
+.leader-outer-card > .label-wrap {
+    background: linear-gradient(135deg, #004d40, #0f766e) !important;
+    border: 1px solid rgba(255, 202, 40, 0.45) !important;
+    border-radius: 16px !important;
+    padding: 12px 18px !important;
+    min-height: 48px !important;
+    box-shadow: 0 6px 14px rgba(0, 77, 64, 0.20) !important;
+}
+.leader-outer-card > .label-wrap span {
+    color: #ffca28 !important;
+    -webkit-text-fill-color: #ffca28 !important;
+    font-weight: 900 !important;
+    font-size: 16px !important;
+}
+.leader-outer-card > .label-wrap svg,
+.leader-outer-card > .label-wrap .icon-wrap {
+    color: #ffca28 !important;
+    fill: #ffca28 !important;
+}
+.leader-row-rtl {
+    direction: rtl !important;
+}
+.leader-row-rtl > * {
+    direction: rtl !important;
+}
+
+
+/* v1.8.4d Fix 3: تجميل الغلاف الخارجي لقائمة حدد المعلمين الغائبين وضبط سهمها */
+.absent-box {
+    background: linear-gradient(135deg, #ffffff, #f8fffb) !important;
+    border: 1.5px solid #b2dfdb !important;
+    border-radius: 18px !important;
+    padding: 12px 14px !important;
+    box-shadow: 0 8px 18px rgba(0, 77, 64, 0.08) !important;
+    margin: 10px 0 14px 0 !important;
+}
+.absent-box [data-testid="block-label"],
+.absent-box label {
+    position: static !important;
+    width: 100% !important;
+    text-align: right !important;
+}
+.absent-box [data-testid="block-label"] span,
+.absent-box label span,
+.absent-box span.svelte-jdcl7l {
+    display: block !important;
+    width: 100% !important;
+    text-align: right !important;
+}
+/* v1.8.4j: إبراز عنوان اختيار الغائبين بدون المساس ببنية multiselect */
+.absent-box [data-testid="block-label"] span,
+.absent-box > label span {
+    color: #003c32 !important;
+    -webkit-text-fill-color: #003c32 !important;
+    font-size: 17px !important;
+    font-weight: 950 !important;
+    line-height: 1.8 !important;
+    background: linear-gradient(135deg, #fff8e1, #ffffff) !important;
+    border-right: 5px solid #ffca28 !important;
+    border-radius: 10px !important;
+    padding: 6px 10px !important;
+    margin-bottom: 8px !important;
+}
+.absent-box svg.dropdown-arrow {
+    margin-left: 0 !important;
+    margin-right: auto !important;
+}
+.absent-box .secondary-wrap.svelte-1dv2vbb {
+    flex-direction: row-reverse !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+}
+
+.absent-box .wrap-inner.svelte-1dv2vbb {
+    flex-direction: row-reverse !important;
+}
+.masar-field-label-right [data-testid="block-label"] {
+    position: static !important;
+}
+.masar-field-label-right [data-testid="block-label"] span,
+.masar-field-label-right label span,
+.masar-field-label-right span.svelte-jdcl7l {
+    display: block !important;
+    width: 100% !important;
+    text-align: right !important;
+}
+
+/* v1.8.4o: بطاقة ثابتة لاختيار جدول المعلم بدون Accordion خارجي */
+.teacher-schedule-selector-card {
+    background: linear-gradient(135deg, #f8fffb, #fff8dc) !important;
+    border: 1.5px solid #ffca28 !important;
+    border-radius: 20px !important;
+    padding: 14px 16px !important;
+    margin: 12px 0 18px 0 !important;
+    box-shadow: 0 8px 20px rgba(0, 77, 64, 0.10) !important;
+    direction: rtl !important;
+}
+.teacher-schedule-selector-title {
+    background: linear-gradient(135deg, #004d40, #0f766e) !important;
+    border: 1px solid rgba(255, 202, 40, 0.48) !important;
+    border-radius: 16px !important;
+    padding: 12px 18px !important;
+    margin-bottom: 12px !important;
+    color: #ffca28 !important;
+    text-align: right !important;
+    box-shadow: 0 6px 14px rgba(0, 77, 64, 0.18) !important;
+}
+.teacher-schedule-selector-title .title-main {
+    color: #ffca28 !important;
+    -webkit-text-fill-color: #ffca28 !important;
+    font-weight: 950 !important;
+    font-size: 17px !important;
+    line-height: 1.6 !important;
+}
+.teacher-schedule-selector-title .title-sub {
+    color: rgba(255, 255, 255, 0.88) !important;
+    -webkit-text-fill-color: rgba(255, 255, 255, 0.88) !important;
+    font-weight: 750 !important;
+    font-size: 13px !important;
+    line-height: 1.7 !important;
+    margin-top: 2px !important;
+}
+.teacher-schedule-selector-card .masar-arrow-fix {
+    margin-top: 6px !important;
+}
+
+/* فرض وضع النهار بالقوة على مستوى المتصفح */
+:root, body, .dark, * { color-scheme: light !important; }
+:root, body, .dark { --background-fill-primary: #ffffff !important; --background-fill-secondary: #ffffff !important; --block-background-fill: #ffffff !important; --body-background-fill: #ffffff !important; --color-text-primary: #000000 !important; --body-text-color: #000000 !important; --table-even-background-fill: #ffffff !important; --table-odd-background-fill: #ffffff !important; --table-row-focus: #f1f8e9 !important; --border-color-primary: #e5e7eb !important; --checkbox-background-color: #ffffff !important; --checkbox-background-color-selected: #004d40 !important; --checkbox-border-color: #e5e7eb !important; --input-background-fill: #ffffff !important; --input-background-fill-focus: #ffffff !important; --neutral-100: #ffffff !important; --neutral-200: #f4f6f8 !important; --neutral-800: #000000 !important; --neutral-900: #000000 !important; }
+body, .gradio-container, .dark .gradio-container { background-color: #ffffff !important; color: #000000 !important; }
+.gradio-container label span, .gradio-container fieldset legend, .gradio-container .gr-form-label span, .dark label span, .dark fieldset legend, .dark .gr-form-label span, .dark .wrap span, .dark .block span, span.svelte-1b6s6s { color: #004d40 !important; -webkit-text-fill-color: #004d40 !important; font-weight: 900 !important; opacity: 1 !important; font-size: 15px !important; text-shadow: none !important; }
+.gr-form label, .dark .gr-form label, fieldset label, .dark fieldset label, .gr-checkbox-group label, .dark .gr-checkbox-group label, .gradio-container label.cursor-pointer, .dark .gradio-container label.cursor-pointer { background-color: #f1f8e9 !important; background: #f1f8e9 !important; background-image: none !important; color: #004d40 !important; -webkit-text-fill-color: #004d40 !important; border: 1px solid #c8e6c9 !important; border-radius: 8px !important; box-shadow: none !important; }
+.gr-form label.selected, .dark .gr-form label.selected, fieldset label.selected, .dark fieldset label.selected, .gr-form label:has(input:checked), .dark .gr-form label:has(input:checked), .gradio-container label.cursor-pointer.selected, .dark .gradio-container label.cursor-pointer.selected { background-color: #ffca28 !important; background: #ffca28 !important; background-image: none !important; color: #004d40 !important; -webkit-text-fill-color: #004d40 !important; border-color: #004d40 !important; }
+input[type="checkbox"], input[type="radio"], .dark input[type="checkbox"], .dark input[type="radio"], .gradio-container input[type="checkbox"], .dark .gradio-container input[type="checkbox"] { -webkit-appearance: none !important; appearance: none !important; background-color: #ffffff !important; border: 2px solid #004d40 !important; width: 18px !important; height: 18px !important; border-radius: 4px !important; display: inline-block !important; position: relative !important; outline: none !important; }
+input[type="checkbox"]:checked::after, .dark input[type="checkbox"]:checked::after, .gradio-container input[type="checkbox"]:checked::after { content: '✔' !important; position: absolute !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; color: #004d40 !important; font-size: 14px !important; font-weight: bold !important; }
+.absent-box .token, .dark .absent-box .token { background: linear-gradient(135deg, #e53935, #c62828) !important; color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; border: 2px solid #b71c1c !important; font-weight: 900 !important; font-size: 15px !important; padding: 6px 12px !important; border-radius: 10px !important; box-shadow: 0 4px 8px rgba(198, 40, 40, 0.3) !important; transition: transform 0.2s ease !important; animation: pulse-red 2s infinite !important; }
+.absent-box .token span { color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; }
+.absent-box .token::before { content: '🚨 ' !important; margin-left: 5px !important; }
+.absent-box .token:hover { transform: scale(1.05) !important; }
+@keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(198, 40, 40, 0.5); } 70% { box-shadow: 0 0 0 10px rgba(198, 40, 40, 0); } 100% { box-shadow: 0 0 0 0 rgba(198, 40, 40, 0); } }
+.gr-input, .gr-dropdown-item, input, select, option, textarea, .dark .gr-input, .dark .gr-dropdown-item, .dark input, .dark select, .dark option, .dark textarea { color: #000000 !important; -webkit-text-fill-color: #000000 !important; font-weight: bold !important; background-color: #ffffff !important; }
+h1, h2, p { color: inherit; }
+.tab-nav button, .dark .tab-nav button { color: #333333 !important; font-weight: bold !important; font-size: 15px !important; }
+.tab-nav button.selected, .dark .tab-nav button.selected { background-color: #ffca28 !important; color: #004d40 !important; border-color: #ffca28 !important;}
+.table-wrap { overflow-x: auto !important; }
+table, .gr-table, .dark table, .dark .gr-table { background-color: #ffffff !important; color: #000000 !important; table-layout: auto !important; width: 100% !important; border-collapse: collapse !important;}
+tbody, tr, td, .dark tbody, .dark tr, .dark td { background-color: #ffffff !important; color: #000000 !important; }
+thead, thead tr, thead th, th, .dark thead, .dark thead tr, .dark thead th, .dark th { background-color: #f1f8e9 !important; color: #000000 !important; border-bottom: 2px solid #004d40 !important;}
+td *, th *, .dark td *, .dark th *, .cell-wrap, .dark .cell-wrap { background-color: transparent !important; color: #000000 !important; white-space: nowrap !important; overflow: visible !important; text-overflow: clip !important;}
+th, .dark th { font-weight: 900 !important; text-align: center !important; white-space: nowrap !important; min-width: 65px !important; font-size: 14px !important; padding: 10px 5px !important; border: 1px solid #e5e7eb !important;}
+td, .dark td { font-weight: bold !important; text-align: center !important; white-space: nowrap !important; min-width: 65px !important; font-size: 13px !important; padding: 8px 5px !important; border: 1px solid #e5e7eb !important;}
+.yellow-box { background-color: #fff9c4 !important; border-radius: 15px !important; padding: 15px !important; margin: 10px 0 !important; border: 2px solid #ffca28 !important;}
+.whatsapp-box { background-color: #e8f5e9 !important; border-radius: 15px !important; padding: 20px !important; margin: 10px 0 !important; border: 2px solid #4caf50 !important;}
+.shield-box { background-color: #ffebee !important; border-radius: 15px !important; padding: 20px !important; margin: 10px 0 !important; border: 2px solid #f44336 !important;}
+.action-btn { background: #ffca28 !important; color: #004d40 !important; font-weight: 900 !important; height: 50px !important; border-radius: 10px !important;}
+.export-btn { background: #1565c0 !important; color: white !important; font-weight: bold !important; height: 50px !important; border-radius: 10px !important;}
+.admin-zone { background-color: #f4f6f8 !important; border: 2px solid #004d40 !important; border-radius: 12px !important; padding: 20px !important; margin-top: 15px !important; box-shadow: inset 0 0 10px rgba(0,0,0,0.03) !important; }
+.admin-btn { background: linear-gradient(135deg, #004d40, #00695c) !important; color: #ffca28 !important; font-weight: bold !important; border-radius: 8px !important; height: 50px !important; border: none !important; box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important; transition: all 0.3s ease !important; }
+.admin-btn:hover { transform: translateY(-2px) !important; box-shadow: 0 6px 12px rgba(0,0,0,0.15) !important; }
+.refresh-btn { background: linear-gradient(135deg, #004d40, #00695c) !important; color: #ffca28 !important; font-weight: bold !important; border-radius: 8px !important; min-height: 50px !important; height: auto !important; font-size: 13.5px !important; white-space: normal !important; padding: 8px 5px !important; line-height: 1.4 !important; border: none !important; box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important; transition: all 0.3s ease !important; }
+.refresh-btn:hover { transform: translateY(-2px) !important; box-shadow: 0 6px 12px rgba(0,0,0,0.15) !important; }
+@media (min-width: 768px) { .refresh-btn { margin-top: 24px !important; } }
+.reset-btn { background: #e53935 !important; color: white !important; font-weight: bold !important; border-radius: 8px !important; height: 50px !important; }
+.tabadul-btn { background: #00897b !important; color: white !important; font-weight: bold !important; border-radius: 8px !important; height: 50px !important; border: 2px solid #00695c !important; }
+.login-box { max-width: 450px !important; margin: 65px auto 20px auto !important; padding: 25px 20px !important; background: #ffffff !important; border-radius: 20px !important; box-shadow: 0 10px 30px rgba(0,0,0,0.15) !important; border-top: 8px solid #004d40 !important; border-bottom: 8px solid #ffca28 !important;}
+.login-box input::placeholder { font-size: 13.5px !important; }
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(198, 40, 40, 0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(198, 40, 40, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(198, 40, 40, 0); }
+}
+
+/* راديو التبادل الودي فقط */
+.swap-radio-square input[type="radio"],
+.dark .swap-radio-square input[type="radio"] {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  width: 18px !important;
+  height: 18px !important;
+  border: 2px solid #004d40 !important;
+  border-radius: 4px !important;
+  background-color: #ffffff !important;
+  display: inline-block !important;
+  position: relative !important;
+  outline: none !important;
+  cursor: pointer !important;
+  box-shadow: none !important;
+  background-image: none !important;
+}
+
+.swap-radio-square input[type="radio"]:checked,
+.dark .swap-radio-square input[type="radio"]:checked {
+  background-color: #ffffff !important;
+  border-color: #004d40 !important;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='4.6' fill='%23004d40'/></svg>") !important;
+  background-repeat: no-repeat !important;
+  background-position: center center !important;
+  background-size: 12px 12px !important;
+  box-shadow: none !important;
+}
+
+.swap-radio-square label.selected,
+.dark .swap-radio-square label.selected {
+  background-image: none !important;
+}
+.regen-btn {
+  background: #ef6c00 !important;
+  color: white !important;
+  font-weight: bold !important;
+  border-radius: 8px !important;
+  height: 50px !important;
+  border: none !important;
+}
+
+/* v43 fix5: تحسينات تبويب الإعفاء والخزنة والتبويبات */
+.exemption-rtl-group,
+.exemption-rtl-group fieldset,
+.exemption-rtl-group .wrap {
+  direction: rtl !important;
+}
+
+.exemption-rtl-group fieldset > div,
+.exemption-rtl-group .wrap,
+.exemption-rtl-group .form {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: wrap !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
+  direction: rtl !important;
+}
+
+.exemption-rtl-group label {
+  direction: rtl !important;
+  min-width: 64px !important;
+  justify-content: center !important;
+  text-align: center !important;
+  font-size: 15px !important;
+  font-weight: 900 !important;
+}
+
+.exemption-periods-order label {
+  min-width: 48px !important;
+}
+
+.vault-accordion summary,
+.leader-accordion summary,
+.vault-accordion .label-wrap,
+.leader-accordion .label-wrap {
+  font-size: 20px !important;
+  font-weight: 900 !important;
+  color: #004d40 !important;
+}
+
+button[role="tab"],
+.tab-nav button,
+.tabs button,
+.gradio-container button[role="tab"] {
+  font-size: 17px !important;
+  font-weight: 900 !important;
+  padding: 10px 14px !important;
+}
+
+@media (max-width: 640px) {
+  button[role="tab"],
+  .tab-nav button,
+  .tabs button,
+  .gradio-container button[role="tab"] {
+    font-size: 15px !important;
+    padding: 8px 10px !important;
+  }
+}
+
+
+/* v43 fix6: تحسينات تجربة الاستخدام ولوحة القيادة */
+.reserve-guide-box {
+  background: #f0fdf4 !important;
+  border: 1px solid #bbf7d0 !important;
+  border-right: 5px solid #0f766e !important;
+  border-radius: 12px !important;
+  padding: 14px !important;
+  margin-bottom: 12px !important;
+  color: #064e3b !important;
+  font-weight: 800 !important;
+  line-height: 1.9 !important;
+  direction: rtl !important;
+  text-align: right !important;
+  font-size: 15px !important;
+}
+
+.big-section-title {
+  text-align: center !important;
+  color: #004d40 !important;
+  background: #f0fdf4 !important;
+  border: 1px solid #bbf7d0 !important;
+  border-radius: 12px !important;
+  padding: 12px 10px !important;
+  margin: 4px 0 14px 0 !important;
+  font-size: 24px !important;
+  font-weight: 900 !important;
+  direction: rtl !important;
+}
+
+.exemption-rtl-group label {
+  gap: 9px !important;
+  padding-inline: 10px !important;
+}
+
+.exemption-rtl-group input[type="checkbox"] {
+  margin-inline-end: 7px !important;
+  margin-inline-start: 3px !important;
+  flex-shrink: 0 !important;
+}
+
+.exemption-periods-order label {
+  gap: 10px !important;
+}
+
+button:disabled,
+button[disabled],
+.gradio-container button:disabled {
+  opacity: 0.48 !important;
+  filter: grayscale(0.25) !important;
+  cursor: not-allowed !important;
+}
+
+@media (max-width: 640px) {
+  .big-section-title {
+    font-size: 21px !important;
+  }
+  .reserve-guide-box {
+    font-size: 14px !important;
+  }
+}
+
+
+/* v43 fix7: عناوين خارجية كبيرة للأكورديون */
+.external-section-title {
+  text-align: center !important;
+  direction: rtl !important;
+  color: #004d40 !important;
+  background: linear-gradient(135deg, #f0fdf4, #ffffff) !important;
+  border: 2px solid #0f766e !important;
+  border-right: 7px solid #0f766e !important;
+  border-radius: 14px !important;
+  padding: 16px 12px !important;
+  margin: 18px 0 8px 0 !important;
+  font-size: 28px !important;
+  font-weight: 1000 !important;
+  line-height: 1.5 !important;
+  box-shadow: 0 2px 8px rgba(15, 118, 110, 0.14) !important;
+}
+
+.vault-title {
+  background: linear-gradient(135deg, #fffde7, #ffffff) !important;
+  border-color: #facc15 !important;
+  border-right-color: #ca8a04 !important;
+  color: #4d3b00 !important;
+}
+
+.leader-accordion summary,
+.vault-accordion summary,
+.leader-accordion button,
+.vault-accordion button,
+.leader-accordion [role="button"],
+.vault-accordion [role="button"] {
+  font-size: 18px !important;
+  font-weight: 900 !important;
+  color: #004d40 !important;
+}
+
+@media (max-width: 640px) {
+  .external-section-title {
+    font-size: 23px !important;
+    padding: 14px 10px !important;
+  }
+}
+
+
+/* v43 fix8: استرجاع ألوان أزرار الخزنة كما كانت واضحة */
+.vault-save-btn,
+.vault-save-btn button,
+button.vault-save-btn,
+.vault-save-btn * {
+  color: #ffca28 !important;
+  -webkit-text-fill-color: #ffca28 !important;
+  font-weight: 900 !important;
+  font-size: 20px !important;
+}
+
+.vault-save-btn,
+.vault-save-btn button,
+button.vault-save-btn {
+  background: linear-gradient(135deg, #004d40, #00695c) !important;
+  border: none !important;
+  opacity: 1 !important;
+  filter: none !important;
+}
+
+.vault-delete-btn,
+.vault-delete-btn button,
+button.vault-delete-btn,
+.vault-delete-btn * {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  font-weight: 900 !important;
+  font-size: 20px !important;
+}
+
+.vault-delete-btn,
+.vault-delete-btn button,
+button.vault-delete-btn {
+  background: #d8433e !important;
+  border: none !important;
+  opacity: 1 !important;
+  filter: none !important;
+}
+
+.vault-save-btn:disabled,
+.vault-save-btn button:disabled,
+.vault-delete-btn:disabled,
+.vault-delete-btn button:disabled {
+  opacity: 1 !important;
+  filter: none !important;
+}
+
+
+/* v43 fix9: ألوان أزرار لوحة القائد في التفعيل والإطفاء */
+.leader-official-btn,
+.leader-official-btn button,
+button.leader-official-btn {
+  background: linear-gradient(135deg, #004d40, #00695c) !important;
+  border: none !important;
+}
+
+.leader-official-btn *,
+.leader-official-btn button,
+button.leader-official-btn {
+  color: #ffca28 !important;
+  -webkit-text-fill-color: #ffca28 !important;
+  font-weight: 900 !important;
+}
+
+.leader-swap-btn,
+.leader-swap-btn button,
+button.leader-swap-btn {
+  background: linear-gradient(135deg, #00897b, #009688) !important;
+  border: 2px solid #00695c !important;
+}
+
+.leader-swap-btn *,
+.leader-swap-btn button,
+button.leader-swap-btn {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  font-weight: 900 !important;
+}
+
+.leader-penalty-btn,
+.leader-penalty-btn button,
+button.leader-penalty-btn,
+.leader-cancel-btn,
+.leader-cancel-btn button,
+button.leader-cancel-btn {
+  background: #ef3737 !important;
+  border: none !important;
+}
+
+.leader-penalty-btn *,
+.leader-penalty-btn button,
+button.leader-penalty-btn,
+.leader-cancel-btn *,
+.leader-cancel-btn button,
+button.leader-cancel-btn {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  font-weight: 900 !important;
+}
+
+.leader-official-btn:disabled,
+.leader-official-btn button:disabled,
+.leader-swap-btn:disabled,
+.leader-swap-btn button:disabled,
+.leader-penalty-btn:disabled,
+.leader-penalty-btn button:disabled,
+.leader-cancel-btn:disabled,
+.leader-cancel-btn button:disabled {
+  opacity: 0.52 !important;
+  filter: grayscale(0.2) !important;
+}
+
+.leader-official-btn:disabled *,
+.leader-official-btn button:disabled,
+.leader-swap-btn:disabled *,
+.leader-swap-btn button:disabled,
+.leader-penalty-btn:disabled *,
+.leader-penalty-btn button:disabled,
+.leader-cancel-btn:disabled *,
+.leader-cancel-btn button:disabled {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+
+/* v43 fix10: ضبط زر إلغاء غياب اليوم بالكامل للجوال */
+.leader-cancel-btn,
+.leader-cancel-btn button,
+button.leader-cancel-btn {
+  min-height: 58px !important;
+  white-space: normal !important;
+  line-height: 1.35 !important;
+  padding: 10px 14px !important;
+  text-align: center !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.leader-cancel-btn *,
+.leader-cancel-btn button,
+button.leader-cancel-btn {
+  font-size: 20px !important;
+  line-height: 1.35 !important;
+}
+
+@media (max-width: 640px) {
+  .leader-cancel-btn,
+  .leader-cancel-btn button,
+  button.leader-cancel-btn {
+    min-height: 64px !important;
+    padding: 10px 12px !important;
+  }
+
+  .leader-cancel-btn *,
+  .leader-cancel-btn button,
+  button.leader-cancel-btn {
+    font-size: 18px !important;
+    line-height: 1.25 !important;
+  }
+}
+
+
+/* v43 fix13: إرشادات الخزنة والتبادل الودي */
+.vault-guide-box,
+.swap-guide-box {
+  background: #f0fdf4 !important;
+  border: 1px solid #bbf7d0 !important;
+  border-right: 5px solid #0f766e !important;
+  border-radius: 12px !important;
+  padding: 14px !important;
+  margin: 10px 0 14px 0 !important;
+  color: #064e3b !important;
+  font-weight: 800 !important;
+  line-height: 1.9 !important;
+  direction: rtl !important;
+  text-align: right !important;
+  font-size: 15px !important;
+}
+
+.vault-guide-box {
+  background: #fffde7 !important;
+  border-color: #fde68a !important;
+  border-right-color: #ca8a04 !important;
+  color: #4d3b00 !important;
+}
+
+@media (max-width: 640px) {
+  .vault-guide-box,
+  .swap-guide-box {
+    font-size: 14px !important;
+    padding: 13px !important;
+  }
+}
+
+
+/* v44-A: لوحة الدخول الرئيسية لمنظومة مسار */
+.masar-home-dashboard {
+  direction: rtl !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.masar-home-hero {
+  background: linear-gradient(135deg, #004d40 0%, #00695c 58%, #003c32 100%) !important;
+  border: 2px solid rgba(255, 202, 40, 0.82) !important;
+  border-radius: 20px !important;
+  padding: 22px 18px !important;
+  margin: 16px 0 18px 0 !important;
+  text-align: center !important;
+  box-shadow: 0 10px 24px rgba(0, 77, 64, 0.18) !important;
+}
+
+.masar-home-title {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  font-size: 28px !important;
+  font-weight: 1000 !important;
+  line-height: 1.4 !important;
+  text-shadow: 0 3px 8px rgba(0,0,0,0.25) !important;
+}
+
+.masar-home-subtitle {
+  color: #ffca28 !important;
+  -webkit-text-fill-color: #ffca28 !important;
+  font-size: 18px !important;
+  font-weight: 900 !important;
+  margin-top: 8px !important;
+}
+
+.masar-home-note {
+  color: #e8f5e9 !important;
+  -webkit-text-fill-color: #e8f5e9 !important;
+  font-size: 15px !important;
+  font-weight: 800 !important;
+  margin-top: 5px !important;
+}
+
+.masar-card-grid {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 14px !important;
+  align-items: stretch !important;
+}
+
+.masar-card {
+  background: linear-gradient(180deg, #ffffff 0%, #f8fffb 100%) !important;
+  border: 1.5px solid #b7dfd5 !important;
+  border-right: 7px solid #0f766e !important;
+  border-radius: 18px !important;
+  padding: 16px 14px !important;
+  box-shadow: 0 6px 16px rgba(15, 118, 110, 0.10) !important;
+  min-height: 180px !important;
+  box-sizing: border-box !important;
+  transition: transform 0.18s ease, box-shadow 0.18s ease !important;
+}
+
+.masar-card:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 10px 24px rgba(15, 118, 110, 0.16) !important;
+}
+
+.masar-card-icon {
+  font-size: 34px !important;
+  line-height: 1.2 !important;
+  text-align: center !important;
+  margin-bottom: 6px !important;
+}
+
+.masar-card-title {
+  color: #004d40 !important;
+  -webkit-text-fill-color: #004d40 !important;
+  font-size: 19px !important;
+  font-weight: 1000 !important;
+  text-align: center !important;
+  line-height: 1.4 !important;
+}
+
+.masar-card-desc {
+  color: #475569 !important;
+  -webkit-text-fill-color: #475569 !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  text-align: center !important;
+  line-height: 1.65 !important;
+  margin: 6px 0 10px 0 !important;
+}
+
+.masar-card-btn,
+.masar-card-btn button,
+button.masar-card-btn {
+  background: linear-gradient(135deg, #004d40, #00695c) !important;
+  color: #ffca28 !important;
+  -webkit-text-fill-color: #ffca28 !important;
+  border: none !important;
+  border-radius: 12px !important;
+  font-weight: 1000 !important;
+  min-height: 42px !important;
+}
+
+.home-back-btn,
+.home-back-btn button,
+button.home-back-btn {
+  background: linear-gradient(135deg, #004d40, #00695c) !important;
+  color: #ffca28 !important;
+  -webkit-text-fill-color: #ffca28 !important;
+  border: 1.5px solid #ffca28 !important;
+  border-radius: 12px !important;
+  font-weight: 1000 !important;
+  font-size: 17px !important;
+  margin: 10px 0 14px 0 !important;
+  min-height: 46px !important;
+}
+
+.masar-tabs-container {
+  direction: rtl !important;
+}
+
+@media (max-width: 900px) {
+  .masar-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .masar-home-hero {
+    padding: 18px 12px !important;
+    margin-top: 12px !important;
+  }
+
+  .masar-home-title {
+    font-size: 23px !important;
+  }
+
+  .masar-home-subtitle {
+    font-size: 16px !important;
+  }
+
+  .masar-card-grid {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+  }
+
+  .masar-card {
+    width: 100% !important;
+    min-height: 154px !important;
+    padding: 15px 12px !important;
+  }
+
+  .masar-card-title {
+    font-size: 18px !important;
+  }
+
+  .masar-card-desc {
+    font-size: 14px !important;
+  }
+}
+
+
+/* v44-E: ملاحظة فتح الأقسام */
+.section-open-note {
+  background: #f0fdf4 !important;
+  color: #064e3b !important;
+  -webkit-text-fill-color: #064e3b !important;
+  border: 1px solid #bbf7d0 !important;
+  border-right: 5px solid #0f766e !important;
+  border-radius: 10px !important;
+  padding: 10px 12px !important;
+  margin: 0 0 12px 0 !important;
+  font-weight: 900 !important;
+  text-align: center !important;
+  direction: rtl !important;
+}
+
+
+
+
+/* v44-O: إخفاء شريط التبويبات القديم بصريًا لأن التنقل صار من البطاقات */
+.masar-tabs-container .tab-nav,
+.masar-tabs-container [role="tablist"] {
+  display: none !important;
+}
+
+.masar-tabs-container .tabs,
+.masar-tabs-container .tabitem {
+  direction: rtl !important;
+}
+
+
+
+
+
+
+/* v44-Q: تحميل التبويبات دائمًا وإخفاء الحاوية بـ CSS فقط */
+#masar_tabs_container {
+  display: none !important;
+}
+
+#masar_home_dashboard {
+  display: block;
+}
+
+/* إخفاء شريط التبويبات القديم بصريًا لأن التنقل من البطاقات */
+.masar-tabs-container .tab-nav,
+.masar-tabs-container [role="tablist"] {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+
+/* v44-S: تهذيب زر العودة وزر الخروج على شاشات اللابتوب فقط */
+@media (min-width: 769px) {
+  /* زر العودة للوحة الرئيسية */
+  .home-back-btn,
+  .home-back-btn button,
+  button.home-back-btn {
+    width: 420px !important;
+    max-width: 42vw !important;
+    min-height: 46px !important;
+    margin: 14px auto 18px auto !important;
+    display: block !important;
+    border-radius: 14px !important;
+    font-size: 18px !important;
+    font-weight: 1000 !important;
+    padding: 8px 22px !important;
+    box-shadow: 0 6px 16px rgba(0, 77, 64, 0.16) !important;
+  }
+
+  /* زر الخروج والإقفال */
+  .logout-btn,
+  .logout-btn button,
+  button.logout-btn,
+  .reset-btn.logout-btn,
+  button.reset-btn.logout-btn {
+    width: 230px !important;
+    max-width: 24vw !important;
+    min-height: 44px !important;
+    margin: 0 0 0 auto !important;
+    border-radius: 12px !important;
+    font-size: 16px !important;
+    font-weight: 1000 !important;
+    padding: 8px 18px !important;
+    box-shadow: 0 5px 14px rgba(185, 28, 28, 0.16) !important;
+  }
+
+  /* لا يغيّر الهاتف: فقط تحسين تموضع الصف العلوي إن كانت الكلاسات موجودة */
+  .top-action-row,
+  .welcome-action-row {
+    align-items: center !important;
+    gap: 14px !important;
+  }
+}
+
+
+/* v44-T: ضبط محاذاة زر الخروج مع رسالة الترحيب على اللابتوب فقط */
+@media (min-width: 769px) {
+  /* صف رسالة الترحيب وزر الخروج */
+  .main-app-header-row,
+  .welcome-row,
+  .top-row,
+  .top-action-row,
+  .welcome-action-row {
+    display: flex !important;
+    align-items: center !important;
+    gap: 14px !important;
+  }
+
+  /* رسالة الترحيب */
+  .welcome-box,
+  .welcome-html,
+  .welcome-message {
+    display: flex !important;
+    align-items: center !important;
+    min-height: 46px !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+  }
+
+  /* زر خروج وإقفال: محاذاة رأسية مع رسالة الترحيب */
+  .logout-btn,
+  .logout-btn button,
+  button.logout-btn,
+  .reset-btn.logout-btn,
+  button.reset-btn.logout-btn {
+    align-self: center !important;
+    transform: translateY(0) !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    min-height: 46px !important;
+    height: 46px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    line-height: 1.2 !important;
+  }
+}
+
+
+/* v44-U: محاذاة دقيقة لزر الخروج مع رسالة الترحيب على اللابتوب فقط */
+@media (min-width: 769px) {
+  .top-user-row {
+    display: flex !important;
+    align-items: center !important;
+    gap: 16px !important;
+    width: 100% !important;
+    margin: 12px 0 14px 0 !important;
+  }
+
+  .top-user-row .welcome-col,
+  .top-user-row .logout-col {
+    display: flex !important;
+    align-items: center !important;
+  }
+
+  .top-user-row .welcome-col {
+    flex: 1 1 auto !important;
+  }
+
+  .top-user-row .logout-col {
+    flex: 0 0 230px !important;
+    max-width: 230px !important;
+    min-width: 210px !important;
+    justify-content: center !important;
+  }
+
+  .top-user-row .welcome-html-box,
+  .top-user-row .welcome-html-box > div,
+  .top-user-row .welcome-html-box .prose,
+  .top-user-row .welcome-html-box .markdown {
+    width: 100% !important;
+    min-height: 46px !important;
+    margin: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+  }
+
+  .top-user-row .logout-col button,
+  .top-user-row .logout-btn button,
+  .top-user-row button.logout-btn,
+  .top-user-row .reset-btn button {
+    width: 230px !important;
+    max-width: 230px !important;
+    height: 46px !important;
+    min-height: 46px !important;
+    margin: 0 !important;
+    padding: 8px 18px !important;
+    border-radius: 12px !important;
+    font-size: 16px !important;
+    font-weight: 1000 !important;
+    line-height: 1.2 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    align-self: center !important;
+    transform: none !important;
+  }
+
+  .top-user-row .logout-col > div {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    margin: 0 !important;
+  }
+}
+
+
+/* v44-V: إعادة توسيط رسالة الترحيب على اللابتوب فقط دون المساس ببقية التنسيقات */
+@media (min-width: 769px) {
+  .top-user-row .welcome-col {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  .top-user-row .welcome-html-box,
+  .top-user-row .welcome-html-box > div,
+  .top-user-row .welcome-html-box .prose,
+  .top-user-row .welcome-html-box .markdown {
+    width: 100% !important;
+    text-align: center !important;
+    justify-content: center !important;
+    align-items: center !important;
+  }
+
+  .top-user-row .welcome-html-box * {
+    text-align: center !important;
+  }
+
+  .top-user-row .logout-col {
+    align-items: center !important;
+    justify-content: center !important;
+  }
+}
+
+
+/* v44-W: إصلاح ربط البطاقات بالتبويبات دون إظهار شريط التبويبات للمستخدم */
+#masar_tabs_container .tab-nav,
+#masar_tabs_container [role="tablist"],
+.masar-tabs-container .tab-nav,
+.masar-tabs-container [role="tablist"] {
+  display: flex !important;
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+#masar_tabs_container {
+  display: none !important;
+}
+
+
+/* v44-AV — حركة 4D تفاعلية لشعار بوابة الدخول فقط */
+@keyframes logo4d {
+    0%   { transform: perspective(400px) rotateY(-12deg) rotateX(5deg) scale(1.08); box-shadow: 0 15px 40px rgba(0,0,0,0.6), 0 0 0 5px rgba(255,202,40,0.3), 4px -4px 15px rgba(255,255,255,0.2); }
+    25%  { transform: perspective(400px) rotateY(8deg) rotateX(-3deg) scale(1.10); box-shadow: 0 20px 50px rgba(0,0,0,0.7), 0 0 0 7px rgba(255,202,40,0.5), -4px -4px 20px rgba(255,255,255,0.3); }
+    50%  { transform: perspective(400px) rotateY(12deg) rotateX(5deg) scale(1.08); box-shadow: 0 15px 40px rgba(0,0,0,0.6), 0 0 0 5px rgba(255,202,40,0.3), -4px 4px 15px rgba(255,255,255,0.2); }
+    75%  { transform: perspective(400px) rotateY(-8deg) rotateX(-3deg) scale(1.10); box-shadow: 0 20px 50px rgba(0,0,0,0.7), 0 0 0 7px rgba(255,202,40,0.5), 4px -4px 20px rgba(255,255,255,0.3); }
+    100% { transform: perspective(400px) rotateY(-12deg) rotateX(5deg) scale(1.08); box-shadow: 0 15px 40px rgba(0,0,0,0.6), 0 0 0 5px rgba(255,202,40,0.3), 4px -4px 15px rgba(255,255,255,0.2); }
+}
+
+
+/* waveMove — تحريك الموجة الذهبية في واجهة الدخول فقط */
+@keyframes waveMove {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+}
+
+
+/* v44 final: إزالة الإطار البرتقالي الخارجي الذي يظهر حول محتوى التبويبات فقط */
+#masar_tabs_container,
+#masar_tabs_container > .block,
+#masar_tabs_container .tabs,
+#masar_tabs_container .tabitem,
+#masar_tabs_container [role="tabpanel"],
+#masar_tabs_container [data-testid="tabs"],
+#masar_tabs_container [data-testid="tabitem"] {
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+#masar_tabs_container:focus,
+#masar_tabs_container:focus-visible,
+#masar_tabs_container .tabitem:focus,
+#masar_tabs_container .tabitem:focus-visible,
+#masar_tabs_container [role="tabpanel"]:focus,
+#masar_tabs_container [role="tabpanel"]:focus-visible {
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+
+/* v44 final v2: إزالة الإطار البرتقالي من طبقات TabPanel الداخلية فقط */
+#masar_tabs_container,
+#masar_tabs_container > div,
+#masar_tabs_container > div > div,
+#masar_tabs_container > div > div > div,
+#masar_tabs_container .tabs,
+#masar_tabs_container [class*="tabs"],
+#masar_tabs_container [class*="tabitem"],
+#masar_tabs_container [class*="tabpanel"],
+#masar_tabs_container [data-testid*="tabs"],
+#masar_tabs_container [data-testid*="tabitem"],
+#masar_tabs_container [data-testid*="tabpanel"],
+#masar_tabs_container [role="tabpanel"] {
+    border-color: transparent !important;
+    border-left-color: transparent !important;
+    border-right-color: transparent !important;
+    border-top-color: transparent !important;
+    border-bottom-color: transparent !important;
+    outline: none !important;
+    outline-color: transparent !important;
+    box-shadow: none !important;
+}
+
+#masar_tabs_container .tabs::before,
+#masar_tabs_container .tabs::after,
+#masar_tabs_container [class*="tabs"]::before,
+#masar_tabs_container [class*="tabs"]::after,
+#masar_tabs_container [class*="tabitem"]::before,
+#masar_tabs_container [class*="tabitem"]::after,
+#masar_tabs_container [role="tabpanel"]::before,
+#masar_tabs_container [role="tabpanel"]::after {
+    display: none !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+
+/* v44 final: إزالة الإطار البرتقالي من عناصر رفع الملفات فقط */
+.gradio-container .upload-container,
+.gradio-container [data-testid="file"],
+.gradio-container .file-preview,
+.gradio-container input[type="file"],
+.gradio-container .gr-file,
+.gradio-container .block:has(input[type="file"]) {
+    border-color: #004d40 !important;
+    outline-color: #004d40 !important;
+    box-shadow: none !important;
+}
+
+.gradio-container .upload-container:focus-within,
+.gradio-container .block:has(input[type="file"]):focus-within {
+    border-color: #004d40 !important;
+    box-shadow: 0 0 0 2px rgba(0,77,64,0.2) !important;
+}
+
+
+/* v44 final safe: إزالة الإطار البرتقالي من عناصر Gradio داخل حاوية الأقسام فقط */
+#masar_tabs_container .block,
+#masar_tabs_container .form,
+#masar_tabs_container .gap,
+#masar_tabs_container details,
+#masar_tabs_container .tabitem,
+#masar_tabs_container [data-testid],
+#masar_tabs_container .wrap,
+#masar_tabs_container .container {
+    border-color: #e5e7eb !important;
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+#masar_tabs_container .block:focus,
+#masar_tabs_container .block:focus-within,
+#masar_tabs_container *:focus {
+    outline: none !important;
+    border-color: #004d40 !important;
+    box-shadow: none !important;
+}
+
+/* تحديداً لعناصر الرفع داخل الأقسام */
+#masar_tabs_container .upload-container,
+#masar_tabs_container .file-preview {
+    border-color: #e5e7eb !important;
+    box-shadow: none !important;
+}
+
+
+
+/* v1.8.3 Fix 4 — RTL polish and school data center icon organization */
+.gradio-container,
+.gradio-container label,
+.gradio-container textarea,
+.gradio-container input,
+.gradio-container table,
+.gradio-container th,
+.gradio-container td,
+.gradio-container .prose,
+.gradio-container .markdown,
+.gradio-container [data-testid="block-info"],
+.gradio-container [role="combobox"],
+.gradio-container [role="listbox"],
+.gradio-container [role="option"] {
+    direction: rtl !important;
+    text-align: right !important;
+}
+
+.gradio-container th,
+.gradio-container td {
+    text-align: center !important;
+}
+
+/* Dropdown popups can be rendered outside the local component tree, because apparently menus need independence. */
+div[data-testid="dropdown-options"],
+div[data-testid="dropdown-options"] *,
+.svelte-select-list,
+.svelte-select-list *,
+[role="listbox"],
+[role="option"] {
+    direction: rtl !important;
+    text-align: right !important;
+}
+
+
+.school-data-center-note {
+    background: #eef6f3;
+    color: #004d40;
+    border-right: 5px solid #0f766e;
+    border-radius: 12px;
+    padding: 12px;
+    margin: 10px 0 14px;
+    font-weight: 800;
+    line-height: 1.8;
+    text-align: right !important;
+    direction: rtl !important;
+}
+
+.school-data-icon-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin: 10px 0 18px;
+    direction: rtl !important;
+}
+
+.school-data-icon-card {
+    direction: rtl !important;
+    text-align: center !important;
+    background: #ffffff;
+    border: 1px solid #dbe3e8;
+    border-radius: 16px;
+    padding: 15px 12px;
+    box-shadow: 0 8px 20px rgba(15, 118, 110, 0.08);
+    min-height: 120px;
+}
+
+.school-data-icon-card * {
+    text-align: center !important;
+}
+
+.school-data-icon {
+    display: block;
+    font-size: 31px;
+    line-height: 1;
+    margin-bottom: 9px;
+}
+
+.school-data-card-title {
+    font-size: 17px;
+    font-weight: 900;
+    color: #004d40;
+    margin-bottom: 6px;
+}
+
+.school-data-card-desc {
+    font-size: 13px;
+    font-weight: 700;
+    color: #475569;
+    line-height: 1.7;
+}
+
+
+
+/* v1.8.3 Fix 5 — clickable school data center panels */
+.school-data-nav-row {
+    direction: rtl !important;
+    gap: 10px !important;
+    margin: 10px 0 14px !important;
+}
+.school-data-nav-btn {
+    min-height: 82px !important;
+    border-radius: 16px !important;
+    background: #ffffff !important;
+    border: 1px solid #dbe3e8 !important;
+    color: #004d40 !important;
+    font-weight: 900 !important;
+    box-shadow: 0 8px 20px rgba(15, 118, 110, 0.08) !important;
+    white-space: pre-line !important;
+    line-height: 1.55 !important;
+}
+.school-data-nav-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px rgba(15, 118, 110, 0.13) !important;
+}
+.school-data-panel-box {
+    direction: rtl !important;
+    text-align: right !important;
+    background: #ffffff;
+    border: 1px solid #dbe3e8;
+    border-radius: 16px;
+    padding: 12px;
+    margin-top: 10px;
+    box-shadow: 0 8px 20px rgba(15, 118, 110, 0.06);
+}
+.school-data-panel-title {
+    background: #eef6f3;
+    color: #004d40;
+    border-right: 5px solid #0f766e;
+    border-radius: 12px;
+    padding: 11px 12px;
+    margin: 4px 0 14px;
+    font-weight: 900;
+    line-height: 1.8;
+    text-align: right;
+}
+
+.masar-login-wave-wrap {
+    margin-bottom: -4px !important;
+    line-height: 0 !important;
+    overflow: hidden !important;
+    margin-left: -30px !important;
+    margin-right: -30px !important;
+    height: 18px !important;
+    direction: ltr !important;
+}
+
+.masar-login-wave-track {
+    direction: ltr !important;
+    display: flex !important;
+    width: 200% !important;
+    height: 18px !important;
+    animation: waveMoveContinuous 4.5s linear infinite !important;
+    will-change: transform !important;
+}
+
+.masar-login-wave-track svg {
+    display: block !important;
+    width: 50% !important;
+    min-width: 50% !important;
+    flex: 0 0 50% !important;
+    height: 18px !important;
+}
+
+@keyframes waveMoveContinuous {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+}
+
+.login-box,
+.login-box * {
+    text-align: center;
+}
+
+.login-box input {
+    text-align: center !important;
+    direction: rtl !important;
+}
+
+
+
+/* v1.8.3 Fix 7 — remove double-click feeling in school data center panels */
+.direct-panel-accordion {
+    border: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    margin-top: 0 !important;
+}
+
+.direct-panel-accordion > details,
+.direct-panel-accordion details {
+    border: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+}
+
+.direct-panel-accordion summary,
+.direct-panel-accordion > details > summary {
+    display: none !important;
+}
+
+.direct-panel-accordion .wrap,
+.direct-panel-accordion .form,
+.direct-panel-accordion .block {
+    border-top: 0 !important;
+}
+
+.school-data-panel-box {
+    scroll-margin-top: 20px;
+}
+
+.school-data-panel-box .school-data-panel-title {
+    margin-bottom: 14px !important;
+}
+
+
+
+/* v1.8.3 Fix 9 — safe continuous login wave + instant school data panels */
+.masar-login-wave-safe {
+    height: 18px !important;
+    margin-bottom: -4px !important;
+    margin-left: -28px !important;
+    margin-right: -28px !important;
+    overflow: hidden !important;
+    line-height: 0 !important;
+    direction: ltr !important;
+    background: var(--masar-wave-gold, #ffca28) !important;
+    position: relative !important;
+}
+
+.masar-login-wave-safe-track {
+    display: flex !important;
+    width: 200% !important;
+    height: 18px !important;
+    animation: masarWaveSafeMove 4.5s linear infinite !important;
+    will-change: transform !important;
+    direction: ltr !important;
+}
+
+.masar-login-wave-safe-track svg {
+    display: block !important;
+    width: 50% !important;
+    min-width: 50% !important;
+    height: 18px !important;
+    flex: 0 0 50% !important;
+}
+
+@keyframes masarWaveSafeMove {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+}
+
+/* Python controls panel visibility; CSS only highlights the selected card. */
+
+body.masar-sd-panel-references #school_data_btn_references,
+body.masar-sd-panel-identity #school_data_btn_identity,
+body.masar-sd-panel-periods #school_data_btn_periods,
+body.masar-sd-panel-accounts #school_data_btn_accounts,
+body.masar-sd-panel-audit #school_data_btn_audit {
+    border-color: #004d40 !important;
+    background: #eef6f3 !important;
+    box-shadow: 0 8px 18px rgba(0, 77, 64, 0.16) !important;
+    transform: translateY(-1px);
+}
+
+.school-data-panel-box {
+    margin-top: 12px !important;
+}
+
+
+
+/* v1.8.3 Fix 10 — direct JS binding for school data panels */
+.school-data-panel-box {
+    margin-top: 12px !important;
+}
+
+.school-data-panel-title {
+    background: #eef6f3;
+    color: #004d40;
+    border-right: 5px solid #0f766e;
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin: 10px 0 14px;
+    font-weight: 900;
+    line-height: 1.8;
+    text-align: right !important;
+    direction: rtl !important;
+}
+
+.school-data-panel-lead {
+    background: #f8fafc;
+    color: #334155;
+    border: 1px solid #e2e8f0;
+    border-right: 5px solid #64748b;
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin: 8px 0 14px;
+    font-weight: 800;
+    line-height: 1.8;
+    text-align: right !important;
+    direction: rtl !important;
+}
+
+.school-data-inner-card,
+.school-data-subsection-card {
+    background: #ffffff !important;
+    border: 1px solid #dbe3e8 !important;
+    border-radius: 16px !important;
+    padding: 14px !important;
+    margin: 10px 0 14px !important;
+    box-shadow: 0 8px 18px rgba(15, 118, 110, 0.06) !important;
+}
+
+.school-data-subsection-title {
+    color: #004d40;
+    font-weight: 900;
+    font-size: 16px;
+    margin: 4px 0 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e2e8f0;
+    text-align: right !important;
+    direction: rtl !important;
+}
+
+.school-data-muted-note {
+    color: #64748b;
+    font-weight: 800;
+    line-height: 1.8;
+    margin: 6px 0 12px;
+    text-align: right !important;
+    direction: rtl !important;
+}
+
+.school-data-nav-row button {
+    min-height: 96px !important;
+    border-radius: 18px !important;
+    font-weight: 900 !important;
+    font-size: 18px !important;
+}
+
+/* Masar unified post-login header fix
+   Source base: original masar_styles.css fingerprint 90b3f651...
+   Scope: build_header_html / .main-header only.
+   Login page and gold wave styles are intentionally untouched.
+*/
+
+/* Base: phone-first compact vertical header */
+.main-header,
+.main-header * {
+    box-sizing: border-box !important;
+}
+
+.main-header {
+    direction: rtl !important;
+    background: #004d40 !important;
+    padding: 8px 7px !important;
+    border-radius: 0 0 14px 14px !important;
+    border-bottom: 3px solid #ffca28 !important;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.13) !important;
+    margin: 0 0 10px 0 !important;
+    overflow: hidden !important;
+}
+
+.main-header .header-grid,
+.header-grid {
+    direction: rtl !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 5px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+    text-align: center !important;
+}
+
+.main-header .h-logo,
+.h-logo {
+    order: 1 !important;
+    width: 100% !important;
+    text-align: center !important;
+    margin: 0 !important;
+    direction: ltr !important;
+}
+
+.main-header .h-logo img,
+.h-logo img {
+    display: block !important;
+    width: 56px !important;
+    height: 56px !important;
+    object-fit: contain !important;
+    background: #ffffff !important;
+    border-radius: 50% !important;
+    border: 2px solid #ffca28 !important;
+    box-shadow: 0 4px 9px rgba(0,0,0,0.24) !important;
+    padding: 2px !important;
+    margin: 0 auto !important;
+}
+
+.main-header .h-ministry,
+.h-ministry {
+    order: 2 !important;
+    width: 100% !important;
+    max-width: 94vw !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    text-align: center !important;
+    direction: rtl !important;
+    font-size: 10.5px !important;
+    line-height: 1.35 !important;
+    font-weight: 850 !important;
+    white-space: normal !important;
+    overflow-wrap: break-word !important;
+    margin: 0 auto !important;
+}
+
+.main-header .h-title,
+.h-title {
+    order: 3 !important;
+    width: min(90vw, 370px) !important;
+    max-width: 370px !important;
+    min-width: 0 !important;
+    direction: rtl !important;
+    text-align: center !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 2px !important;
+    background: linear-gradient(135deg, rgba(0, 77, 64, 0.72), rgba(0, 55, 46, 0.88)) !important;
+    border: 1.4px solid rgba(255, 202, 40, 0.82) !important;
+    border-radius: 12px !important;
+    padding: 7px 9px !important;
+    margin: 1px auto !important;
+    color: #ffffff !important;
+    box-shadow:
+        0 5px 12px rgba(0, 0, 0, 0.15),
+        inset 0 0 10px rgba(255, 255, 255, 0.035) !important;
+}
+
+.main-header .h-title-main,
+.h-title-main {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    font-size: clamp(22px, 7.4vw, 28px) !important;
+    font-weight: 1000 !important;
+    line-height: 1.05 !important;
+    letter-spacing: 0 !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+    padding: 0 !important;
+    margin: 0 auto !important;
+    text-shadow: 0 3px 8px rgba(0,0,0,0.30) !important;
+}
+
+.main-header .h-title-main::after,
+.h-title-main::after {
+    content: "" !important;
+    display: block !important;
+    width: 55% !important;
+    height: 2px !important;
+    margin: 5px auto 0 auto !important;
+    border-radius: 999px !important;
+    background: linear-gradient(90deg, transparent, #ffca28, transparent) !important;
+    opacity: 0.9 !important;
+}
+
+.main-header .h-title-sub,
+.h-title-sub {
+    color: #ffdc64 !important;
+    -webkit-text-fill-color: #ffdc64 !important;
+    font-size: clamp(10.5px, 3.25vw, 12.8px) !important;
+    font-weight: 900 !important;
+    line-height: 1.25 !important;
+    text-align: center !important;
+    white-space: normal !important;
+    overflow-wrap: break-word !important;
+    padding: 0 3px !important;
+    margin: 0 auto !important;
+    text-shadow: 0 2px 5px rgba(0,0,0,0.20) !important;
+}
+
+.main-header .h-school,
+.h-school {
+    order: 4 !important;
+    width: 100% !important;
+    max-width: 94vw !important;
+    color: #ffdf6d !important;
+    -webkit-text-fill-color: #ffdf6d !important;
+    text-align: center !important;
+    direction: rtl !important;
+    font-size: 11.5px !important;
+    line-height: 1.3 !important;
+    font-weight: 950 !important;
+    white-space: normal !important;
+    overflow-wrap: break-word !important;
+    margin: 0 auto !important;
+}
+
+.main-header .h-credits,
+.h-credits {
+    order: 5 !important;
+    width: 100% !important;
+    max-width: 94vw !important;
+    display: flex !important;
+    justify-content: center !important;
+    text-align: center !important;
+    margin: 0 auto !important;
+    direction: rtl !important;
+}
+
+.main-header .credits-box,
+.credits-box {
+    display: block !important;
+    width: auto !important;
+    max-width: 94vw !important;
+    background: linear-gradient(135deg, #004d40, #00332a) !important;
+    color: #ffca28 !important;
+    -webkit-text-fill-color: #ffca28 !important;
+    border: 1px dashed #ffca28 !important;
+    border-radius: 8px !important;
+    padding: 4px 8px !important;
+    margin: 0 auto !important;
+    font-size: 10px !important;
+    line-height: 1.35 !important;
+    font-weight: 900 !important;
+    text-align: center !important;
+    white-space: normal !important;
+    overflow-wrap: break-word !important;
+    box-shadow: inset 0 0 8px rgba(0,0,0,0.18) !important;
+}
+
+/* Tablet and narrow desktop: still vertical, slightly larger */
+@media (min-width: 641px) and (max-width: 1119px) {
+    .main-header {
+        padding: 14px 10px !important;
+        border-radius: 0 0 18px 18px !important;
+        border-bottom-width: 4px !important;
+        margin-bottom: 14px !important;
+    }
+
+    .main-header .header-grid,
+    .header-grid {
+        flex-direction: column !important;
+        gap: 8px !important;
+        max-width: 940px !important;
+    }
+
+    .main-header .h-logo img,
+    .h-logo img {
+        width: 75px !important;
+        height: 75px !important;
+        border-width: 3px !important;
+        padding: 3px !important;
+    }
+
+    .main-header .h-ministry,
+    .h-ministry {
+        max-width: 88vw !important;
+        font-size: 13px !important;
+        line-height: 1.45 !important;
+    }
+
+    .main-header .h-title,
+    .h-title {
+        width: min(86vw, 590px) !important;
+        max-width: 590px !important;
+        padding: 11px 18px !important;
+        border-radius: 16px !important;
+        gap: 4px !important;
+    }
+
+    .main-header .h-title-main,
+    .h-title-main {
+        font-size: clamp(32px, 5.8vw, 40px) !important;
+    }
+
+    .main-header .h-title-main::after,
+    .h-title-main::after {
+        width: 62% !important;
+        height: 2.5px !important;
+        margin-top: 7px !important;
+    }
+
+    .main-header .h-title-sub,
+    .h-title-sub {
+        font-size: clamp(14px, 2.6vw, 17px) !important;
+    }
+
+    .main-header .h-school,
+    .h-school {
+        max-width: 88vw !important;
+        font-size: 15.5px !important;
+        line-height: 1.35 !important;
+    }
+
+    .main-header .credits-box,
+    .credits-box {
+        max-width: 78vw !important;
+        padding: 6px 12px !important;
+        font-size: 13px !important;
+        line-height: 1.4 !important;
+    }
+}
+
+/* Desktop: only here the header becomes a three-column grid */
+@media (min-width: 1120px) {
+    .main-header {
+        direction: ltr !important;
+        padding: 18px 10px !important;
+        border-radius: 0 0 20px 20px !important;
+        border-bottom-width: 5px !important;
+        margin-bottom: 15px !important;
+    }
+
+    .main-header .header-grid,
+    .header-grid {
+        direction: ltr !important;
+        display: grid !important;
+        grid-template-columns: minmax(90px, 120px) minmax(0, 720px) minmax(220px, 300px) !important;
+        grid-template-areas:
+            "logo title ministry"
+            "logo school ministry"
+            "logo credits ministry" !important;
+        align-items: center !important;
+        justify-items: center !important;
+        justify-content: center !important;
+        column-gap: 28px !important;
+        row-gap: 6px !important;
+        max-width: 1220px !important;
+        margin: 0 auto !important;
+    }
+
+    .main-header .h-logo,
+    .h-logo {
+        order: initial !important;
+        grid-area: logo !important;
+        width: auto !important;
+        justify-self: start !important;
+        text-align: left !important;
+        direction: ltr !important;
+    }
+
+    .main-header .h-logo img,
+    .h-logo img {
+        width: 85px !important;
+        height: 85px !important;
+        border-width: 3px !important;
+        padding: 3px !important;
+        margin: 0 !important;
+    }
+
+    .main-header .h-ministry,
+    .h-ministry {
+        order: initial !important;
+        grid-area: ministry !important;
+        width: 100% !important;
+        max-width: 300px !important;
+        justify-self: end !important;
+        text-align: right !important;
+        direction: rtl !important;
+        font-size: 14px !important;
+        line-height: 1.6 !important;
+        margin: 0 !important;
+    }
+
+    .main-header .h-title,
+    .h-title {
+        order: initial !important;
+        grid-area: title !important;
+        width: 100% !important;
+        max-width: 720px !important;
+        min-width: 0 !important;
+        justify-self: center !important;
+        padding: 14px 30px 13px 30px !important;
+        border-radius: 18px !important;
+        gap: 7px !important;
+        margin: 0 auto 6px auto !important;
+    }
+
+    .main-header .h-title-main,
+    .h-title-main {
+        font-size: 44px !important;
+        line-height: 1.08 !important;
+    }
+
+    .main-header .h-title-main::after,
+    .h-title-main::after {
+        width: 58% !important;
+        height: 3px !important;
+        margin-top: 8px !important;
+    }
+
+    .main-header .h-title-sub,
+    .h-title-sub {
+        font-size: 18px !important;
+        line-height: 1.25 !important;
+        white-space: nowrap !important;
+    }
+
+    .main-header .h-school,
+    .h-school {
+        order: initial !important;
+        grid-area: school !important;
+        width: 100% !important;
+        max-width: 720px !important;
+        justify-self: center !important;
+        text-align: center !important;
+        direction: rtl !important;
+        font-size: 18px !important;
+        line-height: 1.35 !important;
+        margin: 0 auto 4px auto !important;
+    }
+
+    .main-header .h-credits,
+    .h-credits {
+        order: initial !important;
+        grid-area: credits !important;
+        width: 100% !important;
+        max-width: 720px !important;
+        justify-self: center !important;
+        display: flex !important;
+        justify-content: center !important;
+        text-align: center !important;
+        margin: 0 auto !important;
+        direction: rtl !important;
+    }
+
+    .main-header .credits-box,
+    .credits-box {
+        width: 100% !important;
+        max-width: 620px !important;
+        padding: 8px 15px !important;
+        font-size: 14px !important;
+        line-height: 1.45 !important;
+        margin: 0 auto !important;
+    }
+}
+
