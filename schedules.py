@@ -13,7 +13,7 @@ import html as html_lib
 
 import pandas as pd
 
-from config import PAGE_SIZE, ADMIN_ROLES
+from config import PAGE_SIZE
 from storage import teachers_db, MAX_PERIODS, OFFICIAL_DEPTS, load_db
 
 
@@ -52,7 +52,8 @@ def resolve_effective_dept(dept_value):
 def format_teacher_name(t_name):
     if t_name in teachers_db:
         role = teachers_db[t_name].get("role", "معلم")
-        if role in ["معلم أول"] + ADMIN_ROLES: return f"{t_name} ({role})"
+        if role == "معلم أول" or teachers_db[t_name].get("is_admin_staff", False):
+            return f"{t_name} ({role})"
     return t_name
 
 
@@ -61,8 +62,7 @@ def get_teacher_choices(dept_filter="الكل"):
     t_list = sorted([
         t for t, d in teachers_db.items()
         if (dept_filter == "الكل" or d.get("dept") == dept_filter)
-        and d.get("dept") != "الهيئة الإدارية"
-        and d.get("role", "معلم") not in ADMIN_ROLES
+        and not d.get("is_admin_staff", False)
     ])
     choices = []
     for t in t_list:
@@ -74,7 +74,11 @@ def get_teacher_choices(dept_filter="الكل"):
 
 def get_absentee_choices(dept_filter="الكل"):
     dept_filter = resolve_effective_dept(dept_filter)
-    t_list = sorted([t for t, d in teachers_db.items() if (dept_filter == "الكل" or d.get("dept") == dept_filter) and d.get("dept") != "الهيئة الإدارية"])
+    t_list = sorted([
+        t for t, d in teachers_db.items()
+        if (dept_filter == "الكل" or d.get("dept") == dept_filter)
+        and not d.get("is_admin_staff", False)
+    ])
     choices = []
     for t in t_list:
         role = teachers_db[t].get("role", "معلم")
@@ -108,8 +112,7 @@ def get_day_overview(day, dept_filter="الكل"):
         {"المعلم": format_teacher_name(t), **{f"ح {p}": d.get(day, {}).get(p, "-") for p in range(1, MAX_PERIODS + 1)}}
         for t, d in teachers_db.items()
         if (dept_filter == "الكل" or d.get("dept") == dept_filter)
-        and d.get("dept") != "الهيئة الإدارية"
-        and d.get("role", "معلم") not in ADMIN_ROLES
+        and not d.get("is_admin_staff", False)
     ]
     return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["المعلم"] + [f"ح {p}" for p in range(1, MAX_PERIODS + 1)])
 

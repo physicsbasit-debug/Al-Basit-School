@@ -1193,7 +1193,6 @@ def check_balances_phase3ga(app_path: Path, app_text: str, results: list[CheckRe
         "resolve_effective_dept",
         "format_teacher_name",
         "from storage import teachers_db",
-        "from config import ADMIN_ROLES",
     ]
     missing_import_markers = [marker for marker in required_import_markers if marker not in balances_text]
     add(
@@ -3321,7 +3320,6 @@ def check_distribution_phase3ja1(app_path: Path, app_text: str, results: list[Ch
         "teachers_db",
         "daily_db",
         "SCHOOL_WEEK_DAYS",
-        "from config import ADMIN_ROLES",
         "resolve_effective_dept",
         "format_teacher_name",
         "from exemptions import is_teacher_exempt_for_slot",

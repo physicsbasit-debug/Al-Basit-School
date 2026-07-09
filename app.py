@@ -30,8 +30,6 @@ from config import (
     PAGE_SIZE,
     LOCAL_DATA_DIR,
     DEFAULT_SCHOOL_CONFIG,
-    ADMIN_ROLES,
-    ALL_ROLES,
 )
 
 from storage import (
@@ -2332,8 +2330,8 @@ def confirm_swap(t, period_value, choice, d, msg_text, state, actor_name="", act
 
 
 
-def add_manual_staff(name, dept, phone, role, dept_filter, is_owner=False):
-    raw = add_manual_staff_core(name, dept, phone, role, dept_filter, is_owner=is_owner)
+def add_manual_staff(name, dept, phone, role, is_admin_staff, dept_filter, is_owner=False):
+    raw = add_manual_staff_core(name, dept, phone, role, is_admin_staff, dept_filter, is_owner=is_owner)
     return (
         raw["message"],
         gr.update(**raw["abs_update"]),
@@ -2439,8 +2437,7 @@ def get_teacher_weekly_schedule(teacher_name):
     if (
         not teacher_name
         or teacher_name not in teachers_db
-        or teachers_db[teacher_name].get("dept") == "الهيئة الإدارية"
-        or teachers_db[teacher_name].get("role", "معلم") in ADMIN_ROLES
+        or teachers_db[teacher_name].get("is_admin_staff", False)
     ):
         return pd.DataFrame(columns=["اليوم"] + [f"ح {p}" for p in range(1, MAX_PERIODS + 1)])
 
@@ -2955,7 +2952,7 @@ def load_teacher_data_for_edit(selected_teacher, is_admin=False, is_owner=False)
         dept = teachers_db[selected_teacher].get("dept", "عام")
         spec = teachers_db[selected_teacher].get("specialty", "")
         role = teachers_db[selected_teacher].get("role", "معلم")
-        is_admin_staff = dept == "الهيئة الإدارية"
+        is_admin_staff = bool(teachers_db[selected_teacher].get("is_admin_staff", False))
         is_spec_visible = dept in ["العلوم", "المهارات الفردية"]
         return (
             gr.update(value=dept, visible=not is_admin_staff),
@@ -2964,7 +2961,8 @@ def load_teacher_data_for_edit(selected_teacher, is_admin=False, is_owner=False)
             gr.update(value=teachers_db[selected_teacher].get("shortcoming_count", 0), interactive=can_edit_vault),
             gr.update(value=teachers_db[selected_teacher].get("phone", ""), interactive=owner_mode),
             gr.update(value=spec, visible=is_spec_visible and not is_admin_staff, interactive=owner_mode),
-            gr.update(value=role, interactive=owner_mode)
+            gr.update(value=role, interactive=owner_mode),
+            gr.update(value=is_admin_staff, interactive=owner_mode)
         )
 
     return (
@@ -2974,14 +2972,15 @@ def load_teacher_data_for_edit(selected_teacher, is_admin=False, is_owner=False)
         gr.update(value=0, interactive=can_edit_vault),
         gr.update(value="", interactive=owner_mode),
         gr.update(value="", interactive=owner_mode),
-        gr.update(value="معلم", interactive=owner_mode)
+        gr.update(value="معلم", interactive=owner_mode),
+        gr.update(value=False, interactive=owner_mode)
     )
     
 def toggle_specialty_visibility(dept): return gr.update(visible=dept in ["العلوم", "المهارات الفردية"])
 
-def update_manual_count(name, new_val, new_abs_val, new_short_val, new_phone, new_specialty, new_role, dept_filter, day_val, df_state, abs_in_list, is_admin=False, is_owner=False, actor_name="", actor_role=""):
+def update_manual_count(name, new_val, new_abs_val, new_short_val, new_phone, new_specialty, new_role, new_is_admin_staff, dept_filter, day_val, df_state, abs_in_list, is_admin=False, is_owner=False, actor_name="", actor_role=""):
     raw = update_manual_count_core(
-        name, new_val, new_abs_val, new_short_val, new_phone, new_specialty, new_role,
+        name, new_val, new_abs_val, new_short_val, new_phone, new_specialty, new_role, new_is_admin_staff,
         dept_filter, day_val, df_state, abs_in_list,
         is_admin=is_admin,
         is_owner=is_owner,
@@ -3962,7 +3961,8 @@ with gr.Blocks() as app:
                         with gr.Row():
                             t_name = gr.Dropdown(list(teachers_db.keys()), label="المعلم", elem_classes="masar-arrow-fix")
                             t_dept_edit = gr.Textbox(label="القسم / المادة (للعرض فقط)", interactive=False)
-                            t_role_edit = gr.Dropdown(ALL_ROLES, label="المنصب الإشرافي", interactive=False, elem_classes="masar-arrow-fix")
+                            t_role_edit = gr.Textbox(label="المسمى الوظيفي", interactive=False)
+                            t_is_admin_staff_edit = gr.Checkbox(label="إداري/دعم فني (لا يدخل التوزيع والأرصدة)", value=False, interactive=False)
                         with gr.Row():
                             t_phone_edit = gr.Textbox(label="رقم الهاتف (الواتساب)", interactive=False)
                             t_specialty_edit = gr.Dropdown(
@@ -4156,7 +4156,8 @@ with gr.Blocks() as app:
                             with gr.Row(elem_classes="yellow-box"):
                                 manual_name = gr.Textbox(label="الاسم الثلاثي")
                                 manual_dept = gr.Dropdown(["الهيئة الإدارية"], label="القسم", value="الهيئة الإدارية", interactive=False, elem_classes="fixed-dd")
-                                manual_role = gr.Dropdown(ADMIN_ROLES, label="المنصب", value="أخصائي اجتماعي", elem_classes=["fixed-dd", "masar-arrow-fix"])
+                                manual_role = gr.Textbox(label="المسمى الوظيفي", value="أخصائي اجتماعي")
+                                manual_is_admin = gr.Checkbox(label="إداري/دعم فني (لا يدخل التوزيع والأرصدة)", value=True)
                                 manual_phone = gr.Textbox(label="رقم الواتساب")
                             with gr.Row():
                                 manual_add_btn = gr.Button("➕ حفظ وإضافة", elem_classes="admin-btn")
@@ -4747,7 +4748,7 @@ with gr.Blocks() as app:
     btn_apply_penalty.click(clear_generated_image, None, [img_out], queue=False)
     btn_cancel_absence.click(clear_generated_image, None, [img_out], queue=False)
     
-    manual_add_btn.click(add_manual_staff, [manual_name, manual_dept, manual_phone, manual_role, dept_in, current_user_is_owner], [manual_status_html, abs_in, check_teacher_in, rule_teacher, t_name, manual_name, manual_phone])
+    manual_add_btn.click(add_manual_staff, [manual_name, manual_dept, manual_phone, manual_role, manual_is_admin, dept_in, current_user_is_owner], [manual_status_html, abs_in, check_teacher_in, rule_teacher, t_name, manual_name, manual_phone])
     save_admin_reference_btn.click(
         save_admin_reference_file,
         [admin_reference_upload, current_user_is_owner],
@@ -5210,7 +5211,7 @@ with gr.Blocks() as app:
     t_name.change(
         lambda selected_teacher, is_admin, is_owner: load_teacher_data_for_edit(selected_teacher, is_admin, is_owner) + (gr.update(value=""),),
         [t_name, current_user_is_admin, current_user_is_owner],
-        [t_dept_edit, t_val, t_abs_val, t_short_val, t_phone_edit, t_specialty_edit, t_role_edit, vault_status]
+        [t_dept_edit, t_val, t_abs_val, t_short_val, t_phone_edit, t_specialty_edit, t_role_edit, t_is_admin_staff_edit, vault_status]
     )
     t_dept_edit.change(
     lambda td, d, own: gr.update(
@@ -5220,7 +5221,7 @@ with gr.Blocks() as app:
     [t_dept_edit, dept_in, current_user_is_owner],
     t_specialty_edit
     )
-    t_btn.click(update_manual_count, [t_name, t_val, t_abs_val, t_short_val, t_phone_edit, t_specialty_edit, t_role_edit, dept_in, day_in, current_schedule_state, abs_in, current_user_is_admin, current_user_is_owner, current_user_name, current_user_role], [tbl_bal, tbl_abs, tbl_short, tbl_day, vault_status, abs_in, check_teacher_in, rule_teacher])
+    t_btn.click(update_manual_count, [t_name, t_val, t_abs_val, t_short_val, t_phone_edit, t_specialty_edit, t_role_edit, t_is_admin_staff_edit, dept_in, day_in, current_schedule_state, abs_in, current_user_is_admin, current_user_is_owner, current_user_name, current_user_role], [tbl_bal, tbl_abs, tbl_short, tbl_day, vault_status, abs_in, check_teacher_in, rule_teacher])
     t_del_btn.click(delete_single_teacher, [t_name, dept_in, day_in, current_user_is_owner], [tbl_bal, tbl_abs, tbl_short, tbl_day, vault_status, abs_in, check_teacher_in, rule_teacher, t_name])
     export_btn.click(export_excel_report, [dept_in], [report_file])
     reset_month_btn.click(reset_monthly_balances, [dept_in, day_in, current_user_is_admin, current_user_is_owner, current_user_name, current_user_role], [tbl_bal, tbl_abs, tbl_short, tbl_day, monthly_status])

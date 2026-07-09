@@ -12,7 +12,6 @@ import urllib.parse
 
 import pandas as pd
 
-from config import ADMIN_ROLES
 from storage import (
     teachers_db, daily_db, processed_absences, last_assigned_teachers, SCHOOL_WEEK_DAYS,
     load_db, load_daily_db, save_db, save_daily_db, state_locked,
@@ -159,8 +158,7 @@ def assign_logic_core(absent_list, day_name, dept_filter, max_reserves, is_alt, 
                     continue
                 if p_int in t_info.get(day_name, {}):
                     continue
-                role = t_info.get("role", "معلم")
-                if role in ADMIN_ROLES:
+                if t_info.get("is_admin_staff", False):
                     continue
                 if p_int in assigned_periods_today[t]:
                     continue
@@ -468,7 +466,7 @@ def process_admin_action_core(df_state, abs_t, period, new_sub, day_name, dept_f
 
 
 @state_locked
-def update_manual_count_core(name, new_val, new_abs_val, new_short_val, new_phone, new_specialty, new_role, dept_filter, day_val, df_state, abs_in_list, is_admin=False, is_owner=False, actor_name="", actor_role=""):
+def update_manual_count_core(name, new_val, new_abs_val, new_short_val, new_phone, new_specialty, new_role, new_is_admin_staff, dept_filter, day_val, df_state, abs_in_list, is_admin=False, is_owner=False, actor_name="", actor_role=""):
     permissions = get_permissions_from_flags(is_admin=is_admin, is_owner=is_owner)
     can_edit_vault = permissions["can_edit_vault_basic"]
     owner_mode = permissions["can_edit_sensitive_teacher_data"]
@@ -558,11 +556,13 @@ def update_manual_count_core(name, new_val, new_abs_val, new_short_val, new_phon
             teachers_db[name]["specialty"] = str(new_specialty).strip()
         if owner_mode and new_role is not None:
             teachers_db[name]["role"] = str(new_role).strip()
+        if owner_mode and new_is_admin_staff is not None:
+            teachers_db[name]["is_admin_staff"] = bool(new_is_admin_staff)
 
         save_db()
         choices_all = get_teacher_choices(dept_filter)
         abs_choices = get_absentee_choices(dept_filter)
-        permission_note = "" if owner_mode else "<br><span style='color:#6b7280;'>ℹ️ تم تجاهل تعديل المنصب ورقم الواتساب والتخصص الدقيق لأن هذه الحقول مخصصة لصاحب النظام فقط.</span>"
+        permission_note = "" if owner_mode else "<br><span style='color:#6b7280;'>ℹ️ تم تجاهل تعديل المنصب ورقم الواتساب والتخصص الدقيق والتصنيف الإداري لأن هذه الحقول مخصصة لصاحب النظام فقط.</span>"
         return build_payload(
             f"<div style='color:#2e7d32; font-weight:bold; background:#e8f5e9; padding:10px; border-radius:5px; text-align:center;'>✅ تم حفظ التعديلات للأستاذ ({name}) بنجاح!{permission_note}</div>",
             {"choices": abs_choices},
@@ -619,7 +619,7 @@ def reset_monthly_balances_core(dept_filter, day_val, is_admin=False, is_owner=F
 
     return build_payload(msg)
 @state_locked
-def add_manual_staff_core(name, dept, phone, role, dept_filter, is_owner=False):
+def add_manual_staff_core(name, dept, phone, role, is_admin_staff, dept_filter, is_owner=False):
     def build_payload(message, abs_update=None, teacher_update_1=None, teacher_update_2=None, staff_names_update=None, name_input_update=None, phone_input_update=None):
         return {
             "message": message,
@@ -638,10 +638,11 @@ def add_manual_staff_core(name, dept, phone, role, dept_filter, is_owner=False):
 
     t_name = clean_teacher_name(name)
     if t_name not in teachers_db:
-        teachers_db[t_name] = {"dept": dept, "cover_count": 0, "absent_count": 0, "shortcoming_count": 0, "phone": "", "specialty": "", "role": role, "exempt_days": [], "exempt_periods": [], "exempt_slots": [], "absence_dates": [], "الأحد": {}, "الإثنين": {}, "الثلاثاء": {}, "الأربعاء": {}, "الخميس": {}}
+        teachers_db[t_name] = {"dept": dept, "cover_count": 0, "absent_count": 0, "shortcoming_count": 0, "phone": "", "specialty": "", "role": role, "is_admin_staff": bool(is_admin_staff), "exempt_days": [], "exempt_periods": [], "exempt_slots": [], "absence_dates": [], "الأحد": {}, "الإثنين": {}, "الثلاثاء": {}, "الأربعاء": {}, "الخميس": {}}
     else:
         teachers_db[t_name]["dept"] = dept
         teachers_db[t_name]["role"] = role
+        teachers_db[t_name]["is_admin_staff"] = bool(is_admin_staff)
     if phone:
         phone_clean = re.sub(r'\D', '', str(phone))
         if len(phone_clean) == 8:
@@ -650,7 +651,7 @@ def add_manual_staff_core(name, dept, phone, role, dept_filter, is_owner=False):
     save_db()
     choices_all = get_teacher_choices(dept_filter)
     abs_choices = get_absentee_choices(dept_filter)
-    t_names_filtered = sorted([t for t, d in teachers_db.items() if dept_filter == "الكل" or d.get("dept") == dept_filter])
+    t_names_filtered = sorted([t for t, d in teachers_db.items() if dept_filter == "الكل" or d.get("dept") == dept_filter or d.get("is_admin_staff", False)])
     msg = f"<div style='color:#2e7d32; font-weight:bold; background:#e8f5e9; padding:10px; border-radius:5px;'>✅ تم إضافة/تحديث ({t_name}) بنجاح كطاقم إداري!</div>"
     return build_payload(
         msg,
@@ -726,9 +727,7 @@ def get_teacher_schedule_choices(dept_filter="الكل"):
     for t, d in sorted(teachers_db.items(), key=lambda item: item[0]):
         dept = str(d.get("dept", "")).strip()
         role = str(d.get("role", "معلم")).strip() or "معلم"
-        if dept == "الهيئة الإدارية":
-            continue
-        if role in ADMIN_ROLES:
+        if d.get("is_admin_staff", False):
             continue
         if dept_filter != "الكل" and dept != dept_filter:
             continue
@@ -1063,7 +1062,7 @@ def update_available_subs_smart_core(abs_t, period, intervention_type, day_name,
                 continue
             if is_teacher_exempt_for_slot(t, day_name, p_int):
                 continue
-            if info.get("dept") == "الهيئة الإدارية":
+            if info.get("is_admin_staff", False):
                 continue
             if p_int not in info.get(day_name, {}):
                 available_cands.append(t)
@@ -1091,7 +1090,7 @@ def update_available_subs_smart_core(abs_t, period, intervention_type, day_name,
                 continue
             if is_teacher_exempt_for_slot(t, day_name, p_int):
                 continue
-            if info.get("dept") == "الهيئة الإدارية" and p_int not in info.get(day_name, {}):
+            if info.get("is_admin_staff", False) and p_int not in info.get(day_name, {}):
                 available_cands.append(t)
 
         available_cands.sort(key=lambda x: teachers_db[x].get("cover_count", 0))

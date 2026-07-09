@@ -38,6 +38,7 @@ from config import (
     SCHOOL_CONFIG_FILENAME,
     SCHEDULE_FILE_NAMES,
     SYSTEM_NAME,
+    ADMIN_ROLES,
 )
 
 
@@ -459,6 +460,11 @@ def load_db():
         info["phone"] = info.get("phone", "")
         info["specialty"] = info.get("specialty", "")
         info["role"] = info.get("role", "معلم")
+        info["is_admin_staff"] = info.get(
+            "is_admin_staff",
+            (info.get("dept") == "الهيئة الإدارية")
+            or (info.get("role", "معلم") in ADMIN_ROLES)
+        )
         info["exempt_days"] = info.get("exempt_days", [])
         try:
             info["exempt_periods"] = [int(p) for p in info.get("exempt_periods", [])]

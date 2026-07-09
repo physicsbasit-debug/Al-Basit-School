@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import pandas as pd
 
-from config import ADMIN_ROLES
 from storage import teachers_db
 from schedules import resolve_effective_dept, format_teacher_name
 
@@ -63,7 +62,8 @@ def get_updated_balance(dept_filter="الكل"):
     data = [
         {"المعلم": format_teacher_name(t), "الرصيد": d["cover_count"]}
         for t, d in teachers_db.items()
-        if dept_filter == "الكل" or d.get("dept") == dept_filter
+        if (dept_filter == "الكل" or d.get("dept") == dept_filter)
+        and not d.get("is_admin_staff", False)
     ]
     df = pd.DataFrame(data).sort_values("الرصيد", ascending=False) if data else pd.DataFrame(columns=["المعلم", "الرصيد"])
     return render_compact_rtl_table_html(df, "لا توجد أرصدة احتياط للعرض.")
@@ -75,7 +75,8 @@ def get_updated_absences(dept_filter="الكل"):
     data = [
         {"المعلم": format_teacher_name(t), "مرات الغياب": d.get("absent_count", 0)}
         for t, d in teachers_db.items()
-        if dept_filter == "الكل" or d.get("dept") == dept_filter
+        if (dept_filter == "الكل" or d.get("dept") == dept_filter)
+        and not d.get("is_admin_staff", False)
     ]
     df = pd.DataFrame(data).sort_values("مرات الغياب", ascending=False) if data else pd.DataFrame(columns=["المعلم", "مرات الغياب"])
     return render_compact_rtl_table_html(df, "لا توجد بيانات غياب للعرض.")
@@ -88,8 +89,7 @@ def get_updated_shortcomings(dept_filter="الكل"):
         {"المعلم": format_teacher_name(t), "حالات التقصير": int(d.get("shortcoming_count", 0) or 0)}
         for t, d in teachers_db.items()
         if (dept_filter == "الكل" or d.get("dept") == dept_filter)
-        and d.get("dept") != "الهيئة الإدارية"
-        and d.get("role", "معلم") not in ADMIN_ROLES
+        and not d.get("is_admin_staff", False)
         and int(d.get("shortcoming_count", 0) or 0) > 0
     ]
     df = pd.DataFrame(data).sort_values("حالات التقصير", ascending=False) if data else pd.DataFrame(columns=["المعلم", "حالات التقصير"])

@@ -21,7 +21,7 @@ from PIL import Image
 import pandas as pd
 import gradio as gr
 
-from config import ADMIN_ROLES, DEFAULT_SCHOOL_CONFIG
+from config import DEFAULT_SCHOOL_CONFIG
 from storage import (
     ADMIN_FILE,
     PHONES_FILE,
@@ -209,8 +209,7 @@ def get_school_data_center_status():
         )
 
     admin_loaded = any(
-        str(info.get("dept", "")).strip() == "الهيئة الإدارية"
-        or str(info.get("role", "")).strip() in ADMIN_ROLES
+        bool(info.get("is_admin_staff", False))
         for info in teachers_db.values()
     )
     phones_loaded = any(
@@ -344,6 +343,7 @@ def refresh_admins_from_reference_core(dept_filter, is_owner=False):
                     "phone": "",
                     "specialty": "",
                     "role": role_val,
+                    "is_admin_staff": True,
                     "exempt_days": [],
                     "exempt_periods": [],
                     "exempt_slots": [],
@@ -357,6 +357,7 @@ def refresh_admins_from_reference_core(dept_filter, is_owner=False):
             else:
                 teachers_db[t_name]["dept"] = "الهيئة الإدارية"
                 teachers_db[t_name]["role"] = role_val
+                teachers_db[t_name]["is_admin_staff"] = True
 
             teachers_db[t_name]["phone"] = phone_digits if phone_digits else teachers_db[t_name].get("phone", "")
             found_names.append(t_name)

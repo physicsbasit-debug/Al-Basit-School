@@ -6,7 +6,6 @@
 
 import re
 
-from config import ADMIN_ROLES
 from storage import (
     MAX_PERIODS,
     SCHOOL_WEEK_DAYS,
@@ -147,7 +146,7 @@ def render_exemptions_log_html():
     active_rows = []
 
     for teacher_name, info in teachers_db.items():
-        if info.get("dept") == "الهيئة الإدارية" or info.get("role", "معلم") in ADMIN_ROLES:
+        if info.get("is_admin_staff", False):
             continue
         days = info.get("exempt_days", []) or []
         periods = info.get("exempt_periods", []) or []
@@ -232,7 +231,7 @@ def save_teacher_rules_core(t_name, days, periods, actor_name="", actor_role="",
 
     t_key = resolve_teacher_key_from_ui(t_name)
     if t_key and t_key in teachers_db:
-        if teachers_db[t_key].get("dept") == "الهيئة الإدارية" or teachers_db[t_key].get("role", "معلم") in ADMIN_ROLES:
+        if teachers_db[t_key].get("is_admin_staff", False):
             return "<div style='color:#b91c1c; font-weight:bold; background:#fee2e2; padding:10px; border-radius:5px; text-align:center;'>❌ لا يمكن تسجيل حالات إعفاء للهيئة الإدارية أو الإداريين.</div>"
         clean_days = [str(d).strip() for d in (days or []) if str(d).strip() in SCHOOL_WEEK_DAYS]
         clean_periods = []
