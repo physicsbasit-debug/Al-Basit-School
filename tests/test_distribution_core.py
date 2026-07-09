@@ -13,10 +13,11 @@ TARGET_DATE = "2026-07-05"
 DEPT = "العلوم"
 
 
-def _teacher(dept=DEPT, role="معلم", cover_count=0, absent_count=0, schedule=None):
+def _teacher(dept=DEPT, role="معلم", cover_count=0, absent_count=0, schedule=None, is_admin_staff=False):
     return {
         "dept": dept,
         "role": role,
+        "is_admin_staff": is_admin_staff,
         "cover_count": cover_count,
         "absent_count": absent_count,
         DAY_NAME: dict(schedule or {}),
@@ -61,7 +62,7 @@ def isolated_distribution_state(monkeypatch):
 def test_assign_logic_uses_admin_supervision_when_no_valid_substitute():
     absent = _absent_teacher()
     distribution.teachers_db["معلم قسم آخر"] = _teacher(dept="الرياضة")
-    distribution.teachers_db["عضو إداري"] = _teacher(role="مدير المدرسة")
+    distribution.teachers_db["عضو إداري"] = _teacher(role="مدير المدرسة", is_admin_staff=True)
 
     distribution.assign_logic_core([absent], DAY_NAME, DEPT, 3, False, True)
 
