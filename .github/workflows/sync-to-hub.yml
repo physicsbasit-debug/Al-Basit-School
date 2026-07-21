@@ -17,9 +17,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Sync to Hugging Face Space
-        uses: huggingface/hub-sync@v0.1.0
-        with:
-          github_repo_id: physicsbasit-debug/Al-Basit-School
-          huggingface_repo_id: Physicsbasit/test
-          hf_token: ${{ secrets.HF_TOKEN }}
+      - name: Install Hugging Face CLI
+        run: python -m pip install --upgrade huggingface_hub
+
+      - name: Upload to existing Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          hf upload Physicsbasit/test . . \
+            --repo-type space \
+            --exclude ".git*" \
+            --exclude ".github*" \
+            --delete "*" \
+            --commit-message "Sync from GitHub"
