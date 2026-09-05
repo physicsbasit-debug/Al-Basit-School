@@ -1,0 +1,31 @@
+name: Generate Physics 9 DOCX on PR
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+      - name: Install Pandoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc
+      - name: Convert Word-compatible HTML to DOCX
+        run: |
+          pandoc -f html generated/physics9_term1_plan_2026_2027.doc -o generated/physics9_term1_plan_2026_2027.docx
+      - name: Commit DOCX to head branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add generated/physics9_term1_plan_2026_2027.docx
+          git commit -m "docs: add generated physics 9 plan docx" || exit 0
+          git push origin HEAD:${{ github.head_ref }}
